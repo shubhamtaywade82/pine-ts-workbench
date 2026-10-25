@@ -1,14 +1,9 @@
 "use client";
 
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { toast } from "sonner";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import { registry, type Bar, type InputsBag } from "@nemesis-oss/pine-ts";
-import { STUB_BARS } from "@/lib/stub-bars";
 import {
-  fetchHistoricalBars,
-  openKlineStream,
   type ChartInterval,
-  type StreamStatus,
   type SymbolOption,
 } from "@/lib/public-binance-feed";
 import {
@@ -27,6 +22,7 @@ import {
   SUPPORTED_SYMBOLS, SUPPORTED_INTERVALS,
 } from "@/lib/public-binance-feed";
 import { X } from "lucide-react";
+import { useLiveBars, type LiveStatus } from "@/hooks/use-live-bars";
 
 /**
  * A self-contained chart cell — manages its own symbol, timeframe, bars,
@@ -64,38 +60,12 @@ export function ChartCell({
 }: ChartCellProps) {
   const [symbol, setSymbol] = useState<SymbolOption>(SUPPORTED_SYMBOLS[0]!);
   const [interval, setInterval] = useState<ChartInterval>("1m");
-  const [bars, setBars] = useState(STUB_BARS);
-  const [barsSource, setBarsSource] = useState<"stub" | "live" | "fetching" | "error">("stub");
-  const [streamStatus, setStreamStatus] = useState<StreamStatus>("disconnected");
-  const disconnectRef = useRef<(() => void) | null>(null);
+  const { bars, status, error } = useLiveBars(symbol.binanceSymbol, interval);
 
   const [mounted, setMounted] = useState<MountedIndicator[]>([
     { instanceId: nextInstanceId("sma"), indicatorId: "sma", indicatorName: "Simple Moving Average", inputs: { source: "close", length: 20 }, pane: "main" },
   ]);
   const [runResults, setRunResults] = useState<Record<string, IndicatorRunResult>>({});
-
-  // Fetch historical bars.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setBarsSource("fetching");
-      try {
-        const fetched = await fetchHistoricalBars(symbol.binanceSymbol, interval, 200);
-        if (!cancelled) { setBars(fetched); setBarsSource("live"); }
-      } catch (err) {
-        if (!cancelled) {
-          setBarsSource("error");
-          toast.error(`Failed to load ${symbol.displayName} bars: ${err instanceof Error ? err.message : "network error"}`);
-        }
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [symbol, interval]);
-
-  // Cleanup stream on unmount.
-  useEffect(() => {
-    return () => { disconnectRef.current?.(); };
-  }, []);
 
   // Drive indicators.
   useEffect(() => {
@@ -126,41 +96,6 @@ export function ChartCell({
     return computeOverlays(bars, mounted, runResults);
   }, [bars, mounted, runResults]);
 
-  // Throttle ref for stream bar updates — batches high-frequency ticks to
-  // every 100ms to prevent excessive re-renders during live streaming.
-  const pendingBarRef = useRef<{ time: number; open: number; high: number; low: number; close: number; volume: number } | null>(null);
-  const throttleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  const onStreamToggle = useCallback(() => {
-    if (disconnectRef.current) { disconnectRef.current(); disconnectRef.current = null; return; }
-    disconnectRef.current = openKlineStream(symbol.binanceSymbol, interval, {
-      onBar: (bar) => {
-        // Throttle: store the latest bar, flush to state every 100ms.
-        pendingBarRef.current = bar;
-        if (throttleRef.current === null) {
-          throttleRef.current = setTimeout(() => {
-            throttleRef.current = null;
-            const pending = pendingBarRef.current;
-            if (pending === null) return;
-            pendingBarRef.current = null;
-            setBars((prev) => {
-              if (!prev.length) return [pending];
-              const last = prev[prev.length - 1]!;
-              if (last.time === pending.time) return [...prev.slice(0, -1), pending];
-              if (pending.time > last.time) return [...prev, pending];
-              return prev;
-            });
-          }, 100);
-        }
-      },
-      onStatus: (status) => {
-        setStreamStatus(status);
-        if (status === "error") toast.error(`${symbol.displayName} stream disconnected`);
-        if (status === "live") toast.success(`${symbol.displayName} stream connected`);
-      },
-    });
-  }, [symbol, interval]);
-
   const onAdd = useCallback((id: string) => {
     const meta = registry.metadata(id);
     if (!meta) return;
@@ -172,10 +107,9 @@ export function ChartCell({
   const onInputChange = useCallback((id: string, name: string, v: number | string | boolean) =>
     setMounted((p) => p.map((m) => m.instanceId === id ? { ...m, inputs: { ...m.inputs, [name]: v } } : m)), []);
 
-  // Only real bars: the placeholder stub (2024 dates) would drag the chart's time scale back.
   useEffect(() => {
-    if (isActive) onActiveBarsChange?.(barsSource === "live" ? bars : []);
-  }, [isActive, bars, barsSource, onActiveBarsChange]);
+    if (isActive) onActiveBarsChange?.(bars);
+  }, [isActive, bars, onActiveBarsChange]);
 
   // Editor plots have no overlay flag; a sub-pane keeps oscillators (RSI etc.)
   // from squashing the price scale.
@@ -207,14 +141,7 @@ export function ChartCell({
               {SUPPORTED_INTERVALS.map((i) => <SelectItem key={i} value={i}>{i}</SelectItem>)}
             </SelectContent>
           </Select>
-          <StreamDot status={streamStatus} />
-          <Button
-            variant={streamStatus === "live" || streamStatus === "connecting" ? "destructive" : "outline"}
-            size="sm" className="h-9 px-2 text-xs sm:h-7 sm:px-2 sm:text-[10px]"
-            onClick={(e) => { e.stopPropagation(); onStreamToggle(); }}
-          >
-            {streamStatus === "live" || streamStatus === "connecting" ? "Stop" : "Stream"}
-          </Button>
+          <LiveBadge status={status} />
         </div>
         <div className="flex items-center gap-1.5">
           <span className="text-[10px] text-muted-foreground">{bars.length} bars</span>
@@ -228,16 +155,12 @@ export function ChartCell({
 
       {/* Chart body */}
       <div className="flex-1 overflow-hidden px-1 pb-1">
-        {barsSource === "error" ? (
+        {bars.length === 0 ? (
           <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-            Failed to load — showing stub bars.
-          </div>
-        ) : barsSource === "fetching" ? (
-          <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-            Loading…
+            {error ?? `Loading ${symbol.displayName} from Binance…`}
           </div>
         ) : (
-          <ChartWorkbench title={`${symbol.displayName} · ${interval}`} bars={bars} mainOverlays={mainOverlays} subPanes={allSubPanes} tradeMarkers={tradeMarkers} />
+          <ChartWorkbench title={`${symbol.displayName} · ${interval} · Binance`} interval={interval} bars={bars} mainOverlays={mainOverlays} subPanes={allSubPanes} tradeMarkers={tradeMarkers} />
         )}
       </div>
     </div>
@@ -248,9 +171,19 @@ export function ChartCell({
 // props haven't changed (e.g. when another cell is activated). Wave 23.
 export const MemoizedChartCell = memo(ChartCell);
 
-function StreamDot({ status }: { status: StreamStatus }) {
-  const color = status === "live" ? "bg-green-500" : status === "connecting" ? "bg-yellow-500" : status === "error" ? "bg-red-500" : "bg-gray-500";
-  return <span className={`inline-block h-2 w-2 rounded-full ${color}`} />;
+const LIVE_BADGE: Record<LiveStatus, { label: string; dotClass: string }> = {
+  loading: { label: "Loading", dotClass: "bg-[#787b86]" },
+  live: { label: "Live", dotClass: "bg-[#089981] animate-pulse" },
+  reconnecting: { label: "Reconnecting…", dotClass: "bg-[#ff9800]" },
+};
+
+function LiveBadge({ status }: { status: LiveStatus }) {
+  const { label, dotClass } = LIVE_BADGE[status];
+  return (
+    <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
+      <span className={`inline-block h-2 w-2 rounded-full ${dotClass}`} />{label}
+    </span>
+  );
 }
 
 function computeOverlays(

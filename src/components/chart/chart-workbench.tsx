@@ -13,6 +13,7 @@ import {
 import type { Bar } from "@nemesis-oss/pine-ts";
 import { ChartLegend } from "@/components/chart/chart-legend";
 import { useCandleSeries } from "@/hooks/use-candle-series";
+import { INTERVAL_MS, type ChartInterval } from "@/lib/public-binance-feed";
 
 /**
  * A single indicator overlay applied to the chart.
@@ -83,8 +84,10 @@ export interface ChartWorkbenchProps {
   readonly subPanes: readonly ChartSubPane[];
   /** Trade markers (entry/exit arrows) from the strategy backtest. Wave 21. */
   readonly tradeMarkers?: readonly TradeMarker[];
-  /** Legend heading, e.g. "BTC / USD · 1m". */
+  /** Legend heading, e.g. "BTC / USDT · 1m". */
   readonly title: string;
+  /** Bar interval — drives the countdown to the candle close. */
+  readonly interval: ChartInterval;
 }
 
 /**
@@ -94,7 +97,7 @@ export interface ChartWorkbenchProps {
  * `chart.addSeries(LineSeries, options)` (function-style, not the old
  * `chart.addLineSeries`).
  */
-export function ChartWorkbench({ bars, mainOverlays, subPanes, tradeMarkers, title }: ChartWorkbenchProps) {
+export function ChartWorkbench({ bars, mainOverlays, subPanes, tradeMarkers, title, interval }: ChartWorkbenchProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const overlaySeriesRef = useRef<Map<string, ISeriesApi<"Line">>>(new Map());
@@ -167,7 +170,7 @@ export function ChartWorkbench({ bars, mainOverlays, subPanes, tradeMarkers, tit
     };
   }, []);
 
-  const candlestickRef = useCandleSeries(chartRef, bars);
+  const candlestickRef = useCandleSeries(chartRef, bars, INTERVAL_MS[interval]);
 
   // Update trade markers (entry/exit arrows) on the candlestick series. Wave 21.
   // Uses LWC v5's createSeriesMarkers API (series.setMarkers was removed in v5).

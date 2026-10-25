@@ -95,75 +95,74 @@ export const fetchHistoricalBars = async (
   }));
 };
 
-// ---------- WebSocket: real-time kline stream (Binance) ----------
+// ---------- WebSocket: live klines + trades ----------
 
-export type StreamStatus = "disconnected" | "connecting" | "live" | "error";
+/** Bar duration per interval, to know when a trade starts a new candle. */
+export const INTERVAL_MS: Record<ChartInterval, number> = {
+  "1m": 60_000,
+  "5m": 300_000,
+  "15m": 900_000,
+  "1h": 3_600_000,
+  "4h": 14_400_000,
+  "1d": 86_400_000,
+};
 
-export interface StreamCallbacks {
-  /** Called on every kline update (the bar's `isClosed` flag tells confirmed vs unconfirmed). */
-  readonly onBar: (bar: Bar) => void;
-  /** Called when the stream status changes (e.g. connecting → live → error). */
-  readonly onStatus: (status: StreamStatus) => void;
+export interface LiveTrade {
+  readonly price: number;
+  readonly quantity: number;
+  /** Trade time, ms. */
+  readonly time: number;
 }
 
-const WS_URL = "wss://stream.binance.com:9443/ws";
+export interface MarketStreamCallbacks {
+  /** Authoritative candle (~every 1–2s); `isClosed` is true on the bar's final event. */
+  readonly onKline: (bar: Bar) => void;
+  /** Every aggregated trade — drives tick-by-tick price movement between klines. */
+  readonly onTrade: (trade: LiveTrade) => void;
+  readonly onOpen: () => void;
+  /** Socket closed or errored; the caller decides whether to reconnect. */
+  readonly onClose: () => void;
+}
+
+interface BinanceAggTrade { readonly e: "aggTrade"; readonly p: string; readonly q: string; readonly T: number }
+
+/** Binance mainnet combined-stream endpoint (public, no key). */
+const COMBINED_STREAM_URL = "wss://stream.binance.com:9443/stream";
+
+const toBar = (k: BinanceKline): Bar => ({
+  time: k.t,
+  open: Number(k.o),
+  high: Number(k.h),
+  low: Number(k.l),
+  close: Number(k.c),
+  volume: Number(k.v),
+  isClosed: k.x,
+});
 
 /**
- * Opens a WebSocket kline stream for `(symbol, interval)` and routes the
- * kline events to `onBar`. Returns a `disconnect()` function that closes
- * the socket.
- *
- * The stream emits one event per tick; the last event for a given bar
- * interval has `k.x === true` (closed). Real-time chart renderers should
- * update the bar on every event and switch to a new bar when `isClosed`
- * flips true.
+ * Opens one socket carrying `<symbol>@kline_<interval>` and `<symbol>@aggTrade`.
+ * Returns `close()`, which detaches callbacks first so it never reports onClose.
  */
-export const openKlineStream = (
-  binanceSymbol: BinanceSymbol,
+export const openMarketStream = (
+  symbol: BinanceSymbol,
   interval: ChartInterval,
-  callbacks: StreamCallbacks,
+  callbacks: MarketStreamCallbacks,
 ): (() => void) => {
-  const stream = `${binanceSymbol.toLowerCase()}@kline_${interval}`;
-  const url = `${WS_URL}/${stream}`;
-  callbacks.onStatus("connecting");
-  let socket: WebSocket;
-  try {
-    socket = new WebSocket(url);
-  } catch (err) {
-    callbacks.onStatus("error");
-    throw err;
-  }
-  socket.onopen = () => callbacks.onStatus("live");
-  socket.onerror = () => callbacks.onStatus("error");
-  socket.onclose = () => callbacks.onStatus("disconnected");
+  const lower = symbol.toLowerCase();
+  const socket = new WebSocket(`${COMBINED_STREAM_URL}?streams=${lower}@kline_${interval}/${lower}@aggTrade`);
+  socket.onopen = callbacks.onOpen;
+  socket.onclose = callbacks.onClose;
+  socket.onerror = () => socket.close();
   socket.onmessage = (event) => {
-    let parsed: BinanceKlineEvent;
-    try {
-      parsed = JSON.parse(event.data) as BinanceKlineEvent;
-    } catch {
-      return;
-    }
-    if (parsed.e !== "kline") return;
-    const k = parsed.k;
-    const bar: Bar = {
-      time: k.t,
-      open: Number(k.o),
-      high: Number(k.h),
-      low: Number(k.l),
-      close: Number(k.c),
-      volume: Number(k.v),
-      isClosed: k.x,
-    };
-    callbacks.onBar(bar);
+    const { data } = JSON.parse(event.data as string) as { data: BinanceKlineEvent | BinanceAggTrade };
+    if (data.e === "kline") callbacks.onKline(toBar(data.k));
+    else callbacks.onTrade({ price: Number(data.p), quantity: Number(data.q), time: data.T });
   };
   return () => {
     socket.onopen = null;
-    socket.onerror = null;
     socket.onclose = null;
+    socket.onerror = null;
     socket.onmessage = null;
-    if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
-      socket.close();
-    }
-    callbacks.onStatus("disconnected");
+    if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) socket.close();
   };
 };
