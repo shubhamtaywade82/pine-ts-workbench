@@ -1,0 +1,761 @@
+     1→namespace: ta
+     2→pineVersion: 6
+     3→status: partial
+     4→source: https://www.tradingview.com/pine-script-reference/v6/
+     5→types:
+     6→  float: number
+     7→  int: number
+     8→  bool: boolean
+     9→  string: string
+    10→  "series<float>": FloatSeries
+    11→  "series<int>": Series<number>
+    12→  "series<bool>": BooleanSeries
+    13→  "series<string>": Series<string>
+    14→
+    15→functions:
+    16→  - name: sma
+    17→    signature:
+    18→      params:
+    19→        - { name: source, type: series<float> }
+    20→        - { name: length, type: int, constraints: { min: 1 } }
+    21→    returns: series<float>
+    22→    semantics: { warmup: length - 1, na: "na source propagates" }
+    23→    impl: { module: src/ta/core.ts, export: sma }
+    24→    status: verified
+    25→    vectors: [fixtures/v6/ta/sma.basic.json]
+    26→
+    27→  - name: ema
+    28→    signature:
+    29→      params:
+    30→        - { name: source, type: series<float> }
+    31→        - { name: length, type: int, constraints: { min: 1 } }
+    32→    returns: series<float>
+    33→    semantics: { seed: "first non-na source value", alpha: "2 / (length + 1)" }
+    34→    impl: { module: src/ta/core.ts, export: ema }
+    35→    status: verified
+    36→    vectors: [fixtures/v6/ta/ema.basic.json]
+    37→
+    38→  - name: rma
+    39→    signature:
+    40→      params:
+    41→        - { name: source, type: series<float> }
+    42→        - { name: length, type: int, constraints: { min: 1 } }
+    43→    returns: series<float>
+    44→    semantics: { seed: "SMA of first length non-na values", alpha: "1 / length" }
+    45→    impl: { module: src/ta/core.ts, export: rma }
+    46→    status: draft
+    47→    vectors: [fixtures/v6/ta/rma.basic.json]
+    48→
+    49→  - name: tr
+    50→    signature:
+    51→      params: [{ name: handle_na, type: bool }]
+    52→    returns: series<float>
+    53→    implicitSources: [high, low, close]
+    54→    semantics: { firstBar: "handle_na true uses high - low; false returns na" }
+    55→    impl: { module: src/ta/core.ts, export: tr }
+    56→    status: draft
+    57→    vectors: [fixtures/v6/ta/tr.basic.json]
+    58→
+    59→  - name: atr
+    60→    signature:
+    61→      params: [{ name: length, type: int, constraints: { min: 1 } }]
+    62→    returns: series<float>
+    63→    implicitSources: [high, low, close]
+    64→    semantics: { core: "ta.rma(ta.tr(true), length)" }
+    65→    impl: { module: src/ta/core.ts, export: atr }
+    66→    status: draft
+    67→    vectors: [fixtures/v6/ta/atr.basic.json]
+    68→
+    69→  - name: highest
+    70→    signature:
+    71→      params:
+    72→        - { name: source, type: series<float> }
+    73→        - { name: length, type: int, constraints: { min: 1 } }
+    74→    returns: series<float>
+    75→    semantics:
+    76→      warmup: length - 1
+    77→      na: "v6 remark: na values are ignored; the window collects the last length non-na values, and a na current value yields na"
+    78→    impl: { module: src/ta/core.ts, export: highest }
+    79→    status: verified
+    80→    vectors: [fixtures/v6/ta/highest.basic.json, fixtures/v6/ta/highest.na.json]
+    81→
+    82→  - name: lowest
+    83→    signature:
+    84→      params:
+    85→        - { name: source, type: series<float> }
+    86→        - { name: length, type: int, constraints: { min: 1 } }
+    87→    returns: series<float>
+    88→    semantics:
+    89→      warmup: length - 1
+    90→      na: "v6 remark: na values are ignored; the window collects the last length non-na values, and a na current value yields na"
+    91→    impl: { module: src/ta/core.ts, export: lowest }
+    92→    status: verified
+    93→    vectors: [fixtures/v6/ta/lowest.basic.json]
+    94→
+    95→  - name: change
+    96→    signature:
+    97→      params:
+    98→        - { name: source, type: series<float> }
+    99→        - { name: length, type: int, constraints: { min: 1, default: 1 } }
+   100→    returns: series<float>
+   101→    impl: { module: src/ta/core.ts, export: change }
+   102→    status: verified
+   103→    vectors: [fixtures/v6/ta/change.basic.json]
+   104→
+   105→  - name: crossover
+   106→    signature:
+   107→      params:
+   108→        - { name: source1, type: series<float> }
+   109→        - { name: source2, type: series<float> }
+   110→    returns: series<bool>
+   111→    semantics: { na: "any na operand yields false" }
+   112→    impl: { module: src/ta/core.ts, export: crossover }
+   113→    status: verified
+   114→    vectors: [fixtures/v6/ta/crossover.basic.json]
+   115→
+   116→  - name: crossunder
+   117→    signature:
+   118→      params:
+   119→        - { name: source1, type: series<float> }
+   120→        - { name: source2, type: series<float> }
+   121→    returns: series<bool>
+   122→    impl: { module: src/ta/core.ts, export: crossunder }
+   123→    status: verified
+   124→    vectors: [fixtures/v6/ta/crossunder.basic.json]
+   125→
+   126→  - name: wma
+   127→    signature:
+   128→      {
+   129→        params:
+   130→          [
+   131→            { name: source, type: series<float> },
+   132→            { name: length, type: int, constraints: { min: 1 } },
+   133→          ],
+   134→      }
+   135→    returns: series<float>
+   136→    impl: { module: src/ta/core.ts, export: wma }
+   137→    status: draft
+   138→    vectors: [fixtures/v6/ta/wma.basic.json]
+   139→
+   140→  - name: vwma
+   141→    signature:
+   142→      {
+   143→        params:
+   144→          [
+   145→            { name: source, type: series<float> },
+   146→            { name: length, type: int, constraints: { min: 1 } },
+   147→          ],
+   148→      }
+   149→    returns: series<float>
+   150→    impl: { module: src/ta/core.ts, export: vwma }
+   151→    status: draft
+   152→    vectors: [fixtures/v6/ta/vwma.basic.json]
+   153→
+   154→  - name: swma
+   155→    signature: { params: [{ name: source, type: series<float> }] }
+   156→    returns: series<float>
+   157→    impl: { module: src/ta/core.ts, export: swma }
+   158→    status: draft
+   159→    vectors: [fixtures/v6/ta/swma.basic.json]
+   160→
+   161→  - name: hma
+   162→    signature:
+   163→      {
+   164→        params:
+   165→          [
+   166→            { name: source, type: series<float> },
+   167→            { name: length, type: int, constraints: { min: 1 } },
+   168→          ],
+   169→      }
+   170→    returns: series<float>
+   171→    impl: { module: src/ta/core.ts, export: hma }
+   172→    status: draft
+   173→    vectors: [fixtures/v6/ta/hma.basic.json]
+   174→
+   175→  - name: rsi
+   176→    signature:
+   177→      {
+   178→        params:
+   179→          [
+   180→            { name: source, type: series<float> },
+   181→            { name: length, type: int, constraints: { min: 1 } },
+   182→          ],
+   183→      }
+   184→    returns: series<float>
+   185→    semantics: { core: "Wilder RMA of gains and losses" }
+   186→    impl: { module: src/ta/momentum.ts, export: rsi }
+   187→    status: draft
+   188→    vectors: [fixtures/v6/ta/rsi.basic.json]
+   189→
+   190→  - name: roc
+   191→    signature:
+   192→      {
+   193→        params:
+   194→          [
+   195→            { name: source, type: series<float> },
+   196→            { name: length, type: int, constraints: { min: 1 } },
+   197→          ],
+   198→      }
+   199→    returns: series<float>
+   200→    semantics: { formula: "100 * (source - source[length]) / source[length]" }
+   201→    impl: { module: src/ta/momentum.ts, export: roc }
+   202→    status: draft
+   203→    vectors: [fixtures/v6/ta/roc.basic.json]
+   204→
+   205→  - name: mom
+   206→    signature:
+   207→      {
+   208→        params:
+   209→          [
+   210→            { name: source, type: series<float> },
+   211→            { name: length, type: int, constraints: { min: 1 } },
+   212→          ],
+   213→      }
+   214→    returns: series<float>
+   215→    semantics: { formula: "source - source[length]" }
+   216→    impl: { module: src/ta/momentum.ts, export: mom }
+   217→    status: draft
+   218→    vectors: [fixtures/v6/ta/mom.basic.json]
+   219→
+   220→  - name: stoch
+   221→    signature:
+   222→      params:
+   223→        - { name: source, type: series<float> }
+   224→        - { name: peak, type: series<float> }
+   225→        - { name: valley, type: series<float> }
+   226→        - { name: length, type: int, constraints: { min: 1 } }
+   227→    returns: series<float>
+   228→    impl: { module: src/ta/momentum.ts, export: stoch }
+   229→    status: draft
+   230→    vectors: [fixtures/v6/ta/stoch.basic.json]
+   231→
+   232→  - name: wpr
+   233→    signature: { params: [{ name: length, type: int, constraints: { min: 1 } }] }
+   234→    returns: series<float>
+   235→    implicitSources: [high, low, close]
+   236→    impl: { module: src/ta/momentum.ts, export: wpr }
+   237→    status: draft
+   238→    vectors: [fixtures/v6/ta/wpr.basic.json]
+   239→
+   240→  - name: cmo
+   241→    signature:
+   242→      {
+   243→        params:
+   244→          [
+   245→            { name: source, type: series<float> },
+   246→            { name: length, type: int, constraints: { min: 1 } },
+   247→          ],
+   248→      }
+   249→    returns: series<float>
+   250→    semantics: { core: "Chande Momentum Oscillator" }
+   251→    impl: { module: src/ta/momentum.ts, export: cmo }
+   252→    status: draft
+   253→    vectors: [fixtures/v6/ta/cmo.basic.json]
+   254→
+   255→  - name: variance
+   256→    signature:
+   257→      params:
+   258→        - { name: source, type: series<float> }
+   259→        - { name: length, type: int, constraints: { min: 1 } }
+   260→        - { name: biased, type: bool, default: true }
+   261→    returns: series<float>
+   262→    semantics:
+   263→      denominator: "length when biased, length - 1 otherwise"
+   264→      na: "v6 remark: na values are ignored; the window collects the last length non-na values"
+   265→    impl: { module: src/ta/statistics.ts, export: variance }
+   266→    status: draft
+   267→    vectors: [fixtures/v6/ta/variance.basic.json]
+   268→
+   269→  - name: stdev
+   270→    signature:
+   271→      params:
+   272→        - { name: source, type: series<float> }
+   273→        - { name: length, type: int, constraints: { min: 1 } }
+   274→        - { name: biased, type: bool, default: true }
+   275→    returns: series<float>
+   276→    semantics:
+   277→      core: "sqrt(ta.variance(source, length, biased))"
+   278→      na: "v6 remark: na values are ignored; the window collects the last length non-na values"
+   279→    impl: { module: src/ta/statistics.ts, export: stdev }
+   280→    status: draft
+   281→    vectors: [fixtures/v6/ta/stdev.basic.json, fixtures/v6/ta/stdev.na.json]
+   282→
+   283→  - name: dev
+   284→    signature:
+   285→      params:
+   286→        - { name: source, type: series<float> }
+   287→        - { name: length, type: int, constraints: { min: 1 } }
+   288→    returns: series<float>
+   289→    semantics:
+   290→      core: "mean absolute deviation from the rolling SMA"
+   291→      na: "v6 remark: na values are ignored; the window collects the last length non-na values"
+   292→    impl: { module: src/ta/statistics.ts, export: dev }
+   293→    status: draft
+   294→    vectors: [fixtures/v6/ta/dev.basic.json]
+   295→
+   296→  - name: macd
+   297→    signature:
+   298→      params:
+   299→        - { name: source, type: series<float> }
+   300→        - { name: fast_length, type: int, constraints: { min: 1 } }
+   301→        - { name: slow_length, type: int, constraints: { min: 1 } }
+   302→        - { name: signal_length, type: int, constraints: { min: 1 } }
+   303→    returns: "tuple(series<float>, series<float>, series<float>)"
+   304→    semantics:
+   305→      macdLine: "ta.ema(source, fast_length) - ta.ema(source, slow_length)"
+   306→      signalLine: "ta.ema(macdLine, signal_length)"
+   307→      histLine: "macdLine - signalLine"
+   308→      result: "MacdResult { macdLine, signalLine, histLine }"
+   309→      warmup: "defined from the first bar because the EMAs seed immediately"
+   310→    impl: { module: src/ta/composite.ts, export: macd }
+   311→    status: draft
+   312→    vectors: [fixtures/v6/ta/macd.basic.json]
+   313→
+   314→  - name: bb
+   315→    signature:
+   316→      params:
+   317→        - { name: source, type: series<float> }
+   318→        - { name: length, type: int, constraints: { min: 1 } }
+   319→        - { name: mult, type: float }
+   320→    returns: "tuple(series<float>, series<float>, series<float>)"
+   321→    semantics:
+   322→      middle: "ta.sma(source, length)"
+   323→      upper: "middle + mult * ta.stdev(source, length)"
+   324→      lower: "middle - mult * ta.stdev(source, length)"
+   325→      result: "BollingerBandsResult { middle, upper, lower }"
+   326→      warmup: "length - 1"
+   327→    impl: { module: src/ta/composite.ts, export: bb }
+   328→    status: draft
+   329→    vectors: [fixtures/v6/ta/bb.basic.json]
+   330→
+   331→  - name: dmi
+   332→    signature:
+   333→      params:
+   334→        - { name: di_length, type: int, constraints: { min: 1 } }
+   335→        - { name: adx_smoothing, type: int, constraints: { min: 1 } }
+   336→    returns: "tuple(series<float>, series<float>, series<float>)"
+   337→    implicitSources: [high, low, close]
+   338→    semantics:
+   339→      plusDI: "100 * ta.rma(plusDM, di_length) / ta.rma(ta.tr, di_length)"
+   340→      minusDI: "100 * ta.rma(minusDM, di_length) / ta.rma(ta.tr, di_length)"
+   341→      adx: "100 * ta.rma(|plusDI - minusDI| / (plusDI + minusDI == 0 ? 1 : plusDI + minusDI), adx_smoothing)"
+   342→      directionalMovement: "up = ta.change(high); down = -ta.change(low); plus/minus when one dominates and is positive, else 0"
+   343→      result: "DmiResult { plusDI, minusDI, adx }"
+   344→      warmup: "plusDI/minusDI from bar di_length; adx from bar di_length + adx_smoothing - 1"
+   345→      na: "zero smoothed true range yields na DI values, matching Pine division by zero"
+   346→    impl: { module: src/ta/composite.ts, export: dmi }
+   347→    status: draft
+   348→    vectors: [fixtures/v6/ta/dmi.basic.json]
+   349→
+   350→  - name: supertrend
+   351→    signature:
+   352→      params:
+   353→        [{ name: factor, type: float }, { name: atr_period, type: int, constraints: { min: 1 } }]
+   354→    returns: "tuple(series<float>, series<int>)"
+   355→    implicitSources: [high, low, close]
+   356→    semantics:
+   357→      bands: "hl2 +/- factor * ta.atr(atr_period) with carry-forward until the raw band tightens or the previous close breaks it"
+   358→      direction: "1 while the previous ATR is na; afterwards -1 when price holds above the trailing upper band (uptrend), 1 when below the lower band (downtrend)"
+   359→      warmup: "supertrend is na until ATR warms up; direction is 1 from the first bar"
+   360→      firstValidBand: "the first valid raw band is adopted directly, matching nz(band[1]) whenever the band is positive"
+   361→      result: "SupertrendResult { supertrend, direction }"
+   362→    impl: { module: src/ta/composite.ts, export: supertrend }
+   363→    status: draft
+   364→    vectors: [fixtures/v6/ta/supertrend.basic.json]
+   365→
+   366→  - name: sar
+   367→    signature:
+   368→      params:
+   369→        - { name: start, type: float }
+   370→        - { name: increment, type: float }
+   371→        - { name: maximum, type: float }
+   372→    returns: series<float>
+   373→    implicitSources: [high, low, close]
+   374→    semantics:
+   375→      algorithm: "literal transcription of the pine_sar re-implementation from the v6 Reference Manual entry"
+   376→      warmup: "na on bar 0; bar 1 seeds the trend from close vs close[1] with the SAR at the previous bar's opposite extreme"
+   377→      perBar: "acceleration step toward the extreme point, reversal when price crosses the SAR (reset to the opposite extreme), extreme/acceleration advance on continuing trends (increment capped at maximum), then clamp within the last two bars' lows (uptrend) or highs (downtrend)"
+   378→      na: "na comparisons are false, so na inputs flow through like Pine"
+   379→    impl: { module: src/ta/trend.ts, export: sar }
+   380→    status: draft
+   381→    vectors: [fixtures/v6/ta/sar.basic.json, fixtures/v6/ta/sar.cap.json]
+   382→
+   383→  - name: linreg
+   384→    signature:
+   385→      params:
+   386→        - { name: source, type: series<float> }
+   387→        - { name: length, type: int, constraints: { min: 1 } }
+   388→        - { name: offset, type: int }
+   389→    returns: series<float>
+   390→    semantics:
+   391→      core: "intercept + slope * (length - 1 - offset) from the least-squares fit over the last length bars with x = 0 at the oldest bar"
+   392→      offset: "0 returns the line value at the current bar; length - 1 at the window start; other integers extrapolate"
+   393→      warmup: "length - 1"
+   394→      na: "na values in the window are included in the calculation and produce an na result"
+   395→    impl: { module: src/ta/trend.ts, export: linreg }
+   396→    status: draft
+   397→    vectors: [fixtures/v6/ta/linreg.basic.json, fixtures/v6/ta/linreg.start.json]
+   398→
+   399→  - name: bbw
+   400→    signature:
+   401→      params:
+   402→        - { name: source, type: series<float> }
+   403→        - { name: length, type: int, constraints: { min: 1 } }
+   404→        - { name: mult, type: float }
+   405→    returns: series<float>
+   406→    semantics:
+   407→      core: "(((basis + dev) - (basis - dev)) / basis) * 100 with basis = ta.sma(source, length), dev = mult * ta.stdev(source, length)"
+   408→      scale: "the v6 reference re-implementation multiplies by 100, so the result is a percentage"
+   409→      warmup: "length - 1"
+   410→      na: "inherited from the sma/stdev windows; a zero basis divides to na"
+   411→    impl: { module: src/ta/bands.ts, export: bbw }
+   412→    status: draft
+   413→    vectors: [fixtures/v6/ta/bbw.basic.json]
+   414→
+   415→  - name: kc
+   416→    signature:
+   417→      params:
+   418→        - { name: source, type: series<float> }
+   419→        - { name: length, type: int, constraints: { min: 1 } }
+   420→        - { name: mult, type: float }
+   421→        - { name: useTrueRange, type: bool, default: true }
+   422→    returns: "tuple(series<float>, series<float>, series<float>)"
+   423→    implicitSources: [high, low, close]
+   424→    semantics:
+   425→      basis: "ta.ema(source, length)"
+   426→      span: "ta.tr when useTrueRange, otherwise (high - low)"
+   427→      rangeEma: "ta.ema(span, length)"
+   428→      bands: "[basis, basis + rangeEma * mult, basis - rangeEma * mult]"
+   429→      result: "KeltnerChannelsResult { middle, upper, lower }"
+   430→      warmup: "defined from the first bar because the EMAs seed immediately"
+   431→    impl: { module: src/ta/bands.ts, export: kc }
+   432→    status: draft
+   433→    vectors: [fixtures/v6/ta/kc.basic.json, fixtures/v6/ta/kc.range.json]
+   434→
+   435→  - name: kcw
+   436→    signature:
+   437→      params:
+   438→        - { name: source, type: series<float> }
+   439→        - { name: length, type: int, constraints: { min: 1 } }
+   440→        - { name: mult, type: float }
+   441→        - { name: useTrueRange, type: bool, default: true }
+   442→    returns: series<float>
+   443→    implicitSources: [high, low, close]
+   444→    semantics:
+   445→      core: "((basis + rangeEma * mult) - (basis - rangeEma * mult)) / basis from the ta.kc components"
+   446→      scale: "unlike ta.bbw the v6 reference re-implementation has no * 100 here"
+   447→      na: "a zero basis divides to na"
+   448→    impl: { module: src/ta/bands.ts, export: kcw }
+   449→    status: draft
+   450→    vectors: [fixtures/v6/ta/kcw.basic.json]
+   451→
+   452→  - name: obv
+   453→    signature: { params: [] }
+   454→    returns: series<float>
+   455→    implicitSources: [close, volume]
+   456→    semantics:
+   457→      core: "ta.cum(math.sign(ta.change(close)) * volume) per the official v6 re-implementation"
+   458→      na: "a na change (first bar or na close) or na volume contributes nothing, matching cum() skipping na terms"
+   459→      firstBar: "0"
+   460→    impl: { module: src/ta/volume.ts, export: obv }
+   461→    status: draft
+   462→    vectors: [fixtures/v6/ta/obv.basic.json]
+   463→
+   464→  - name: pvt
+   465→    signature: { params: [] }
+   466→    returns: series<float>
+   467→    implicitSources: [close, volume]
+   468→    semantics:
+   469→      core: "ta.cum((ta.change(close) / close[1]) * volume) per the official v6 re-implementation"
+   470→      na: "a zero previous close divides to na, so the bar contributes nothing"
+   471→      firstBar: "0"
+   472→    impl: { module: src/ta/volume.ts, export: pvt }
+   473→    status: draft
+   474→    vectors: [fixtures/v6/ta/pvt.basic.json]
+   475→
+   476→  - name: pvi
+   477→    signature: { params: [] }
+   478→    returns: series<float>
+   479→    implicitSources: [close, volume]
+   480→    semantics:
+   481→      core: "seeds at 1.0 and updates only when volume > volume[1]: prev + ((close - close[1]) / close[1]) * prev"
+   482→      carry: "a zero or na close on either side carries the previous value; a na current volume makes the comparison false"
+   483→      seed: "nz(prev, 0) == 0 promotes back to the 1.0 seed"
+   484→    impl: { module: src/ta/volume.ts, export: pvi }
+   485→    status: draft
+   486→    vectors: [fixtures/v6/ta/pvi.basic.json]
+   487→
+   488→  - name: nvi
+   489→    signature: { params: [] }
+   490→    returns: series<float>
+   491→    implicitSources: [close, volume]
+   492→    semantics:
+   493→      core: "seeds at 1.0 and updates only when volume < volume[1]: prev + ((close - close[1]) / close[1]) * prev"
+   494→      carry: "same carry rules as ta.pvi"
+   495→    impl: { module: src/ta/volume.ts, export: nvi }
+   496→    status: draft
+   497→    vectors: [fixtures/v6/ta/nvi.basic.json]
+   498→
+   499→  - name: mfi
+   500→    signature:
+   501→      params:
+   502→        - { name: source, type: series<float> }
+   503→        - { name: length, type: int, constraints: { min: 1 } }
+   504→    returns: series<float>
+   505→    implicitSources: [volume]
+   506→    semantics:
+   507→      core: "official v6 re-implementation with math.sum windows, not Wilder smoothing"
+   508→      upper: "math.sum(volume * (ta.change(source) <= 0 ? 0 : source), length)"
+   509→      lower: "math.sum(volume * (ta.change(source) >= 0 ? 0 : source), length)"
+   510→      value: "100 - 100 / (1 + upper / lower)"
+   511→      naComparisons: "Pine v6 comparisons against na are false, so the first bar's na change adds volume * source to BOTH windows"
+   512→      na: "na when the window holds fewer than length non-na flows, and na when lower = 0 (division by zero)"
+   513→      warmup: "first value on bar length - 1"
+   514→    impl: { module: src/ta/volume.ts, export: mfi }
+   515→    status: draft
+   516→    vectors: [fixtures/v6/ta/mfi.basic.json]
+   517→
+   518→  - name: vwap
+   519→    signature:
+   520→      params:
+   521→        - { name: source, type: series<float> }
+   522→        - {
+   523→            name: anchor,
+   524→            type: series<bool>,
+   525→            default: "daily boundary change in the symbol timezone",
+   526→          }
+   527→    returns: series<float>
+   528→    implicitSources: [volume, time]
+   529→    semantics:
+   530→      core: "anchored cumulative sum(source * volume) / sum(volume)"
+   531→      anchor: "the anchor condition resets the sums; the anchor bar itself starts the new accumulation window"
+   532→      default: "v6 documents the default anchor as timeframe.change('1D'); pine-ts derives it from bar times and the symbol timezone"
+   533→      na: "na until the first anchor fires; bars with a na source or na volume contribute nothing"
+   534→      planned: "the stdev_mult tuple overload [vwap, upper, lower] is planned and not shipped because the v6 reference does not document the band formula"
+   535→    impl: { module: src/ta/volume.ts, export: vwap }
+   536→    status: draft
+   537→    vectors: [fixtures/v6/ta/vwap.basic.json, fixtures/v6/ta/vwap.anchor.json]
+   538→
+   539→  - name: accdist
+   540→    signature: { params: [] }
+   541→    returns: series<float>
+   542→    implicitSources: [high, low, close, volume]
+   543→    semantics:
+   544→      core: "ta.cum(((close - low) - (high - close)) / (high - low) * volume), the standard Chaikin accumulation/distribution line"
+   545→      provenance: "the v6 reference entry documents the variable but ships no re-implementation, so the formula follows the TradingView chart indicator"
+   546→      na: "a zero bar range divides to na, so the bar contributes nothing"
+   547→    impl: { module: src/ta/volume.ts, export: accdist }
+   548→    status: draft
+   549→    vectors: [fixtures/v6/ta/accdist.basic.json]
+   550→
+   551→  - name: barssince
+   552→    signature:
+   553→      params:
+   554→        - { name: condition, type: series<bool> }
+   555→    returns: series<int>
+   556→    semantics:
+   557→      value: "0 when the condition holds on the current bar; the bar distance to the last true bar otherwise"
+   558→      na: "na when the condition has never been true"
+   559→      pineTs: "numeric na surfaces as FloatSeries NaN per the repo convention"
+   560→    impl: { module: src/ta/events.ts, export: barssince }
+   561→    status: draft
+   562→    vectors: [fixtures/v6/ta/barssince.basic.json]
+   563→
+   564→  - name: rising
+   565→    signature:
+   566→      params:
+   567→        - { name: source, type: series<float> }
+   568→        - { name: length, type: int, constraints: { min: 1 } }
+   569→    returns: series<bool>
+   570→    semantics:
+   571→      core: "strictly increasing chain over the current value and the last length non-na prior values"
+   572→      na: "v6 remark: na values are ignored; the function calculates on the length quantity of non-na values, and a na current value yields false"
+   573→      warmup: "false until length non-na prior values exist"
+   574→    impl: { module: src/ta/events.ts, export: rising }
+   575→    status: draft
+   576→    vectors: [fixtures/v6/ta/rising.basic.json]
+   577→
+   578→  - name: falling
+   579→    signature:
+   580→      params:
+   581→        - { name: source, type: series<float> }
+   582→        - { name: length, type: int, constraints: { min: 1 } }
+   583→    returns: series<bool>
+   584→    semantics:
+   585→      core: "strictly decreasing chain over the current value and the last length non-na prior values"
+   586→      na: "same model as ta.rising"
+   587→    impl: { module: src/ta/events.ts, export: falling }
+   588→    status: draft
+   589→    vectors: [fixtures/v6/ta/falling.basic.json]
+   590→
+   591→  - name: valuewhen
+   592→    signature:
+   593→      params:
+   594→        - { name: condition, type: series<bool> }
+   595→        - { name: source, type: series<float> }
+   596→        - { name: occurrence, type: int, constraints: { min: 0 } }
+   597→    returns: series<float>
+   598→    semantics:
+   599→      core: "value of source on the nth most recent bar where condition was true; 0 is the most recent occurrence and the current bar counts"
+   600→      na: "na until enough occurrences exist"
+   601→      pineTs: "generic over the source value type; na surfaces as undefined on Series<T>"
+   602→    impl: { module: src/ta/events.ts, export: valuewhen }
+   603→    status: draft
+   604→    vectors: [fixtures/v6/ta/valuewhen.basic.json]
+   605→
+   606→  - name: highestbars
+   607→    signature:
+   608→      params:
+   609→        - { name: source, type: series<float> }
+   610→        - { name: length, type: int, constraints: { min: 1 } }
+   611→    returns: series<int>
+   612→    semantics:
+   613→      core: "offset to the highest bar over the last length non-na values, reported as a negative bar count"
+   614→      ties: "the v6 reference does not document tie-breaking; pine-ts resolves ties toward the most recent bar (offset closest to zero)"
+   615→      na: "na during warm-up or on a na current value; numeric na surfaces as FloatSeries NaN"
+   616→    impl: { module: src/ta/events.ts, export: highestbars }
+   617→    status: draft
+   618→    vectors: [fixtures/v6/ta/highestbars.basic.json]
+   619→
+   620→  - name: lowestbars
+   621→    signature:
+   622→      params:
+   623→        - { name: source, type: series<float> }
+   624→        - { name: length, type: int, constraints: { min: 1 } }
+   625→    returns: series<int>
+   626→    semantics:
+   627→      core: "offset to the lowest bar over the last length non-na values, reported as a negative bar count"
+   628→      ties: "same most-recent tie rule as ta.highestbars"
+   629→      na: "same model as ta.highestbars"
+   630→    impl: { module: src/ta/events.ts, export: lowestbars }
+   631→    status: draft
+   632→    vectors: [fixtures/v6/ta/lowestbars.basic.json]
+   633→
+   634→  - name: pivothigh
+   635→    signature:
+   636→      params:
+   637→        - { name: source, type: series<float> }
+   638→        - { name: leftbars, type: int, constraints: { min: 1 } }
+   639→        - { name: rightbars, type: int, constraints: { min: 1 } }
+   640→    returns: series<float>
+   641→    implicitSources: [high]
+   642→    semantics:
+   643→      core: "price of the pivot high point or na; the candidate sits rightbars back and must be strictly greater than every non-na neighbor in the leftbars + rightbars window"
+   644→      confirmation: "the value only appears once the right side fully elapsed (no lookahead)"
+   645→      ties: "the v6 reference does not document tie behavior; pine-ts requires strict dominance, so an equal neighbor blocks the pivot"
+   646→      na: "na neighbors are ignored (v6 'na values are ignored' convention); na when the window is incomplete"
+   647→      overloads: "pivothigh(leftbars, rightbars) uses the session high series"
+   648→    impl: { module: src/ta/events.ts, export: pivothigh }
+   649→    status: draft
+   650→    vectors: [fixtures/v6/ta/pivothigh.basic.json]
+   651→
+   652→  - name: pivotlow
+   653→    signature:
+   654→      params:
+   655→        - { name: source, type: series<float> }
+   656→        - { name: leftbars, type: int, constraints: { min: 1 } }
+   657→        - { name: rightbars, type: int, constraints: { min: 1 } }
+   658→    returns: series<float>
+   659→    implicitSources: [low]
+   660→    semantics:
+   661→      core: "mirror of ta.pivothigh: the candidate must be strictly lower than every non-na neighbor"
+   662→      overloads: "pivotlow(leftbars, rightbars) uses the session low series"
+   663→    impl: { module: src/ta/events.ts, export: pivotlow }
+   664→    status: draft
+   665→    vectors: [fixtures/v6/ta/pivotlow.basic.json]
+   666→
+   667→  - name: cum
+   668→    signature:
+   669→      params:
+   670→        - { name: source, type: series<float> }
+   671→    returns: series<float>
+   672→    semantics:
+   673→      core: "cumulative sum from bar 0; na source values contribute 0 to the running total but the output is na on the na bar"
+   674→    impl: { module: src/ta/extra.ts, export: cum }
+   675→    status: draft
+   676→    vectors: [fixtures/v6/ta/cum.basic.json]
+   677→
+   678→  - name: cross
+   679→    signature:
+   680→      params:
+   681→        - { name: source, type: series<float> }
+   682→        - { name: other, type: series<float> }
+   683→    returns: series<bool>
+   684→    semantics:
+   685→      core: "true when source and other cross in either direction; equivalent to crossover or crossunder"
+   686→    impl: { module: src/ta/extra.ts, export: cross }
+   687→    status: draft
+   688→    vectors: [fixtures/v6/ta/cross.basic.json]
+   689→
+   690→  - name: percentrank
+   691→    signature:
+   692→      params:
+   693→        - { name: source, type: series<float> }
+   694→        - { name: length, type: int, constraints: { min: 1 } }
+   695→    returns: series<float>
+   696→    semantics:
+   697→      core: "percentage (0-100) of values in the length window strictly less than the current value; na during warmup"
+   698→    impl: { module: src/ta/extra.ts, export: percentrank }
+   699→    status: draft
+   700→    vectors: [fixtures/v6/ta/percentrank.basic.json]
+   701→
+   702→  - name: percentile_nearest_rank
+   703→    signature:
+   704→      params:
+   705→        - { name: source, type: series<float> }
+   706→        - { name: length, type: int, constraints: { min: 1 } }
+   707→        - { name: percentage, type: float }
+   708→    returns: series<float>
+   709→    semantics:
+   710→      core: "value at the Nth percentile using nearest-rank method: ceil(p/100*n)-th element in the ascending-sorted window"
+   711→    impl: { module: src/ta/extra.ts, export: percentile_nearest_rank }
+   712→    status: draft
+   713→    vectors: [fixtures/v6/ta/percentile_nearest_rank.basic.json]
+   714→
+   715→  - name: percentile_linear_interpolation
+   716→    signature:
+   717→      params:
+   718→        - { name: source, type: series<float> }
+   719→        - { name: length, type: int, constraints: { min: 1 } }
+   720→        - { name: percentage, type: float }
+   721→    returns: series<float>
+   722→    semantics:
+   723→      core: "value at the Nth percentile using linear interpolation: h = (p/100)*(n-1) fractional 0-based index into sorted window"
+   724→    impl: { module: src/ta/extra.ts, export: percentile_linear_interpolation }
+   725→    status: draft
+   726→    vectors: [fixtures/v6/ta/percentile_linear_interpolation.basic.json]
+   727→
+   728→variables:
+   729→  barstate:
+   730→    type: namespace
+   731→    members: [isfirst, islast, ishistory, isrealtime, isnew, isconfirmed, islastconfirmedhistory]
+   732→  syminfo:
+   733→    type: namespace
+   734→    members: [ticker, tickerid, basecurrency, currency, mintick, timezone, type]
+   735→  ohlcv:
+   736→    type: source-bundle
+   737→    members: [open, high, low, close, volume, time, hl2, hlc3, ohlc4]
+   738→
+   739→providerCapabilities:
+   740→  ohlcv:
+   741→    requiredBy:
+   742→      [
+   743→        ta.tr,
+   744→        ta.atr,
+   745→        ta.sar,
+   746→        ta.wpr,
+   747→        ta.kc,
+   748→        ta.kcw,
+   749→        ta.obv,
+   750→        ta.pvt,
+   751→        ta.pvi,
+   752→        ta.nvi,
+   753→        ta.mfi,
+   754→        ta.vwap,
+   755→        ta.accdist,
+   756→        request.security,
+   757→      ]
+   758→  fundamentals:
+   759→    requiredBy: [request.financial]
+   760→    missingBehavior: ProviderCapabilityError
+   761→

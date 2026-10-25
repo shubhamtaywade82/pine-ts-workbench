@@ -1,0 +1,106 @@
+"use client";
+
+/**
+ * Saved layouts — Wave 23. Persists chart grid configurations (layout size +
+ * per-cell symbol + timeframe) to localStorage. Users can save the current
+ * layout, load a saved one, or delete it.
+ *
+ * Default layouts: "Single BTC" (1 chart), "Crypto Watch" (4 charts:
+ * BTC/ETH/SOL/BNB), "Dual View" (2 charts: BTC + ETH).
+ */
+
+import { SUPPORTED_SYMBOLS, type SymbolOption, type ChartInterval } from "@/lib/public-binance-feed";
+
+export interface SavedCellConfig {
+  readonly symbolProduct: string;
+  readonly interval: ChartInterval;
+}
+
+export interface SavedLayout {
+  readonly id: string;
+  readonly name: string;
+  readonly layout: number;
+  readonly cells: readonly SavedCellConfig[];
+}
+
+const STORAGE_KEY = "pine-ts-workbench-layouts";
+
+export const DEFAULT_LAYOUTS: SavedLayout[] = [
+  {
+    id: "default-single",
+    name: "Single BTC",
+    layout: 1,
+    cells: [{ symbolProduct: "BTC-USD", interval: "1m" }],
+  },
+  {
+    id: "default-dual",
+    name: "Dual View",
+    layout: 2,
+    cells: [
+      { symbolProduct: "BTC-USD", interval: "1m" },
+      { symbolProduct: "ETH-USD", interval: "1m" },
+    ],
+  },
+  {
+    id: "default-crypto",
+    name: "Crypto Watch",
+    layout: 4,
+    cells: [
+      { symbolProduct: "BTC-USD", interval: "1m" },
+      { symbolProduct: "ETH-USD", interval: "1m" },
+      { symbolProduct: "SOL-USD", interval: "1m" },
+      { symbolProduct: "BNB-USD", interval: "1m" },
+    ],
+  },
+];
+
+export const loadLayouts = (): SavedLayout[] => {
+  if (typeof window === "undefined") return DEFAULT_LAYOUTS;
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (raw === null) return DEFAULT_LAYOUTS;
+    const saved = JSON.parse(raw) as SavedLayout[];
+    return [...DEFAULT_LAYOUTS, ...saved.filter((s) => !s.id.startsWith("default-"))];
+  } catch {
+    return DEFAULT_LAYOUTS;
+  }
+};
+
+export const saveLayouts = (layouts: SavedLayout[]): void => {
+  if (typeof window === "undefined") return;
+  try {
+    const custom = layouts.filter((l) => !l.id.startsWith("default-"));
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(custom));
+  } catch { /* ignore */ }
+};
+
+export const saveCurrentLayout = (
+  name: string,
+  layout: number,
+  cells: { symbol: SymbolOption; interval: ChartInterval }[],
+): SavedLayout => {
+  const id = `custom-${Date.now()}`;
+  const saved: SavedLayout = {
+    id,
+    name,
+    layout,
+    cells: cells.map((c) => ({ symbolProduct: c.symbol.coinbaseProduct, interval: c.interval })),
+  };
+  const all = loadLayouts();
+  saveLayouts([...all, saved]);
+  return saved;
+};
+
+export const deleteLayout = (id: string): void => {
+  if (id.startsWith("default-")) return;
+  const all = loadLayouts();
+  saveLayouts(all.filter((l) => l.id !== id));
+};
+
+/** Converts a SavedLayout's cell configs back to runtime cell configs. */
+export const layoutToCells = (saved: SavedLayout): { symbol: SymbolOption; interval: ChartInterval }[] => {
+  return saved.cells.map((c) => ({
+    symbol: SUPPORTED_SYMBOLS.find((s) => s.coinbaseProduct === c.symbolProduct) ?? SUPPORTED_SYMBOLS[0]!,
+    interval: c.interval,
+  }));
+};
