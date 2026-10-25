@@ -10,6 +10,7 @@
  */
 
 import { SUPPORTED_SYMBOLS, type SymbolOption, type ChartInterval } from "@/lib/public-binance-feed";
+import type { MountedIndicator } from "@/components/chart/indicator-sidebar";
 
 export interface SavedCellConfig {
   readonly symbolProduct: string;
@@ -98,7 +99,7 @@ export const deleteLayout = (id: string): void => {
 };
 
 /** Layouts saved before the Binance switch store Coinbase ids ("BTC-USD"); map them to "BTCUSDT". */
-const findSymbol = (symbolProduct: string): SymbolOption => {
+export const findSymbol = (symbolProduct: string): SymbolOption => {
   const binanceSymbol = symbolProduct.replace(/-USD$/, "USDT");
   return SUPPORTED_SYMBOLS.find((s) => s.binanceSymbol === binanceSymbol) ?? SUPPORTED_SYMBOLS[0]!;
 };
@@ -109,4 +110,45 @@ export const layoutToCells = (saved: SavedLayout): { symbol: SymbolOption; inter
     symbol: findSymbol(c.symbolProduct),
     interval: c.interval,
   }));
+};
+
+// ---------- last workspace (auto-saved, restored on load) ----------
+
+const WORKSPACE_KEY = "pine-ts-workbench-workspace";
+
+export interface WorkspaceCell {
+  readonly symbolProduct: string;
+  readonly interval: ChartInterval;
+  readonly indicators: readonly MountedIndicator[];
+}
+
+/** Everything the user picked last time, so a reload lands where they left off. */
+export interface Workspace {
+  readonly layout: number;
+  readonly cells: readonly WorkspaceCell[];
+  readonly activeCellIndex: number;
+  readonly isEditorOpen: boolean;
+  readonly editorTab: "indicator" | "strategy";
+  readonly isTesterOpen: boolean;
+  readonly theme: "dark" | "light";
+}
+
+/** Saved workspace, or null on first visit / unreadable storage. */
+export const loadWorkspace = (): Workspace | null => {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(WORKSPACE_KEY);
+    if (raw === null) return null;
+    const workspace = JSON.parse(raw) as Workspace;
+    return workspace.cells.length > 0 ? workspace : null;
+  } catch {
+    return null; // Corrupt JSON or blocked storage: start from defaults.
+  }
+};
+
+export const saveWorkspace = (workspace: Workspace): void => {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(WORKSPACE_KEY, JSON.stringify(workspace));
+  } catch { /* Storage full or blocked: the workspace just won't survive a reload. */ }
 };

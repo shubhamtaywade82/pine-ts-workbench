@@ -1,7 +1,7 @@
 "use client";
 
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
-import { registry, type Bar, type InputsBag } from "@nemesis-oss/pine-ts";
+import { memo, useEffect, useMemo, useState } from "react";
+import { registry, type Bar } from "@nemesis-oss/pine-ts";
 import {
   type ChartInterval,
   type SymbolOption,
@@ -10,10 +10,8 @@ import {
   ChartWorkbench, type ChartOverlay, type ChartSubPane, type TradeMarker,
 } from "@/components/chart/chart-workbench";
 import {
-  IndicatorSidebar, nextInstanceId, type MountedIndicator,
+  type MountedIndicator,
 } from "@/components/chart/indicator-sidebar";
-import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -43,8 +41,16 @@ interface IndicatorRunResult {
   readonly meta: ReturnType<typeof registry.metadata>;
 }
 
-export interface ChartCellProps {
+/** What the page stores (and persists) per chart cell. */
+export interface CellSettings {
+  readonly symbol: SymbolOption;
+  readonly interval: ChartInterval;
+  readonly indicators: readonly MountedIndicator[];
+}
+
+export interface ChartCellProps extends CellSettings {
   readonly cellId: string;
+  readonly onChange: (cellId: string, patch: Partial<CellSettings>) => void;
   readonly isActive: boolean;
   readonly onActivate: (cellId: string) => void;
   readonly onRemove?: (cellId: string) => void;
@@ -56,15 +62,10 @@ export interface ChartCellProps {
 }
 
 export function ChartCell({
-  cellId, isActive, onActivate, onRemove, canRemove, editorOverlays, tradeMarkers, onActiveBarsChange,
+  cellId, symbol, interval, indicators: mounted, onChange,
+  isActive, onActivate, onRemove, canRemove, editorOverlays, tradeMarkers, onActiveBarsChange,
 }: ChartCellProps) {
-  const [symbol, setSymbol] = useState<SymbolOption>(SUPPORTED_SYMBOLS[0]!);
-  const [interval, setInterval] = useState<ChartInterval>("1m");
   const { bars, status, error } = useLiveBars(symbol.binanceSymbol, interval);
-
-  const [mounted, setMounted] = useState<MountedIndicator[]>([
-    { instanceId: nextInstanceId("sma"), indicatorId: "sma", indicatorName: "Simple Moving Average", inputs: { source: "close", length: 20 }, pane: "main" },
-  ]);
   const [runResults, setRunResults] = useState<Record<string, IndicatorRunResult>>({});
 
   // Drive indicators.
@@ -96,17 +97,6 @@ export function ChartCell({
     return computeOverlays(bars, mounted, runResults);
   }, [bars, mounted, runResults]);
 
-  const onAdd = useCallback((id: string) => {
-    const meta = registry.metadata(id);
-    if (!meta) return;
-    const inputs: InputsBag = {};
-    for (const i of meta.inputs) inputs[i.name] = i.defaultValue;
-    setMounted((p) => [...p, { instanceId: nextInstanceId(id), indicatorId: id, indicatorName: meta.name, inputs, pane: meta.overlay ? "main" : "sub" }]);
-  }, []);
-  const onRemoveIndicator = useCallback((id: string) => setMounted((p) => p.filter((m) => m.instanceId !== id)), []);
-  const onInputChange = useCallback((id: string, name: string, v: number | string | boolean) =>
-    setMounted((p) => p.map((m) => m.instanceId === id ? { ...m, inputs: { ...m.inputs, [name]: v } } : m)), []);
-
   useEffect(() => {
     if (isActive) onActiveBarsChange?.(bars);
   }, [isActive, bars, onActiveBarsChange]);
@@ -128,14 +118,14 @@ export function ChartCell({
         <div className="flex items-center gap-1.5">
           <Select
             value={symbol.binanceSymbol}
-            onValueChange={(v) => { const o = SUPPORTED_SYMBOLS.find((s) => s.binanceSymbol === v); if (o) setSymbol(o); }}
+            onValueChange={(v) => { const o = SUPPORTED_SYMBOLS.find((s) => s.binanceSymbol === v); if (o) onChange(cellId, { symbol: o }); }}
           >
             <SelectTrigger className="h-9 w-28 text-xs sm:h-7 sm:w-28 sm:text-[10px]"><SelectValue /></SelectTrigger>
             <SelectContent>
               {SUPPORTED_SYMBOLS.map((s) => <SelectItem key={s.binanceSymbol} value={s.binanceSymbol}>{s.displayName}</SelectItem>)}
             </SelectContent>
           </Select>
-          <Select value={interval} onValueChange={(v) => setInterval(v as ChartInterval)}>
+          <Select value={interval} onValueChange={(v) => onChange(cellId, { interval: v as ChartInterval })}>
             <SelectTrigger className="h-9 w-16 text-xs sm:h-7 sm:w-16 sm:text-[10px]"><SelectValue /></SelectTrigger>
             <SelectContent>
               {SUPPORTED_INTERVALS.map((i) => <SelectItem key={i} value={i}>{i}</SelectItem>)}

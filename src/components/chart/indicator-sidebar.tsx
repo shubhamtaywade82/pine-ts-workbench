@@ -202,5 +202,6 @@ function InputField({
 let counter = 0;
 export const nextInstanceId = (indicatorId: string): string => {
   counter += 1;
-  return `${indicatorId}_${counter}`;
+  // Timestamp part: ids restored from a saved workspace were minted by an earlier page load.
+  return `${indicatorId}_${Date.now().toString(36)}_${counter}`;
 };

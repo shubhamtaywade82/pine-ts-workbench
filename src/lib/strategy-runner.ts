@@ -62,6 +62,31 @@ export function strategy({ ta, ctx, engine, inputs }: {
   const qty = (inputs.qty as number) ?? 0.001;
   const sma = ta.sma(ctx.close, length);
 
+  if (ta.crossover(ctx.close, sma).at(0)) {
+    engine.entry("long", "long", qty);
+  }
+  if (ta.crossunder(ctx.close, sma).at(0)) {
+    engine.close("long");
+  }
+}
+`;
+
+// The pre-fix template: `if (ta.crossover(...))` tests a BooleanSeries object, which is
+// always truthy, so it entered and exited every bar. Kept only to upgrade saved copies.
+const LEGACY_DEFAULT_STRATEGY = `// SMA Crossover Strategy
+// Entry: when close crosses above SMA(20) -> go long
+// Exit:  when close crosses below SMA(20) -> close position
+
+export function strategy({ ta, ctx, engine, inputs }: {
+  ta: typeof import("@nemesis-oss/pine-ts").ta,
+  ctx: import("@nemesis-oss/pine-ts").PineContext,
+  engine: import("@nemesis-oss/pine-ts").strategy.StrategyEngine,
+  inputs: Record<string, unknown>,
+}) {
+  const length = (inputs.length as number) ?? 20;
+  const qty = (inputs.qty as number) ?? 0.001;
+  const sma = ta.sma(ctx.close, length);
+
   if (ta.crossover(ctx.close, sma)) {
     engine.entry("long", "long", qty);
   }
@@ -76,7 +101,8 @@ const STORAGE_KEY = "pine-ts-workbench-strategy-code";
 export const loadStrategyCode = (): string => {
   if (typeof window === "undefined") return DEFAULT_STRATEGY;
   try {
-    return window.localStorage.getItem(STORAGE_KEY) ?? DEFAULT_STRATEGY;
+    const saved = window.localStorage.getItem(STORAGE_KEY);
+    return saved === null || saved === LEGACY_DEFAULT_STRATEGY ? DEFAULT_STRATEGY : saved;
   } catch { return DEFAULT_STRATEGY; }
 };
 

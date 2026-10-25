@@ -1,7 +1,6 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
@@ -11,120 +10,130 @@ import { Play, AlertCircle, CheckCircle2, TrendingUp, TrendingDown } from "lucid
 import type { Bar } from "@nemesis-oss/pine-ts";
 import {
   runBacktest, loadStrategyCode, saveStrategyCode,
-  DEFAULT_STRATEGY, type BacktestResult, type BacktestSummary, type BacktestTrade,
+  DEFAULT_STRATEGY, type BacktestResult, type BacktestTrade,
 } from "@/lib/strategy-runner";
 
 /**
- * Strategy backtest panel — Wave 20. A code editor where users write trading
- * strategies in TypeScript using the pine-ts API, run them against historical
- * bars via the StrategyEngine + built-in broker emulator, and see the results
- * (P&L summary, equity curve, trade list).
+ * Strategy backtest UI — Wave 20. Users write a TypeScript strategy against
+ * the pine-ts API (StrategyCodeTab, in the Pine Editor side panel) and see the
+ * results (StrategyTester, in the bottom panel), like TradingView's split
+ * between the Pine Editor and the Strategy Tester.
  */
 
-export interface StrategyPanelProps {
-  readonly bars: readonly Bar[];
-  readonly onTradesChange?: (trades: BacktestTrade[]) => void;
+const AUTO_RUN_DEBOUNCE_MS = 500;
+
+export interface Backtest {
+  readonly code: string;
+  readonly setCode: (code: string) => void;
+  readonly autoRun: boolean;
+  readonly setAutoRun: (autoRun: boolean) => void;
+  readonly running: boolean;
+  readonly result: BacktestResult | null;
+  readonly run: () => void;
 }
 
-export function StrategyPanel({ bars, onTradesChange }: StrategyPanelProps) {
+/** Owns the strategy code and re-runs the backtest on edits (debounced) and on new bars (at once). */
+export function useBacktest(bars: readonly Bar[], onTradesChange: (trades: BacktestTrade[]) => void): Backtest {
   const [code, setCode] = useState<string>(DEFAULT_STRATEGY);
   const [autoRun, setAutoRun] = useState(true);
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<BacktestResult | null>(null);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => { setCode(loadStrategyCode()); }, []);
   useEffect(() => { saveStrategyCode(code); }, [code]);
 
-  const run = useCallback(async (userCode: string) => {
+  const runCode = useCallback(async (userCode: string) => {
     setRunning(true);
     const res = await runBacktest(userCode, bars);
     setResult(res);
-    if (res.ok && res.trades && onTradesChange) {
-      onTradesChange(res.trades);
-    } else if (onTradesChange) {
-      onTradesChange([]);
-    }
+    onTradesChange(res.ok && res.trades ? res.trades : []);
     setRunning(false);
   }, [bars, onTradesChange]);
 
+  // Refs let the debounced and bar-driven runs use the latest code and bars.
+  const codeRef = useRef(code);
+  const runCodeRef = useRef(runCode);
+  useEffect(() => { codeRef.current = code; runCodeRef.current = runCode; }, [code, runCode]);
+
   useEffect(() => {
     if (!autoRun) return;
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => { void run(code); }, 500);
-    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [code, autoRun, run]);
+    const timer = setTimeout(() => { void runCodeRef.current(codeRef.current); }, AUTO_RUN_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [code, autoRun]);
 
   useEffect(() => {
-    void run(code);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    void runCodeRef.current(codeRef.current);
   }, [bars]);
 
-  const summary = result?.summary;
-  const trades = result?.trades ?? [];
-  const equityCurve = result?.equityCurve ?? [];
+  const run = useCallback(() => { void runCodeRef.current(codeRef.current); }, []);
+  return { code, setCode, autoRun, setAutoRun, running, result, run };
+}
 
+/** Strategy code tab of the Pine Editor panel. */
+export function StrategyCodeTab({ backtest }: { backtest: Backtest }) {
+  const { code, setCode, autoRun, setAutoRun, running, result, run } = backtest;
   return (
-    <div className="flex h-full flex-col gap-2 p-2">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <span className="text-xs font-semibold">Strategy Backtest</span>
+    <div className="flex h-full flex-col bg-[#131722]">
+      <div className="flex h-9 shrink-0 items-center justify-between border-b border-border px-3">
+        <span className="text-xs font-semibold text-[#d1d4dc]">Strategy</span>
         <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1">
-            <Switch checked={autoRun} onCheckedChange={setAutoRun} />
-            <Label className="text-[10px] text-muted-foreground">Auto</Label>
+          <div className="flex items-center gap-1.5">
+            <Switch id="strategy-auto-run" checked={autoRun} onCheckedChange={setAutoRun} />
+            <Label htmlFor="strategy-auto-run" className="text-xs text-muted-foreground">Auto-update</Label>
           </div>
-          <Button size="sm" onClick={() => void run(code)} disabled={running}>
-            <Play className="h-3 w-3 mr-1" /> {running ? "Running…" : "Run"}
+          <Button size="sm" className="h-7 text-xs" onClick={run} disabled={running}>
+            <Play className="mr-1 h-3.5 w-3.5" /> {running ? "Running…" : "Run"}
           </Button>
         </div>
       </div>
-
-      {/* Code editor */}
-      <div className="h-40 shrink-0 overflow-hidden rounded border border-border">
+      <div className="min-h-0 flex-1 overflow-hidden">
         <CodeEditor value={code} onChange={setCode} error={null} />
       </div>
+      {result !== null && !result.ok && (
+        <div className="shrink-0 border-t border-border px-3 py-1.5 font-mono text-[11px] text-[#f23645]">{result.error}</div>
+      )}
+    </div>
+  );
+}
 
-      {/* Status */}
-      {result && (
-        <Badge variant={result.ok ? "default" : "destructive"} className="text-[10px] w-fit">
-          {result.ok ? <CheckCircle2 className="h-3 w-3 mr-1" /> : <AlertCircle className="h-3 w-3 mr-1" />}
-          {result.ok ? `${summary!.totalTrades} trades • ${summary!.winRate.toFixed(1)}% win` : result.error?.slice(0, 60)}
+/** Bottom Strategy Tester panel: summary, equity curve, trade list. */
+export function StrategyTester({ result }: { result: BacktestResult | null }) {
+  const summary = result?.summary;
+  if (result === null) return <TesterMessage text="Run a strategy from the Pine Editor to see results." />;
+  if (!result.ok || summary === undefined) return <TesterMessage text={result.error ?? "Backtest failed."} isError />;
+  const trades = result.trades ?? [];
+  const equityCurve = result.equityCurve ?? [];
+  return (
+    <div className="flex h-full gap-3 overflow-hidden p-2">
+      <div className="flex w-72 shrink-0 flex-col gap-2 overflow-y-auto">
+        <Badge variant="default" className="w-fit text-[10px]">
+          <CheckCircle2 className="mr-1 h-3 w-3" />
+          {summary.totalTrades} trades • {summary.winRate.toFixed(1)}% win
         </Badge>
-      )}
-
-      {/* Results */}
-      {summary && (
-        <div className="flex flex-col gap-2 overflow-y-auto">
-          {/* P&L Summary */}
-          <div className="grid grid-cols-3 gap-1 text-[10px]">
-            <MetricCard label="Net P&L" value={`$${summary.netProfit.toFixed(2)}`} positive={summary.netProfit >= 0} />
-            <MetricCard label="Final Equity" value={`$${summary.finalEquity.toFixed(2)}`} />
-            <MetricCard label="Max DD" value={`$${summary.maxDrawdown.toFixed(2)}`} negative />
-          </div>
-          <div className="grid grid-cols-4 gap-1 text-[10px]">
-            <MetricCard label="Trades" value={String(summary.totalTrades)} />
-            <MetricCard label="Wins" value={String(summary.winTrades)} positive />
-            <MetricCard label="Losses" value={String(summary.lossTrades)} negative />
-            <MetricCard label="PF" value={summary.profitFactor === Infinity ? "∞" : summary.profitFactor.toFixed(2)} />
-          </div>
-
-          {/* Equity curve (mini sparkline) */}
-          {equityCurve.length > 1 && <EquityCurve equityCurve={equityCurve} />}
-
-          {/* Trade list */}
-          {trades.length > 0 && (
-            <div className="flex flex-col gap-0.5">
-              <span className="text-[10px] text-muted-foreground">Trades ({trades.length})</span>
-              <div className="max-h-40 overflow-y-auto">
-                {trades.slice(-20).reverse().map((t, i) => (
-                  <TradeRow key={i} trade={t} />
-                ))}
-              </div>
-            </div>
-          )}
+        <div className="grid grid-cols-3 gap-1 text-[10px]">
+          <MetricCard label="Net P&L" value={`$${summary.netProfit.toFixed(2)}`} positive={summary.netProfit >= 0} />
+          <MetricCard label="Final Equity" value={`$${summary.finalEquity.toFixed(2)}`} />
+          <MetricCard label="Max DD" value={`$${summary.maxDrawdown.toFixed(2)}`} negative />
+          <MetricCard label="Wins" value={String(summary.winTrades)} positive />
+          <MetricCard label="Losses" value={String(summary.lossTrades)} negative />
+          <MetricCard label="PF" value={summary.profitFactor === Infinity ? "∞" : summary.profitFactor.toFixed(2)} />
         </div>
-      )}
+        {equityCurve.length > 1 && <EquityCurve equityCurve={equityCurve} />}
+      </div>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <span className="text-[10px] text-muted-foreground">List of trades ({trades.length})</span>
+        <div className="flex-1 overflow-y-auto">
+          {trades.slice().reverse().map((t, i) => <TradeRow key={i} trade={t} />)}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function TesterMessage({ text, isError }: { text: string; isError?: boolean }) {
+  return (
+    <div className={`flex h-full items-center justify-center text-xs ${isError ? "text-[#f23645]" : "text-muted-foreground"}`}>
+      {isError && <AlertCircle className="mr-1 h-3.5 w-3.5" />}{text}
     </div>
   );
 }
