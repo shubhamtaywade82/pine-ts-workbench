@@ -30,6 +30,8 @@ export interface PineEditorProps {
     results: Record<string, Array<number | undefined>>,
     plots: { id: string; color: string; kind: string }[],
   ) => void;
+  /** "Add to chart" / Ctrl+Enter: puts the script back on the chart if it was removed from the legend. */
+  readonly onAddToChart?: () => void;
 }
 
 const DEFAULT_CODE = `// Custom indicator — write TypeScript using the pine-ts API.
@@ -142,7 +144,7 @@ const saveCode = (code: string): boolean => {
   }
 };
 
-export function PineEditor({ bars, onResults }: PineEditorProps) {
+export function PineEditor({ bars, onResults, onAddToChart }: PineEditorProps) {
   const [code, setCode] = useState<string>(DEFAULT_CODE);
   const [savedCode, setSavedCode] = useState<string>(DEFAULT_CODE);
   const [autoRun, setAutoRun] = useState(true);
@@ -179,9 +181,9 @@ export function PineEditor({ bars, onResults }: PineEditorProps) {
     }
   }, [bars, onResults, log]);
 
-  // Typing is debounced; new bars (stream ticks every ~100ms) re-run at once, or a
-  // debounce would starve the live update. Refs give the bars effect the latest code
-  // and callbacks without re-running whenever the parent passes new inline handlers.
+  // Typing is debounced; a new bar re-runs at once, or a debounce would starve the
+  // live update. Refs give the bars effect the latest code and callbacks without
+  // re-running whenever the parent passes new inline handlers.
   const codeRef = useRef(code);
   const runCodeRef = useRef(runCode);
   useEffect(() => { codeRef.current = code; runCodeRef.current = runCode; }, [code, runCode]);
@@ -207,7 +209,7 @@ export function PineEditor({ bars, onResults }: PineEditorProps) {
     <div className="flex h-full flex-col bg-[#131722]">
       <EditorToolbar
         isDirty={code !== savedCode} autoRun={autoRun} onAutoRunChange={setAutoRun}
-        onSave={onSave} onAddToChart={() => void runCode(code)}
+        onSave={onSave} onAddToChart={() => { onAddToChart?.(); void runCode(code); }}
       />
       <div
         className="min-h-0 flex-1 overflow-hidden"
@@ -215,7 +217,7 @@ export function PineEditor({ bars, onResults }: PineEditorProps) {
         onKeyDownCapture={(e) => {
           if (!(e.ctrlKey || e.metaKey)) return;
           if (e.key === "s") { e.preventDefault(); onSave(); }
-          if (e.key === "Enter") { e.preventDefault(); e.stopPropagation(); void runCode(code); }
+          if (e.key === "Enter") { e.preventDefault(); e.stopPropagation(); onAddToChart?.(); void runCode(code); }
         }}
       >
         <CodeEditor value={code} onChange={setCode} error={error} />

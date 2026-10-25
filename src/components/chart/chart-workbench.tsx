@@ -28,7 +28,14 @@ export interface ChartOverlay {
   readonly data: readonly { time: number; value: number }[];
   /** Horizontal level (e.g. RSI 70/30) — drawn thin and dashed, no price label. */
   readonly isLevel?: boolean;
+  /** The indicator this plot belongs to (one legend row per owner); defaults to `instanceId`. */
+  readonly ownerId?: string;
+  /** Hidden via the legend: the series stays (so the legend keeps its row) but isn't drawn. */
+  readonly isHidden?: boolean;
 }
+
+/** Legend row actions, as on TradingView: eye, gear, ×. */
+export type IndicatorAction = "toggle-visibility" | "settings" | "remove";
 
 // TradingView's dark-theme palette, so the chart reads like the real thing.
 const TV = {
@@ -45,12 +52,15 @@ const TV = {
 
 const LOAD_OLDER_THRESHOLD_BARS = 30;
 
-const lineOptions = (overlay: ChartOverlay) => ({
+/** `hasValueLabel`: price-axis label for sub-pane plots; levels never get one (TradingView shows only the scale). */
+const lineOptions = (overlay: ChartOverlay, hasValueLabel = false) => ({
   color: overlay.color,
   lineWidth: 1 as const,
   lineStyle: overlay.isLevel ? 2 : 0, // 2 = Dashed
   priceLineVisible: false,
   crosshairMarkerVisible: !overlay.isLevel,
+  visible: !overlay.isHidden,
+  lastValueVisible: hasValueLabel && !overlay.isLevel,
 });
 
 /**
@@ -78,8 +88,10 @@ export interface TradeMarker {
 }
 
 export interface ChartWorkbenchProps {
-  /** Bars to plot as the main candlestick series. */
+  /** Bars to plot as the main candlestick series (React snapshot, ~1/s). */
   readonly bars: readonly Bar[];
+  /** Per-frame live bars from the stream, so ticks bypass React. */
+  readonly subscribeBars?: (listener: (bars: readonly Bar[]) => void) => () => void;
   /** Overlays on the main price pane (e.g. SMA, EMA, BB bands). */
   readonly mainOverlays: readonly ChartOverlay[];
   /** Sub-panes for oscillators (RSI, MACD, OBV). */
@@ -92,6 +104,8 @@ export interface ChartWorkbenchProps {
   readonly interval: ChartInterval;
   /** Called when the user scrolls near the oldest loaded candle, to lazy-load older history. */
   readonly onNeedOlderBars?: () => void;
+  /** Eye / gear / × clicked on an indicator's legend row (`ownerId` of its overlays). */
+  readonly onIndicatorAction?: (ownerId: string, action: IndicatorAction) => void;
 }
 
 /**
@@ -101,7 +115,9 @@ export interface ChartWorkbenchProps {
  * `chart.addSeries(LineSeries, options)` (function-style, not the old
  * `chart.addLineSeries`).
  */
-export function ChartWorkbench({ bars, mainOverlays, subPanes, tradeMarkers, title, interval, onNeedOlderBars }: ChartWorkbenchProps) {
+export function ChartWorkbench({
+  bars, subscribeBars, mainOverlays, subPanes, tradeMarkers, title, interval, onNeedOlderBars, onIndicatorAction,
+}: ChartWorkbenchProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const overlaySeriesRef = useRef<Map<string, ISeriesApi<"Line">>>(new Map());
@@ -178,7 +194,7 @@ export function ChartWorkbench({ bars, mainOverlays, subPanes, tradeMarkers, tit
   const onCandleFrame = useCallback((frame: CandleFrame) => {
     if (liveOhlcRef.current !== null) writeLiveOhlc(liveOhlcRef.current, frame);
   }, []);
-  const candlestickRef = useCandleSeries(chartRef, bars, INTERVAL_MS[interval], onCandleFrame);
+  const candlestickRef = useCandleSeries(chartRef, bars, INTERVAL_MS[interval], onCandleFrame, subscribeBars);
 
   // Logical index 0 is the oldest loaded bar; asking a little before the user reaches it
   // means the older page usually arrives before blank space scrolls into view.
@@ -234,7 +250,7 @@ export function ChartWorkbench({ bars, mainOverlays, subPanes, tradeMarkers, tit
       known.add(overlay.instanceId);
       let series = overlaySeriesRef.current.get(overlay.instanceId);
       if (series === undefined) {
-        series = chart.addSeries(LineSeries, { ...lineOptions(overlay), lastValueVisible: false });
+        series = chart.addSeries(LineSeries, lineOptions(overlay));
         overlaySeriesRef.current.set(overlay.instanceId, series);
       } else {
         series.applyOptions(lineOptions(overlay));
@@ -259,33 +275,30 @@ export function ChartWorkbench({ bars, mainOverlays, subPanes, tradeMarkers, tit
   useEffect(() => {
     const chart = chartRef.current;
     if (chart === null) return;
-    const known = new Set<string>();
-    for (const pane of subPanes) {
-      const paneIndex = subPanes.findIndex((p) => p.paneId === pane.paneId) + 1;
-      for (const overlay of pane.overlays) {
-        const key = `${pane.paneId}:${overlay.instanceId}`;
-        known.add(key);
-        let series = subPaneSeriesRef.current.get(key);
-        if (series === undefined) {
-          series = chart.addSeries(LineSeries, { ...lineOptions(overlay), lastValueVisible: !overlay.isLevel }, paneIndex);
-          subPaneSeriesRef.current.set(key, series);
-        } else {
-          series.applyOptions(lineOptions(overlay));
-        }
-        series.setData(
-          overlay.data.map((d) => ({
-            time: Math.floor(d.time / 1000) as Time,
-            value: d.value,
-          })),
-        );
-      }
-    }
+    const known = new Set(subPanes.flatMap((pane) => pane.overlays.map((o) => `${pane.paneId}:${o.instanceId}`)));
+    // Remove first: LWC drops emptied panes and renumbers the rest, which the moves below rely on.
     for (const [key, series] of subPaneSeriesRef.current.entries()) {
       if (!known.has(key)) {
         chart.removeSeries(series);
         subPaneSeriesRef.current.delete(key);
       }
     }
+    subPanes.forEach((pane, i) => {
+      const paneIndex = i + 1;
+      for (const overlay of pane.overlays) {
+        const key = `${pane.paneId}:${overlay.instanceId}`;
+        let series = subPaneSeriesRef.current.get(key);
+        if (series === undefined) {
+          series = chart.addSeries(LineSeries, lineOptions(overlay, true), paneIndex);
+          subPaneSeriesRef.current.set(key, series);
+        } else {
+          series.applyOptions(lineOptions(overlay, true));
+          // A pane added or removed before this one shifts its index; series don't follow on their own.
+          if (series.getPane().paneIndex() !== paneIndex) series.moveToPane(paneIndex);
+        }
+        series.setData(overlay.data.map((d) => ({ time: Math.floor(d.time / 1000) as Time, value: d.value })));
+      }
+    });
     // TradingView gives price ~75% of the height; LWC defaults to equal panes.
     chart.panes().forEach((pane, i) => pane.setStretchFactor(i === 0 ? 3 : 1));
     // Pane heights settle on LWC's next paint, not synchronously.
@@ -298,6 +311,7 @@ export function ChartWorkbench({ bars, mainOverlays, subPanes, tradeMarkers, tit
       <ChartLegend
         title={title} bars={bars} mainOverlays={mainOverlays} subPanes={subPanes}
         hoverTime={hoverTime} paneHeights={paneHeights} liveOhlcRef={liveOhlcRef}
+        onIndicatorAction={onIndicatorAction}
       />
     </div>
   );

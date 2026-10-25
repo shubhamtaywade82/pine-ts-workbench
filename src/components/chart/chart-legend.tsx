@@ -1,8 +1,9 @@
 "use client";
 
-import type { RefObject } from "react";
+import type { ReactNode, RefObject } from "react";
 import type { Bar } from "@nemesis-oss/pine-ts";
-import type { ChartOverlay, ChartSubPane } from "@/components/chart/chart-workbench";
+import { Eye, EyeOff, Settings, X } from "lucide-react";
+import type { ChartOverlay, ChartSubPane, IndicatorAction } from "@/components/chart/chart-workbench";
 
 const UP_COLOR = "#089981";
 const DOWN_COLOR = "#f23645";
@@ -21,7 +22,21 @@ export interface ChartLegendProps {
   readonly paneHeights: readonly number[];
   /** Attached to the OHLC values while showing the live bar, for {@link writeLiveOhlc}. */
   readonly liveOhlcRef: RefObject<HTMLSpanElement | null>;
+  readonly onIndicatorAction?: (ownerId: string, action: IndicatorAction) => void;
 }
+
+interface LegendRow { readonly ownerId: string; readonly name: string; readonly overlays: readonly ChartOverlay[] }
+
+/** One row per indicator (an indicator like Bollinger Bands has several plots). */
+const groupByOwner = (overlays: readonly ChartOverlay[]): LegendRow[] => {
+  const rows = new Map<string, LegendRow>();
+  for (const overlay of overlays) {
+    const ownerId = overlay.ownerId ?? overlay.instanceId;
+    const row = rows.get(ownerId);
+    rows.set(ownerId, { ownerId, name: row?.name ?? overlay.indicatorName, overlays: [...(row?.overlays ?? []), overlay] });
+  }
+  return [...rows.values()];
+};
 
 const PRICE_FORMAT = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 // Small prices (e.g. alts under $10) need more decimals to be readable.
@@ -57,7 +72,7 @@ const legendValues = (bar: OhlcvValues) => {
 };
 
 /**
- * Writes the drawn (smoothed) candle into the live legend at animation-frame rate,
+ * Writes the drawn candle into the live legend at animation-frame rate,
  * bypassing React: re-rendering the chart 60 times a second would be far too heavy.
  * Mutates the existing text nodes, which React still owns and keeps updating.
  */
@@ -71,7 +86,9 @@ export const writeLiveOhlc = (container: HTMLSpanElement, bar: OhlcvValues): voi
 };
 
 /** TradingView-style top-left legend: symbol + OHLC, then one line per indicator in each pane. */
-export function ChartLegend({ title, bars, mainOverlays, subPanes, hoverTime, paneHeights, liveOhlcRef }: ChartLegendProps) {
+export function ChartLegend({
+  title, bars, mainOverlays, subPanes, hoverTime, paneHeights, liveOhlcRef, onIndicatorAction,
+}: ChartLegendProps) {
   const bar = pointAt(bars, hoverTime);
   // Sub-pane i starts below the main pane and every sub-pane before it.
   const paneTops = subPanes.map((_, i) =>
@@ -86,13 +103,13 @@ export function ChartLegend({ title, bars, mainOverlays, subPanes, hoverTime, pa
             <OhlcValues key={hoverTime === null ? "live" : "hover"} bar={bar} valuesRef={hoverTime === null ? liveOhlcRef : undefined} />
           )}
         </div>
-        {mainOverlays.map((overlay) => (
-          <OverlayLine key={overlay.instanceId} name={overlay.indicatorName} overlays={[overlay]} hoverTime={hoverTime} />
+        {groupByOwner(mainOverlays).map((row) => (
+          <OverlayLine key={row.ownerId} row={row} hoverTime={hoverTime} onAction={onIndicatorAction} />
         ))}
       </div>
       {subPanes.map((pane, i) => (
         <div key={pane.paneId} className="absolute left-2" style={{ top: paneTops[i]! + 2 }}>
-          <OverlayLine name={pane.title} overlays={pane.overlays} hoverTime={hoverTime} />
+          <OverlayLine row={{ ownerId: pane.paneId, name: pane.title, overlays: pane.overlays }} hoverTime={hoverTime} onAction={onIndicatorAction} />
         </div>
       ))}
     </div>
@@ -117,15 +134,24 @@ function OhlcValues({ bar, valuesRef }: { bar: Bar; valuesRef?: RefObject<HTMLSp
   );
 }
 
-function OverlayLine({ name, overlays, hoverTime }: {
-  name: string;
-  overlays: readonly ChartOverlay[];
+const ROW_ACTIONS = [
+  { action: "settings", label: "Settings", Icon: Settings },
+  { action: "remove", label: "Remove", Icon: X },
+] as const;
+
+function OverlayLine({ row, hoverTime, onAction }: {
+  row: LegendRow;
   hoverTime: number | null;
+  onAction?: (ownerId: string, action: IndicatorAction) => void;
 }) {
+  const isHidden = row.overlays.every((o) => o.isHidden);
+  const VisibilityIcon = isHidden ? EyeOff : Eye;
   return (
-    <div className="flex gap-2">
-      <span className="font-sans text-[#d1d4dc]">{name}</span>
-      {overlays.filter((o) => !o.isLevel).map((overlay) => {
+    // pointer-events back on for the row only, so the rest of the legend never blocks chart dragging.
+    <div className={`group pointer-events-auto flex w-fit items-center gap-2 rounded px-1 hover:bg-[#2a2e39]/80 ${isHidden ? "opacity-50" : ""}`}>
+      <span className="font-sans text-[#d1d4dc]">{row.name}</span>
+      {/* Values stay (dimmed with the row) so the buttons don't jump under the cursor when hiding. */}
+      {row.overlays.filter((o) => !o.isLevel).map((overlay) => {
         const point = pointAt(overlay.data, hoverTime);
         return (
           <span key={overlay.instanceId} style={{ color: overlay.color }}>
@@ -133,6 +159,32 @@ function OverlayLine({ name, overlays, hoverTime }: {
           </span>
         );
       })}
+      {onAction !== undefined && (
+        // TradingView reveals the row's buttons on hover only.
+        <span className="hidden items-center gap-0.5 group-hover:flex">
+          <LegendButton label={isHidden ? "Show" : "Hide"} onClick={() => onAction(row.ownerId, "toggle-visibility")}>
+            <VisibilityIcon className="h-3.5 w-3.5" />
+          </LegendButton>
+          {ROW_ACTIONS.map(({ action, label, Icon }) => (
+            <LegendButton key={action} label={label} onClick={() => onAction(row.ownerId, action)}>
+              <Icon className="h-3.5 w-3.5" />
+            </LegendButton>
+          ))}
+        </span>
+      )}
     </div>
+  );
+}
+
+function LegendButton({ label, onClick, children }: { label: string; onClick: () => void; children: ReactNode }) {
+  return (
+    <button
+      type="button" title={label} aria-label={label}
+      className="rounded p-0.5 text-[#b2b5be] hover:bg-[#363a45] hover:text-[#d1d4dc]"
+      // Stop the click reaching the chart cell (which would just re-activate it).
+      onClick={(e) => { e.stopPropagation(); onClick(); }}
+    >
+      {children}
+    </button>
   );
 }

@@ -14,9 +14,10 @@ import {
 const HISTORY_BARS = 200;
 // Bars fetched per scroll-back request; Binance allows up to 1000 per call.
 const OLDER_PAGE_BARS = 500;
-// Trades can arrive hundreds of times a second; React state updates at 10/s
-// are smooth for the eye (the candle lerp fills the gaps) and cheap to render.
-const FLUSH_INTERVAL_MS = 100;
+// The chart subscribes to raw updates (drawn once per animation frame), so the
+// React snapshot only feeds indicators/editor/backtest. 1/s keeps that work
+// off the main thread between ticks without making those panels feel stale.
+const SNAPSHOT_INTERVAL_MS = 1_000;
 const RECONNECT_DELAY_MS = 3_000;
 
 export type LiveStatus = "loading" | "live" | "reconnecting";
@@ -28,6 +29,11 @@ export interface LiveBars {
   readonly error: string | null;
   /** Prepends the page of candles before the oldest one; no-op while loading or once history is exhausted. */
   readonly loadOlder: () => void;
+  /**
+   * Per-frame bars for the chart, so ticks are drawn as they arrive instead of
+   * waiting for the next React snapshot. Returns an unsubscribe function.
+   */
+  readonly subscribe: (listener: (bars: readonly Bar[]) => void) => () => void;
 }
 
 /** Keeps `existing` bars older than `fresh` (scroll-back history survives a reconnect), then `fresh`. */
@@ -37,11 +43,19 @@ const withOlderHistory = (existing: readonly Bar[], fresh: readonly Bar[]): read
   return [...existing.filter((b) => b.time < firstFresh.time), ...fresh];
 };
 
-/** Inserts `bar` by time: replaces the bar at the same time, appends a newer one, drops an older one. */
+/**
+ * Inserts `bar` by time: replaces the bar at the same time, appends a newer
+ * one, drops an older one. The closed kline can arrive after the first trade
+ * of the next candle already opened it, so also settle the bar before `last`.
+ */
 export const mergeBar = (bars: readonly Bar[], bar: Bar): readonly Bar[] => {
   const last = bars[bars.length - 1];
   if (last === undefined || bar.time > last.time) return [...bars, bar];
   if (bar.time === last.time) return [...bars.slice(0, -1), bar];
+  const previous = bars[bars.length - 2];
+  if (previous !== undefined && bar.time === previous.time) {
+    return [...bars.slice(0, -2), bar, last];
+  }
   return bars;
 };
 
@@ -56,7 +70,7 @@ export const applyTrade = (forming: Bar, trade: LiveTrade, intervalMs: number): 
     high: Math.max(forming.high, trade.price),
     low: Math.min(forming.low, trade.price),
     close: trade.price,
-    // Approximate until the next kline event replaces it with Binance's exact volume.
+    // Trades fill the bar between klines; the kline carries the exchange's exact total.
     volume: forming.volume + trade.quantity,
   };
 };
@@ -75,6 +89,26 @@ export function useLiveBars(symbol: BinanceSymbol, interval: ChartInterval): Liv
   const workingRef = useRef<readonly Bar[]>([]);
   const isLoadingOlderRef = useRef(false);
   const hasOlderRef = useRef(true);
+  // Chart listeners are notified at most once per animation frame, so a burst of
+  // trades becomes one series update and the chart never waits for React.
+  const listenersRef = useRef(new Set<(bars: readonly Bar[]) => void>());
+  const frameRef = useRef<number | null>(null);
+
+  const scheduleNotify = useCallback(() => {
+    if (frameRef.current !== null) return;
+    frameRef.current = requestAnimationFrame(() => {
+      frameRef.current = null;
+      const snapshot = workingRef.current;
+      for (const listener of listenersRef.current) listener(snapshot);
+    });
+  }, []);
+
+  const subscribe = useCallback((listener: (bars: readonly Bar[]) => void) => {
+    listenersRef.current.add(listener);
+    // Draw immediately so a freshly mounted chart doesn't wait for the next tick.
+    if (workingRef.current.length > 0) listener(workingRef.current);
+    return () => { listenersRef.current.delete(listener); };
+  }, []);
 
   useEffect(() => {
     // New symbol/interval: show the loader instead of the previous market's candles.
@@ -88,7 +122,7 @@ export function useLiveBars(symbol: BinanceSymbol, interval: ChartInterval): Liv
     let isCancelled = false;
     let closeStream: (() => void) | null = null;
     // Same array reference → React skips the render, so idle ticks cost nothing.
-    const flushTimer = setInterval(() => setBars(workingRef.current), FLUSH_INTERVAL_MS);
+    const snapshotTimer = setInterval(() => setBars(workingRef.current), SNAPSHOT_INTERVAL_MS);
 
     const scheduleReconnect = () => {
       if (isCancelled) return;
@@ -101,14 +135,19 @@ export function useLiveBars(symbol: BinanceSymbol, interval: ChartInterval): Liv
       if (isCancelled) return;
       workingRef.current = withOlderHistory(workingRef.current, history);
       setBars(workingRef.current);
+      scheduleNotify();
       closeStream = openMarketStream(symbol, interval, {
         onOpen: () => { setStatus("live"); setError(null); },
         onClose: scheduleReconnect,
-        onKline: (bar) => { workingRef.current = mergeBar(workingRef.current, bar); },
+        onKline: (bar) => {
+          workingRef.current = mergeBar(workingRef.current, bar);
+          scheduleNotify();
+        },
         onTrade: (trade) => {
           const forming = workingRef.current[workingRef.current.length - 1];
           if (forming === undefined || trade.time < forming.time) return;
           workingRef.current = mergeBar(workingRef.current, applyTrade(forming, trade, INTERVAL_MS[interval]));
+          scheduleNotify();
         },
       });
     };
@@ -121,10 +160,12 @@ export function useLiveBars(symbol: BinanceSymbol, interval: ChartInterval): Liv
 
     return () => {
       isCancelled = true;
-      clearInterval(flushTimer);
+      clearInterval(snapshotTimer);
+      if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+      frameRef.current = null;
       closeStream?.();
     };
-  }, [symbol, interval, attempt]);
+  }, [symbol, interval, attempt, scheduleNotify]);
 
   const loadOlder = useCallback(() => {
     const first = workingRef.current[0];
@@ -138,13 +179,14 @@ export function useLiveBars(symbol: BinanceSymbol, interval: ChartInterval): Liv
         if (workingRef.current[0]?.time !== first.time) return;
         workingRef.current = [...older.filter((b) => b.time < first.time), ...workingRef.current];
         setBars(workingRef.current);
+        scheduleNotify();
       })
       .catch((err: unknown) => {
         // Retried on the next scroll to the left edge.
         setError(`Failed to load older ${symbol} ${interval} candles: ${err instanceof Error ? err.message : String(err)}`);
       })
       .finally(() => { isLoadingOlderRef.current = false; });
-  }, [symbol, interval]);
+  }, [symbol, interval, scheduleNotify]);
 
-  return { bars, status, error, loadOlder };
+  return { bars, status, error, loadOlder, subscribe };
 }

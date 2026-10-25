@@ -1,17 +1,17 @@
 "use client";
 
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { registry, type Bar } from "@nemesis-oss/pine-ts";
 import {
   type ChartInterval,
   type SymbolOption,
 } from "@/lib/public-binance-feed";
 import {
-  ChartWorkbench, type ChartOverlay, type ChartSubPane, type TradeMarker,
+  ChartWorkbench, type ChartOverlay, type ChartSubPane, type IndicatorAction, type TradeMarker,
 } from "@/components/chart/chart-workbench";
 import {
-  type MountedIndicator,
-} from "@/components/chart/indicator-sidebar";
+  IndicatorsDialog, IndicatorSettingsDialog, createMountedIndicator, indicatorLabel, type MountedIndicator,
+} from "@/components/chart/indicator-dialogs";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
@@ -19,7 +19,7 @@ import { Button } from "@/components/ui/button";
 import {
   SUPPORTED_SYMBOLS, SUPPORTED_INTERVALS,
 } from "@/lib/public-binance-feed";
-import { X } from "lucide-react";
+import { FunctionSquare, X } from "lucide-react";
 import { useLiveBars, type LiveStatus } from "@/hooks/use-live-bars";
 
 /**
@@ -59,14 +59,44 @@ export interface ChartCellProps extends CellSettings {
   readonly tradeMarkers?: TradeMarker[];
   /** Receives this cell's bars while it is active, so the editor runs on what the chart shows. */
   readonly onActiveBarsChange?: (bars: readonly Bar[]) => void;
+  /** Legend actions on the Pine Editor script's pane, which the page owns. */
+  readonly onEditorScriptAction?: (action: IndicatorAction) => void;
 }
+
+/** Sub-pane id of the Pine Editor script's plots. */
+const EDITOR_PANE_ID = "editor";
 
 export function ChartCell({
   cellId, symbol, interval, indicators: mounted, onChange,
-  isActive, onActivate, onRemove, canRemove, editorOverlays, tradeMarkers, onActiveBarsChange,
+  isActive, onActivate, onRemove, canRemove, editorOverlays, tradeMarkers, onActiveBarsChange, onEditorScriptAction,
 }: ChartCellProps) {
-  const { bars, status, error, loadOlder } = useLiveBars(symbol.binanceSymbol, interval);
+  const { bars, status, error, loadOlder, subscribe } = useLiveBars(symbol.binanceSymbol, interval);
   const [runResults, setRunResults] = useState<Record<string, IndicatorRunResult>>({});
+  const [isIndicatorsDialogOpen, setIsIndicatorsDialogOpen] = useState(false);
+  const [settingsInstanceId, setSettingsInstanceId] = useState<string | null>(null);
+
+  const setIndicators = useCallback((update: (prev: readonly MountedIndicator[]) => readonly MountedIndicator[]) => {
+    onChange(cellId, { indicators: update(mounted) });
+  }, [onChange, cellId, mounted]);
+
+  const onAddIndicator = useCallback((indicatorId: string) => {
+    const added = createMountedIndicator(indicatorId);
+    if (added !== undefined) setIndicators((prev) => [...prev, added]);
+  }, [setIndicators]);
+
+  const onIndicatorAction = useCallback((ownerId: string, action: IndicatorAction) => {
+    if (ownerId === EDITOR_PANE_ID) { onEditorScriptAction?.(action); return; }
+    if (action === "settings") { setSettingsInstanceId(ownerId); return; }
+    setIndicators((prev) => action === "remove"
+      ? prev.filter((m) => m.instanceId !== ownerId)
+      : prev.map((m) => (m.instanceId === ownerId ? { ...m, isHidden: !m.isHidden } : m)));
+  }, [onEditorScriptAction, setIndicators]);
+
+  const onSettingsInputChange = useCallback((inputName: string, value: number | string | boolean) => {
+    setIndicators((prev) => prev.map((m) => (m.instanceId === settingsInstanceId
+      ? { ...m, inputs: { ...m.inputs, [inputName]: value } }
+      : m)));
+  }, [setIndicators, settingsInstanceId]);
 
   // Drive indicators.
   useEffect(() => {
@@ -97,14 +127,27 @@ export function ChartCell({
     return computeOverlays(bars, mounted, runResults);
   }, [bars, mounted, runResults]);
 
+  // The page runs the editor + backtest on these bars. Hand them over only when
+  // the series structurally changes (new bar, older page, switch), not on every
+  // stream tick — a tick snapshot would re-render the whole workspace each time.
+  const notifiedRef = useRef<string | null>(null);
+  const wasActiveRef = useRef(false);
   useEffect(() => {
-    if (isActive) onActiveBarsChange?.(bars);
-  }, [isActive, bars, onActiveBarsChange]);
+    if (!isActive) { wasActiveRef.current = false; return; }
+    const first = bars[0];
+    const last = bars[bars.length - 1];
+    if (first === undefined || last === undefined) { notifiedRef.current = null; return; }
+    const signature = `${symbol.binanceSymbol}:${interval}:${first.time}:${last.time}:${bars.length}`;
+    if (wasActiveRef.current && signature === notifiedRef.current) return;
+    wasActiveRef.current = true;
+    notifiedRef.current = signature;
+    onActiveBarsChange?.(bars);
+  }, [isActive, bars, onActiveBarsChange, symbol.binanceSymbol, interval]);
 
   // Editor plots have no overlay flag; a sub-pane keeps oscillators (RSI etc.)
   // from squashing the price scale.
   const allSubPanes = editorOverlays.length > 0
-    ? [...subPanes, { paneId: "editor", title: "Custom", overlays: editorOverlays }]
+    ? [...subPanes, { paneId: EDITOR_PANE_ID, title: "Custom", overlays: editorOverlays }]
     : subPanes;
 
   return (
@@ -131,6 +174,12 @@ export function ChartCell({
               {SUPPORTED_INTERVALS.map((i) => <SelectItem key={i} value={i}>{i}</SelectItem>)}
             </SelectContent>
           </Select>
+          <Button
+            variant="ghost" size="sm" className="h-9 px-2 text-xs sm:h-7 sm:text-[10px]"
+            onClick={(e) => { e.stopPropagation(); setIsIndicatorsDialogOpen(true); }}
+          >
+            <FunctionSquare className="mr-1 h-3.5 w-3.5" /> Indicators
+          </Button>
           <LiveBadge status={status} />
         </div>
         <div className="flex items-center gap-1.5">
@@ -150,9 +199,15 @@ export function ChartCell({
             {error ?? `Loading ${symbol.displayName} from Binance…`}
           </div>
         ) : (
-          <ChartWorkbench title={`${symbol.displayName} · ${interval} · Binance`} interval={interval} bars={bars} onNeedOlderBars={loadOlder} mainOverlays={mainOverlays} subPanes={allSubPanes} tradeMarkers={tradeMarkers} />
+          <ChartWorkbench title={`${symbol.displayName} · ${interval} · Binance`} interval={interval} bars={bars} subscribeBars={subscribe} onNeedOlderBars={loadOlder} onIndicatorAction={onIndicatorAction} mainOverlays={mainOverlays} subPanes={allSubPanes} tradeMarkers={tradeMarkers} />
         )}
       </div>
+      <IndicatorsDialog open={isIndicatorsDialogOpen} onOpenChange={setIsIndicatorsDialogOpen} onAdd={onAddIndicator} />
+      <IndicatorSettingsDialog
+        indicator={mounted.find((m) => m.instanceId === settingsInstanceId)}
+        onClose={() => setSettingsInstanceId(null)}
+        onInputChange={onSettingsInputChange}
+      />
     </div>
   );
 }
@@ -175,6 +230,10 @@ function LiveBadge({ status }: { status: LiveStatus }) {
     </span>
   );
 }
+
+/** A plot with the same value on every bar (RSI's 70/30 bands) is drawn as a dashed level, as on TradingView. */
+const isConstant = (data: readonly { value: number }[]): boolean =>
+  data.length > 1 && data.every((d) => d.value === data[0]!.value);
 
 function computeOverlays(
   bars: readonly { time: number }[],
@@ -199,13 +258,16 @@ function computeOverlays(
       paneOverlays.push({
         instanceId: `${m.instanceId}:${plot.id}`,
         indicatorId: `${m.indicatorId}.${plot.id}`,
-        indicatorName: `${m.indicatorName} (${plot.id})`,
+        indicatorName: indicatorLabel(m),
         color: plot.color ?? INDICATOR_COLORS[m.indicatorId] ?? FALLBACK_COLOR,
+        ownerId: m.instanceId,
+        isHidden: m.isHidden,
+        isLevel: isConstant(data),
         data,
       });
     }
     if (m.pane === "main") mainOverlays.push(...paneOverlays);
-    else subPanes.push({ paneId: m.instanceId, title: m.indicatorName, overlays: paneOverlays });
+    else subPanes.push({ paneId: m.instanceId, title: indicatorLabel(m), overlays: paneOverlays });
   }
   return { mainOverlays, subPanes };
 }

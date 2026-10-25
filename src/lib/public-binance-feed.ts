@@ -120,14 +120,14 @@ export interface LiveTrade {
 export interface MarketStreamCallbacks {
   /** Authoritative candle (~every 1–2s); `isClosed` is true on the bar's final event. */
   readonly onKline: (bar: Bar) => void;
-  /** Every aggregated trade — drives tick-by-tick price movement between klines. */
+  /** Every trade — exact tick-by-tick OHLC and volume between kline snapshots. */
   readonly onTrade: (trade: LiveTrade) => void;
   readonly onOpen: () => void;
   /** Socket closed or errored; the caller decides whether to reconnect. */
   readonly onClose: () => void;
 }
 
-interface BinanceAggTrade { readonly e: "aggTrade"; readonly p: string; readonly q: string; readonly T: number }
+interface BinanceTrade { readonly e: "trade"; readonly p: string; readonly q: string; readonly T: number }
 
 /** Binance mainnet combined-stream endpoint (public, no key). */
 const COMBINED_STREAM_URL = "wss://stream.binance.com:9443/stream";
@@ -143,7 +143,9 @@ const toBar = (k: BinanceKline): Bar => ({
 });
 
 /**
- * Opens one socket carrying `<symbol>@kline_<interval>` and `<symbol>@aggTrade`.
+ * Opens one socket carrying `<symbol>@kline_<interval>` and `<symbol>@trade`.
+ * Raw trades (not aggTrades) carry every price, so the forming candle's
+ * high/low/close match Binance's own chart between kline snapshots.
  * Returns `close()`, which detaches callbacks first so it never reports onClose.
  */
 export const openMarketStream = (
@@ -152,12 +154,12 @@ export const openMarketStream = (
   callbacks: MarketStreamCallbacks,
 ): (() => void) => {
   const lower = symbol.toLowerCase();
-  const socket = new WebSocket(`${COMBINED_STREAM_URL}?streams=${lower}@kline_${interval}/${lower}@aggTrade`);
+  const socket = new WebSocket(`${COMBINED_STREAM_URL}?streams=${lower}@kline_${interval}/${lower}@trade`);
   socket.onopen = callbacks.onOpen;
   socket.onclose = callbacks.onClose;
   socket.onerror = () => socket.close();
   socket.onmessage = (event) => {
-    const { data } = JSON.parse(event.data as string) as { data: BinanceKlineEvent | BinanceAggTrade };
+    const { data } = JSON.parse(event.data as string) as { data: BinanceKlineEvent | BinanceTrade };
     if (data.e === "kline") callbacks.onKline(toBar(data.k));
     else callbacks.onTrade({ price: Number(data.p), quantity: Number(data.q), time: data.T });
   };

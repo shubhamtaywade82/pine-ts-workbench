@@ -5,7 +5,7 @@ import type { ImperativePanelHandle } from "react-resizable-panels";
 import type { Bar } from "@nemesis-oss/pine-ts";
 import { SUPPORTED_SYMBOLS, type SymbolOption, type ChartInterval } from "@/lib/public-binance-feed";
 import { MemoizedChartCell, type CellSettings } from "@/components/chart/chart-cell";
-import { nextInstanceId, type MountedIndicator } from "@/components/chart/indicator-sidebar";
+import { nextInstanceId, type MountedIndicator } from "@/components/chart/indicator-dialogs";
 import { PineEditor } from "@/components/editor/pine-editor";
 import { useBacktest, StrategyCodeTab, StrategyTester } from "@/components/strategy/strategy-panel";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -25,7 +25,7 @@ import {
 } from "@/components/ui/select";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { LayoutGrid, Plus, Sun, Moon, Save, Code2, FlaskConical } from "lucide-react";
-import type { ChartOverlay } from "@/components/chart/chart-workbench";
+import type { ChartOverlay, IndicatorAction } from "@/components/chart/chart-workbench";
 
 /**
  * Chart workbench — Wave 18. Multi-chart grid.
@@ -122,6 +122,12 @@ export default function Home() {
 
   // Editor state — shared, operates on the active cell's bars.
   const [editorOverlays, setEditorOverlays] = useState<ChartOverlay[]>([]);
+  // Legend eye / × on the editor script's pane; "Add to chart" in the editor puts it back.
+  const [isEditorScriptHidden, setIsEditorScriptHidden] = useState(false);
+  const [isEditorScriptOnChart, setIsEditorScriptOnChart] = useState(true);
+  const shownEditorOverlays = useMemo(() => (isEditorScriptOnChart
+    ? editorOverlays.map((o) => ({ ...o, ownerId: "editor", isHidden: isEditorScriptHidden }))
+    : []), [editorOverlays, isEditorScriptOnChart, isEditorScriptHidden]);
   const [backtestTrades, setBacktestTrades] = useState<BacktestTrade[]>([]);
   // The active cell's bars (for the editor and the backtest).
   const [editorBars, setEditorBars] = useState<readonly Bar[]>([]);
@@ -165,6 +171,12 @@ export default function Home() {
   // Before restore, syncing (and the panels' own collapse callbacks) would overwrite the saved open state.
   useEffect(() => { if (isRestored) syncPanel(editorPanelRef.current, isEditorOpen); }, [isRestored, isEditorOpen]);
   useEffect(() => { if (isRestored) syncPanel(testerPanelRef.current, isTesterOpen); }, [isRestored, isTesterOpen]);
+
+  const onEditorScriptAction = useCallback((action: IndicatorAction) => {
+    if (action === "toggle-visibility") setIsEditorScriptHidden((hidden) => !hidden);
+    else if (action === "remove") setIsEditorScriptOnChart(false);
+    else { setIsEditorOpen(true); setEditorTab("indicator"); }
+  }, []);
 
   const onCellChange = useCallback((cellId: string, patch: Partial<CellSettings>) => {
     setCells((prev) => prev.map((c) => (c.id === cellId ? { ...c, ...patch } : c)));
@@ -325,7 +337,8 @@ export default function Home() {
                     onActivate={setActiveCellId}
                     onRemove={onRemoveCell}
                     canRemove={cells.length > 1}
-                    editorOverlays={cell.id === activeCellId ? editorOverlays : []}
+                    editorOverlays={cell.id === activeCellId ? shownEditorOverlays : []}
+                    onEditorScriptAction={onEditorScriptAction}
                     tradeMarkers={cell.id === activeCellId ? tradeMarkers : []}
                     onActiveBarsChange={setEditorBars}
                   />
@@ -344,7 +357,11 @@ export default function Home() {
                   <TabsTrigger value="strategy" className="text-xs">Strategy</TabsTrigger>
                 </TabsList>
                 <TabsContent value="indicator" forceMount className="m-0 min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden">
-                  <PineEditor bars={editorBars} onResults={(results, plots) => setEditorOverlays(toEditorOverlays(results, plots, editorBars))} />
+                  <PineEditor
+                    bars={editorBars}
+                    onResults={(results, plots) => setEditorOverlays(toEditorOverlays(results, plots, editorBars))}
+                    onAddToChart={() => setIsEditorScriptOnChart(true)}
+                  />
                 </TabsContent>
                 <TabsContent value="strategy" forceMount className="m-0 min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden">
                   <StrategyCodeTab backtest={backtest} />

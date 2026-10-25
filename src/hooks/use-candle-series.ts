@@ -15,16 +15,11 @@ const UP_COLOR = "#089981";
 const DOWN_COLOR = "#f23645";
 const VOLUME_UP_COLOR = "#08998180";
 const VOLUME_DOWN_COLOR = "#f2364580";
-// Time constant of the price smoothing: ~63% of a move shows after this long, ~95%
-// after 3x. Short enough to feel real-time, long enough to read as motion.
-const SMOOTHING_TAU_MS = 120;
-// Below this share of the price the remaining gap is invisible, so the loop stops.
-const SETTLE_EPSILON = 1e-7;
 const COUNTDOWN_REFRESH_MS = 1_000;
 
 interface Ohlc { open: number; high: number; low: number; close: number }
 
-/** The forming candle as currently drawn (mid-smoothing it trails the real bar). */
+/** The forming candle as currently drawn. */
 export interface CandleFrame extends Ohlc { readonly time: number; readonly volume: number }
 
 interface CandleSeries {
@@ -43,11 +38,6 @@ const toVolume = (bar: Bar) => ({
   value: bar.volume,
   color: bar.close >= bar.open ? VOLUME_UP_COLOR : VOLUME_DOWN_COLOR,
 });
-
-const lerp = (from: number, to: number, t: number): number => from + (to - from) * t;
-
-const isSameOhlc = (a: Ohlc, b: Ohlc): boolean =>
-  a.open === b.open && a.high === b.high && a.low === b.low && a.close === b.close;
 
 /** Adds the candle + volume series to `chart`, TradingView-styled. */
 const createCandleSeries = (chart: IChartApi): CandleSeries => {
@@ -80,14 +70,11 @@ const formatCountdown = (msLeft: number): string => {
 
 /**
  * Keeps a candlestick + volume series in sync with `bars`:
- * - last bar changed in place (stream tick) → the drawn candle eases toward the
- *   new OHLC; one rAF loop chases the latest target, so new ticks retarget it
- *   instead of restarting an animation (which would look like a jump);
- * - one bar appended → settle the previous candle, then append;
- * - anything else (initial load, older history prepended, reconnect) → full reset
- *   that keeps the view on the same candles.
- * Also shows the time left on the forming candle in the last-price label, and
- * reports every drawn frame to `onFrame` (e.g. for the legend).
+ * - the forming bar is updated by `subscribeBars` on every tick (once per
+ *   animation frame, straight from the socket — no React render in the path);
+ * - the `bars` snapshot from React only carries structural changes: initial
+ *   load, a closed bar appended, older history prepended, reconnect, switch;
+ * - every drawn frame is reported to `onFrame` (e.g. for the legend).
  * Returns the candle series (for markers), recreated whenever the chart is.
  */
 export function useCandleSeries(
@@ -95,53 +82,18 @@ export function useCandleSeries(
   bars: readonly Bar[],
   barDurationMs: number,
   onFrame?: (frame: CandleFrame) => void,
+  subscribeBars?: (listener: (bars: readonly Bar[]) => void) => () => void,
 ): RefObject<ISeriesApi<"Candlestick"> | null> {
   const seriesRef = useRef<CandleSeries | null>(null);
   const candleRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const shownBarsRef = useRef<readonly Bar[]>([]);
-  const displayedRef = useRef<Ohlc | null>(null);
-  const targetRef = useRef<Bar | null>(null);
-  const animationRef = useRef<number | null>(null);
   const onFrameRef = useRef(onFrame);
   useEffect(() => { onFrameRef.current = onFrame; }, [onFrame]);
 
-  const draw = (series: CandleSeries, target: Bar, frame: Ohlc) => {
-    // Picked field by field: `frame` may be a Bar, whose ms `time` must not reach LWC.
-    const ohlc = { open: frame.open, high: frame.high, low: frame.low, close: frame.close };
-    series.candle.update({ time: toCandle(target).time, ...ohlc });
-    displayedRef.current = ohlc;
-    onFrameRef.current?.({ ...ohlc, time: target.time, volume: target.volume });
-  };
-
-  const stopAnimation = () => {
-    if (animationRef.current !== null) cancelAnimationFrame(animationRef.current);
-    animationRef.current = null;
-  };
-
-  /** Starts the smoothing loop if idle; a running loop just picks up the new targetRef. */
-  const chaseTarget = (series: CandleSeries) => {
-    if (animationRef.current !== null) return;
-    let lastFrameAt = performance.now();
-    const step = (now: number) => {
-      const target = targetRef.current;
-      const from = displayedRef.current;
-      if (target === null || from === null) { animationRef.current = null; return; }
-      // Frame-rate independent: the same share of the gap closes per ms at 30 or 144 fps.
-      const k = 1 - Math.exp(-(now - lastFrameAt) / SMOOTHING_TAU_MS);
-      lastFrameAt = now;
-      const frame = {
-        open: target.open,
-        high: lerp(from.high, target.high, k),
-        low: lerp(from.low, target.low, k),
-        close: lerp(from.close, target.close, k),
-      };
-      const isSettled = Math.abs(frame.close - target.close) <= Math.abs(target.close) * SETTLE_EPSILON &&
-        Math.abs(frame.high - target.high) <= Math.abs(target.high) * SETTLE_EPSILON &&
-        Math.abs(frame.low - target.low) <= Math.abs(target.low) * SETTLE_EPSILON;
-      draw(series, target, isSettled ? target : frame);
-      animationRef.current = isSettled ? null : requestAnimationFrame(step);
-    };
-    animationRef.current = requestAnimationFrame(step);
+  const drawLast = (series: CandleSeries, bar: Bar) => {
+    series.candle.update(toCandle(bar));
+    series.volume.update(toVolume(bar));
+    onFrameRef.current?.({ ...bar });
   };
 
   /**
@@ -149,19 +101,54 @@ export function useCandleSeries(
    * prepended on scroll-back, history refetched on reconnect) keep the view on the
    * same candles by shifting the visible range by however many bars were added before them.
    */
-  const resetAll = (series: CandleSeries, previous: readonly Bar[]) => {
+  const resetAll = (series: CandleSeries, nextBars: readonly Bar[], previous: readonly Bar[]) => {
     const timeScale = series.chart.timeScale();
     const visible = timeScale.getVisibleLogicalRange();
-    series.candle.setData(bars.map(toCandle));
-    series.volume.setData(bars.map(toVolume));
+    series.candle.setData(nextBars.map(toCandle));
+    series.volume.setData(nextBars.map(toVolume));
+    shownBarsRef.current = nextBars;
     const previousFirst = previous[0];
     if (previousFirst === undefined || visible === null) {
       timeScale.fitContent();
       return;
     }
-    const shift = bars.findIndex((b) => b.time === previousFirst.time);
+    const shift = nextBars.findIndex((b) => b.time === previousFirst.time);
     if (shift > 0) timeScale.setVisibleLogicalRange({ from: visible.from + shift, to: visible.to + shift });
   };
+
+  /** Applies the newest bars to the series: a tick, one appended bar, or a full reset. */
+  const reconcile = (series: CandleSeries, nextBars: readonly Bar[]) => {
+    const nextLast = nextBars[nextBars.length - 1];
+    if (nextLast === undefined) return;
+    const shown = shownBarsRef.current;
+    const shownLast = shown[shown.length - 1];
+
+    const isTick = shownLast !== undefined && nextLast.time === shownLast.time && nextBars.length === shown.length;
+    const isAppend = shownLast !== undefined && nextLast.time > shownLast.time && nextBars.length === shown.length + 1;
+    if (!isTick && !isAppend) {
+      resetAll(series, nextBars, shown);
+      return;
+    }
+    if (isAppend) {
+      // Settle the bar that just closed before appending its successor.
+      drawLast(series, nextBars[nextBars.length - 2]!);
+    }
+    shownBarsRef.current = nextBars;
+    drawLast(series, nextLast);
+  };
+
+  // The subscription always carries the freshest values; keep the callback
+  // stable so the socket listener is registered once per stream.
+  const reconcileRef = useRef(reconcile);
+  useEffect(() => { reconcileRef.current = reconcile; });
+
+  useEffect(() => {
+    if (subscribeBars === undefined) return;
+    return subscribeBars((nextBars) => {
+      const series = seriesRef.current;
+      if (series !== null) reconcileRef.current(series, nextBars);
+    });
+  }, [subscribeBars]);
 
   useEffect(() => {
     const chart = chartRef.current;
@@ -175,32 +162,12 @@ export function useCandleSeries(
     const shown = shownBarsRef.current;
     const last = bars[bars.length - 1];
     const shownLast = shown[shown.length - 1];
-    shownBarsRef.current = bars;
-    targetRef.current = last ?? null;
-
-    const isTick = last !== undefined && shownLast !== undefined &&
-      bars.length === shown.length && last.time === shownLast.time;
-    if (isTick) {
-      series.volume.update(toVolume(last));
-      if (!isSameOhlc(last, displayedRef.current ?? shownLast)) chaseTarget(series);
+    // Ticks are drawn by the subscription; React snapshots only add/remove bars.
+    if (last !== undefined && shownLast !== undefined && bars.length === shown.length && last.time === shownLast.time) {
       return;
     }
-    stopAnimation();
-    const isAppend = last !== undefined && shownLast !== undefined &&
-      bars.length === shown.length + 1 && bars[bars.length - 2]?.time === shownLast.time;
-    if (isAppend) {
-      // Settle the candle that just closed — it may have been mid-smoothing.
-      series.candle.update(toCandle(bars[bars.length - 2]!));
-      series.volume.update(toVolume(last));
-      draw(series, last, last);
-    } else {
-      resetAll(series, shown);
-      displayedRef.current = last ?? null;
-      if (last !== undefined) onFrameRef.current?.({ ...last });
-    }
+    reconcile(series, bars);
   }, [bars]);
-
-  useEffect(() => stopAnimation, []);
 
   useEffect(() => {
     const tick = () => {

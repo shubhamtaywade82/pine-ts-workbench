@@ -10,7 +10,7 @@
  */
 
 import { SUPPORTED_SYMBOLS, type SymbolOption, type ChartInterval } from "@/lib/public-binance-feed";
-import type { MountedIndicator } from "@/components/chart/indicator-sidebar";
+import type { MountedIndicator } from "@/components/chart/indicator-dialogs";
 
 export interface SavedCellConfig {
   readonly symbolProduct: string;
