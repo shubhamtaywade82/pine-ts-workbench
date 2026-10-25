@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 import { registry, type InputsBag } from "@nemesis-oss/pine-ts";
 import { STUB_BARS } from "@/lib/stub-bars";
 import {
@@ -79,7 +80,12 @@ export function ChartCell({
       try {
         const fetched = await fetchHistoricalBars(symbol.coinbaseProduct, interval, 200);
         if (!cancelled) { setBars(fetched); setBarsSource("live"); }
-      } catch { if (!cancelled) setBarsSource("error"); }
+      } catch (err) {
+        if (!cancelled) {
+          setBarsSource("error");
+          toast.error(`Failed to load ${symbol.displayName} bars: ${err instanceof Error ? err.message : "network error"}`);
+        }
+      }
     })();
     return () => { cancelled = true; };
   }, [symbol, interval]);
@@ -118,19 +124,38 @@ export function ChartCell({
     return computeOverlays(bars, mounted, runResults);
   }, [bars, mounted, runResults]);
 
+  // Throttle ref for stream bar updates — batches high-frequency ticks to
+  // every 100ms to prevent excessive re-renders during live streaming.
+  const pendingBarRef = useRef<{ time: number; open: number; high: number; low: number; close: number; volume: number } | null>(null);
+  const throttleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const onStreamToggle = useCallback(() => {
     if (disconnectRef.current) { disconnectRef.current(); disconnectRef.current = null; return; }
     disconnectRef.current = openKlineStream(symbol.binanceSymbol, interval, {
       onBar: (bar) => {
-        setBars((prev) => {
-          if (!prev.length) return [bar];
-          const last = prev[prev.length - 1]!;
-          if (last.time === bar.time) return [...prev.slice(0, -1), bar];
-          if (bar.time > last.time) return [...prev, bar];
-          return prev;
-        });
+        // Throttle: store the latest bar, flush to state every 100ms.
+        pendingBarRef.current = bar;
+        if (throttleRef.current === null) {
+          throttleRef.current = setTimeout(() => {
+            throttleRef.current = null;
+            const pending = pendingBarRef.current;
+            if (pending === null) return;
+            pendingBarRef.current = null;
+            setBars((prev) => {
+              if (!prev.length) return [pending];
+              const last = prev[prev.length - 1]!;
+              if (last.time === pending.time) return [...prev.slice(0, -1), pending];
+              if (pending.time > last.time) return [...prev, pending];
+              return prev;
+            });
+          }, 100);
+        }
       },
-      onStatus: setStreamStatus,
+      onStatus: (status) => {
+        setStreamStatus(status);
+        if (status === "error") toast.error(`${symbol.displayName} stream disconnected`);
+        if (status === "live") toast.success(`${symbol.displayName} stream connected`);
+      },
     });
   }, [symbol, interval]);
 
@@ -159,13 +184,13 @@ export function ChartCell({
             value={symbol.coinbaseProduct}
             onValueChange={(v) => { const o = SUPPORTED_SYMBOLS.find((s) => s.coinbaseProduct === v); if (o) setSymbol(o); }}
           >
-            <SelectTrigger className="h-7 w-28 text-[10px]"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="h-9 w-28 text-xs sm:h-7 sm:w-28 sm:text-[10px]"><SelectValue /></SelectTrigger>
             <SelectContent>
               {SUPPORTED_SYMBOLS.map((s) => <SelectItem key={s.coinbaseProduct} value={s.coinbaseProduct}>{s.displayName}</SelectItem>)}
             </SelectContent>
           </Select>
           <Select value={interval} onValueChange={(v) => setInterval(v as ChartInterval)}>
-            <SelectTrigger className="h-7 w-16 text-[10px]"><SelectValue /></SelectTrigger>
+            <SelectTrigger className="h-9 w-16 text-xs sm:h-7 sm:w-16 sm:text-[10px]"><SelectValue /></SelectTrigger>
             <SelectContent>
               {SUPPORTED_INTERVALS.map((i) => <SelectItem key={i} value={i}>{i}</SelectItem>)}
             </SelectContent>
@@ -173,7 +198,7 @@ export function ChartCell({
           <StreamDot status={streamStatus} />
           <Button
             variant={streamStatus === "live" || streamStatus === "connecting" ? "destructive" : "outline"}
-            size="sm" className="h-7 px-2 text-[10px]"
+            size="sm" className="h-9 px-2 text-xs sm:h-7 sm:px-2 sm:text-[10px]"
             onClick={(e) => { e.stopPropagation(); onStreamToggle(); }}
           >
             {streamStatus === "live" || streamStatus === "connecting" ? "Stop" : "Stream"}
@@ -182,7 +207,7 @@ export function ChartCell({
         <div className="flex items-center gap-1.5">
           <span className="text-[10px] text-muted-foreground">{bars.length} bars</span>
           {canRemove && onRemove && (
-            <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={(e) => { e.stopPropagation(); onRemove(cellId); }}>
+            <Button variant="ghost" size="sm" className="h-9 w-9 p-0 sm:h-7 sm:w-7" onClick={(e) => { e.stopPropagation(); onRemove(cellId); }}>
               <X className="h-3 w-3" />
             </Button>
           )}
@@ -206,6 +231,10 @@ export function ChartCell({
     </div>
   );
 }
+
+// React.memo: prevents re-render when parent state changes but this cell's
+// props haven't changed (e.g. when another cell is activated). Wave 23.
+export const MemoizedChartCell = memo(ChartCell);
 
 function StreamDot({ status }: { status: StreamStatus }) {
   const color = status === "live" ? "bg-green-500" : status === "connecting" ? "bg-yellow-500" : status === "error" ? "bg-red-500" : "bg-gray-500";

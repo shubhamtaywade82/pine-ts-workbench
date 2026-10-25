@@ -5,6 +5,7 @@ import {
   createChart,
   CandlestickSeries,
   LineSeries,
+  createSeriesMarkers,
   type IChartApi,
   type ISeriesApi,
   type Time,
@@ -72,6 +73,11 @@ export function ChartWorkbench({ bars, mainOverlays, subPanes, tradeMarkers }: C
   const candlestickRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const overlaySeriesRef = useRef<Map<string, ISeriesApi<"Line">>>(new Map());
   const subPaneSeriesRef = useRef<Map<string, ISeriesApi<"Line">>>(new Map());
+  // Lerp animation state for candle formation (Wave 23).
+  const prevLastBarRef = useRef<{ time: number; open: number; high: number; low: number; close: number } | null>(null);
+  const animationRef = useRef<number | null>(null);
+  // LWC v5 markers plugin (replaces series.setMarkers which was removed in v5).
+  const markersRef = useRef<ReturnType<typeof createSeriesMarkers> | null>(null);
 
   // Initialize the chart once.
   useEffect(() => {
@@ -140,7 +146,8 @@ export function ChartWorkbench({ bars, mainOverlays, subPanes, tradeMarkers }: C
     };
   }, []);
 
-  // Update the candlestick series when `bars` changes.
+  // Update the candlestick series when `bars` changes — with lerp animation
+  // for the last (forming) candle. Wave 23.
   useEffect(() => {
     const chart = chartRef.current;
     if (chart === null) return;
@@ -154,30 +161,103 @@ export function ChartWorkbench({ bars, mainOverlays, subPanes, tradeMarkers }: C
         wickDownColor: "#ef5350",
       });
       candlestickRef.current = candle;
+      // Create the LWC v5 markers plugin attached to the candlestick series.
+      markersRef.current = createSeriesMarkers(candle, []);
     }
-    candlestickRef.current.setData(
-      bars.map((b) => ({
-        time: Math.floor(b.time / 1000) as Time,
-        open: b.open,
-        high: b.high,
-        low: b.low,
-        close: b.close,
-      })),
-    );
+
+    const candle = candlestickRef.current;
+    const newLast = bars.length > 0 ? bars[bars.length - 1] : null;
+    const prev = prevLastBarRef.current;
+
+    // Cancel any ongoing animation.
+    if (animationRef.current !== null) {
+      cancelAnimationFrame(animationRef.current);
+      animationRef.current = null;
+    }
+
+    if (newLast === null) {
+      candle.setData([]);
+      prevLastBarRef.current = null;
+      return;
+    }
+
+    const newLastData = {
+      time: Math.floor(newLast.time / 1000) as Time,
+      open: newLast.open, high: newLast.high, low: newLast.low, close: newLast.close,
+    };
+
+    // Case 1: same candle (same time), different OHLC → lerp animation.
+    if (
+      prev !== null &&
+      prev.time === newLast.time &&
+      (prev.open !== newLast.open || prev.high !== newLast.high ||
+        prev.low !== newLast.low || prev.close !== newLast.close)
+    ) {
+      const startTime = performance.now();
+      const duration = 150; // ms — fast enough for real-time, slow enough to see
+      const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+      // easeOutCubic: snappy at start, smooth at end — feels like a forming candle.
+      const ease = (t: number) => 1 - Math.pow(1 - t, 3);
+
+      const animate = () => {
+        const elapsed = performance.now() - startTime;
+        const t = Math.min(elapsed / duration, 1);
+        const e = ease(t);
+        candle.update({
+          time: newLastData.time,
+          open: lerp(prev.open, newLast.open, e),
+          high: lerp(prev.high, newLast.high, e),
+          low: lerp(prev.low, newLast.low, e),
+          close: lerp(prev.close, newLast.close, e),
+        });
+        if (t < 1) {
+          animationRef.current = requestAnimationFrame(animate);
+        } else {
+          animationRef.current = null;
+          prevLastBarRef.current = { time: newLast.time, open: newLast.open, high: newLast.high, low: newLast.low, close: newLast.close };
+        }
+      };
+      animationRef.current = requestAnimationFrame(animate);
+      return;
+    }
+
+    // Case 2: new candle (time advanced) → series.update() (append, no animation).
+    if (prev !== null && newLast.time > prev.time) {
+      candle.update(newLastData);
+      prevLastBarRef.current = { time: newLast.time, open: newLast.open, high: newLast.high, low: newLast.low, close: newLast.close };
+      return;
+    }
+
+    // Case 3: full dataset change (initial load, symbol switch) → setData() + fitContent().
+    candle.setData(bars.map((b) => ({
+      time: Math.floor(b.time / 1000) as Time,
+      open: b.open, high: b.high, low: b.low, close: b.close,
+    })));
     chart.timeScale().fitContent();
+    prevLastBarRef.current = { time: newLast.time, open: newLast.open, high: newLast.high, low: newLast.low, close: newLast.close };
   }, [bars]);
 
-  // Update trade markers (entry/exit arrows) on the candlestick series. Wave 21.
+  // Cleanup animation on unmount.
   useEffect(() => {
-    const candle = candlestickRef.current;
-    if (candle === null) return;
+    return () => {
+      if (animationRef.current !== null) {
+        cancelAnimationFrame(animationRef.current);
+        animationRef.current = null;
+      }
+    };
+  }, []);
+
+  // Update trade markers (entry/exit arrows) on the candlestick series. Wave 21.
+  // Uses LWC v5's createSeriesMarkers API (series.setMarkers was removed in v5).
+  useEffect(() => {
+    const markersPlugin = markersRef.current;
+    if (markersPlugin === null) return;
     if (tradeMarkers === undefined || tradeMarkers.length === 0) {
-      candle.setMarkers([]);
+      markersPlugin.setMarkers([]);
       return;
     }
     // LWC v5 markers: { time, position, color, shape, text }
-    // Entry: green up-arrow below bar. Exit: red down-arrow above bar.
-    const markers = tradeMarkers.map((m) => {
+    const markerData = tradeMarkers.map((m) => {
       const isEntry = m.type === "entry";
       const isLong = m.direction === "long";
       // Entry long: green arrowUp below bar. Entry short: red arrowUp below bar.
@@ -194,8 +274,8 @@ export function ChartWorkbench({ bars, mainOverlays, subPanes, tradeMarkers }: C
       };
     });
     // LWC requires markers sorted by time ascending.
-    markers.sort((a, b) => (a.time as number) - (b.time as number));
-    candle.setMarkers(markers);
+    markerData.sort((a, b) => (a.time as number) - (b.time as number));
+    markersPlugin.setMarkers(markerData);
   }, [tradeMarkers]);
 
   // Update the main-pane overlays.

@@ -2,11 +2,14 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "standalone",
-  /* config options here */
   typescript: {
     ignoreBuildErrors: true,
   },
   reactStrictMode: false,
+  // Allow the Z.ai preview panel to load the dev server's JS bundles.
+  // The preview runs on preview-chat-*.space-z.ai and makes cross-origin
+  // requests to localhost:3000 for /_next/* resources.
+  allowedDevOrigins: ["*.space-z.ai"],
 };
 
 export default nextConfig;
