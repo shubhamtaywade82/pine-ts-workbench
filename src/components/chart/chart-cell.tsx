@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useEffect, useMemo, useState } from "react";
-import { registry, type Bar } from "@nemesis-oss/pine-ts";
+import { registry, type Bar, type InputsBag } from "@nemesis-oss/pine-ts";
 import {
   type ChartInterval,
   type SymbolOption,
@@ -21,6 +21,9 @@ import {
 } from "@/lib/public-binance-feed";
 import { X } from "lucide-react";
 import { useLiveBars, type LiveStatus } from "@/hooks/use-live-bars";
+import { IndicatorsDialog, ChartActionToolbar } from "@/components/chart/indicators-dialog";
+import type { MountedIndicator } from "@/components/chart/indicator-sidebar";
+import { nextInstanceId } from "@/components/chart/indicator-sidebar";
 
 /**
  * A self-contained chart cell — manages its own symbol, timeframe, bars,
@@ -67,7 +70,8 @@ export function ChartCell({
 }: ChartCellProps) {
   const { bars, status, error, loadOlder } = useLiveBars(symbol.binanceSymbol, interval);
   const [runResults, setRunResults] = useState<Record<string, IndicatorRunResult>>({});
-
+  const [indicatorsOpen, setIndicatorsOpen] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   // Drive indicators.
   useEffect(() => {
     let cancelled = false;
@@ -107,10 +111,19 @@ export function ChartCell({
     ? [...subPanes, { paneId: "editor", title: "Custom", overlays: editorOverlays }]
     : subPanes;
 
+  // Add an indicator to this cell via the dialog.
+  const addIndicator = (m: MountedIndicator) => {
+    onChange(cellId, { indicators: [...mounted, m] });
+  };
+
+  // Remove an indicator from this cell.
+  const removeIndicator = (instanceId: string) => {
+    onChange(cellId, { indicators: mounted.filter((m) => m.instanceId !== instanceId) });
+  };
+
   return (
     <div
-      // Highlight only matters when there are several charts to pick from, as on TradingView.
-      className={`flex h-full flex-col border ${isActive && canRemove ? "border-primary" : "border-transparent"}`}
+      className={`flex h-full flex-col border ${isActive && canRemove ? "border-primary" : "border-transparent"} relative`}
       onClick={() => onActivate(cellId)}
     >
       {/* Cell header — symbol/timeframe + stream + remove */}
@@ -143,16 +156,35 @@ export function ChartCell({
         </div>
       </div>
 
-      {/* Chart body */}
-      <div className="flex-1 overflow-hidden px-1 pb-1">
+      {/* Chart body — with TradingView-style floating toolbar + indicator legend */}
+      <div className="flex-1 overflow-hidden px-1 pb-1 relative">
         {bars.length === 0 ? (
           <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
             {error ?? `Loading ${symbol.displayName} from Binance…`}
           </div>
         ) : (
-          <ChartWorkbench title={`${symbol.displayName} · ${interval} · Binance`} interval={interval} bars={bars} onNeedOlderBars={loadOlder} mainOverlays={mainOverlays} subPanes={allSubPanes} tradeMarkers={tradeMarkers} />
+          <>
+            <ChartActionToolbar
+              onAddIndicator={() => setIndicatorsOpen(true)}
+              onToggleSettings={() => {}}
+              onToggleFullscreen={() => setIsFullscreen((v) => !v)}
+              isFullscreen={isFullscreen}
+              mounted={mounted}
+              onRemoveIndicator={removeIndicator}
+              onToggleIndicatorSettings={() => {}}
+            />
+            <ChartWorkbench title={`${symbol.displayName} · ${interval} · Binance`} interval={interval} bars={bars} onNeedOlderBars={loadOlder} mainOverlays={mainOverlays} subPanes={allSubPanes} tradeMarkers={tradeMarkers} />
+          </>
         )}
       </div>
+
+      {/* Indicators dialog — TradingView-style searchable list */}
+      <IndicatorsDialog
+        open={indicatorsOpen}
+        onOpenChange={setIndicatorsOpen}
+        onAdd={addIndicator}
+        mounted={mounted}
+      />
     </div>
   );
 }
