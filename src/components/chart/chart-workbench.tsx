@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   createChart,
   LineSeries,
@@ -11,8 +11,8 @@ import {
   type Time,
 } from "lightweight-charts";
 import type { Bar } from "@nemesis-oss/pine-ts";
-import { ChartLegend } from "@/components/chart/chart-legend";
-import { useCandleSeries } from "@/hooks/use-candle-series";
+import { ChartLegend, writeLiveOhlc } from "@/components/chart/chart-legend";
+import { useCandleSeries, type CandleFrame } from "@/hooks/use-candle-series";
 import { INTERVAL_MS, type ChartInterval } from "@/lib/public-binance-feed";
 
 /**
@@ -170,7 +170,11 @@ export function ChartWorkbench({ bars, mainOverlays, subPanes, tradeMarkers, tit
     };
   }, []);
 
-  const candlestickRef = useCandleSeries(chartRef, bars, INTERVAL_MS[interval]);
+  const liveOhlcRef = useRef<HTMLSpanElement>(null);
+  const onCandleFrame = useCallback((frame: CandleFrame) => {
+    if (liveOhlcRef.current !== null) writeLiveOhlc(liveOhlcRef.current, frame);
+  }, []);
+  const candlestickRef = useCandleSeries(chartRef, bars, INTERVAL_MS[interval], onCandleFrame);
 
   // Update trade markers (entry/exit arrows) on the candlestick series. Wave 21.
   // Uses LWC v5's createSeriesMarkers API (series.setMarkers was removed in v5).
@@ -275,7 +279,7 @@ export function ChartWorkbench({ bars, mainOverlays, subPanes, tradeMarkers, tit
       <div ref={containerRef} className="h-full w-full" />
       <ChartLegend
         title={title} bars={bars} mainOverlays={mainOverlays} subPanes={subPanes}
-        hoverTime={hoverTime} paneHeights={paneHeights}
+        hoverTime={hoverTime} paneHeights={paneHeights} liveOhlcRef={liveOhlcRef}
       />
     </div>
   );

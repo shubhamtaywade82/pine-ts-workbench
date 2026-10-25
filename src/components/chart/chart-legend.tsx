@@ -1,5 +1,6 @@
 "use client";
 
+import type { RefObject } from "react";
 import type { Bar } from "@nemesis-oss/pine-ts";
 import type { ChartOverlay, ChartSubPane } from "@/components/chart/chart-workbench";
 
@@ -18,6 +19,8 @@ export interface ChartLegendProps {
   readonly hoverTime: number | null;
   /** Pixel height of each LWC pane, main pane first. */
   readonly paneHeights: readonly number[];
+  /** Attached to the OHLC values while showing the live bar, for {@link writeLiveOhlc}. */
+  readonly liveOhlcRef: RefObject<HTMLSpanElement | null>;
 }
 
 const PRICE_FORMAT = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -33,8 +36,42 @@ const formatPrice = (value: number, scale: number = value): string =>
 const pointAt = <T extends { time: number }>(points: readonly T[], time: number | null): T | undefined =>
   time === null ? points[points.length - 1] : points.find((p) => p.time === time);
 
+type OhlcvValues = Pick<Bar, "open" | "high" | "low" | "close" | "volume">;
+
+/** Text and colour of every legend value, shared by the React render and {@link writeLiveOhlc}. */
+const legendValues = (bar: OhlcvValues) => {
+  const change = bar.close - bar.open;
+  const sign = change >= 0 ? "+" : "";
+  const changePct = bar.open !== 0 ? (change / bar.open) * 100 : 0;
+  return {
+    color: bar.close >= bar.open ? UP_COLOR : DOWN_COLOR,
+    fields: {
+      O: formatPrice(bar.open),
+      H: formatPrice(bar.high),
+      L: formatPrice(bar.low),
+      C: formatPrice(bar.close),
+      change: `${sign}${formatPrice(change, bar.close)} (${sign}${changePct.toFixed(2)}%)`,
+      Vol: VOLUME_FORMAT.format(bar.volume),
+    },
+  };
+};
+
+/**
+ * Writes the drawn (smoothed) candle into the live legend at animation-frame rate,
+ * bypassing React: re-rendering the chart 60 times a second would be far too heavy.
+ * Mutates the existing text nodes, which React still owns and keeps updating.
+ */
+export const writeLiveOhlc = (container: HTMLSpanElement, bar: OhlcvValues): void => {
+  const { color, fields } = legendValues(bar);
+  for (const el of container.querySelectorAll<HTMLElement>("[data-field]")) {
+    const text = fields[el.dataset.field as keyof typeof fields];
+    if (el.firstChild !== null && el.firstChild.nodeValue !== text) el.firstChild.nodeValue = text;
+    el.style.color = color;
+  }
+};
+
 /** TradingView-style top-left legend: symbol + OHLC, then one line per indicator in each pane. */
-export function ChartLegend({ title, bars, mainOverlays, subPanes, hoverTime, paneHeights }: ChartLegendProps) {
+export function ChartLegend({ title, bars, mainOverlays, subPanes, hoverTime, paneHeights, liveOhlcRef }: ChartLegendProps) {
   const bar = pointAt(bars, hoverTime);
   // Sub-pane i starts below the main pane and every sub-pane before it.
   const paneTops = subPanes.map((_, i) =>
@@ -44,7 +81,10 @@ export function ChartLegend({ title, bars, mainOverlays, subPanes, hoverTime, pa
       <div className="absolute left-2 top-1 flex flex-col gap-0.5">
         <div className="flex flex-wrap items-center gap-2">
           <span className="font-sans text-xs font-semibold text-[#d1d4dc]">{title}</span>
-          {bar !== undefined && <OhlcValues bar={bar} />}
+          {/* Keyed by mode: switching hover ↔ live remounts, so no frame-written colour lingers. */}
+          {bar !== undefined && (
+            <OhlcValues key={hoverTime === null ? "live" : "hover"} bar={bar} valuesRef={hoverTime === null ? liveOhlcRef : undefined} />
+          )}
         </div>
         {mainOverlays.map((overlay) => (
           <OverlayLine key={overlay.instanceId} name={overlay.indicatorName} overlays={[overlay]} hoverTime={hoverTime} />
@@ -59,23 +99,19 @@ export function ChartLegend({ title, bars, mainOverlays, subPanes, hoverTime, pa
   );
 }
 
-function OhlcValues({ bar }: { bar: Bar }) {
-  const color = bar.close >= bar.open ? UP_COLOR : DOWN_COLOR;
-  const change = bar.close - bar.open;
-  const changePct = bar.open !== 0 ? (change / bar.open) * 100 : 0;
-  const fields: [string, number][] = [["O", bar.open], ["H", bar.high], ["L", bar.low], ["C", bar.close]];
+function OhlcValues({ bar, valuesRef }: { bar: Bar; valuesRef?: RefObject<HTMLSpanElement | null> }) {
+  const { color, fields } = legendValues(bar);
+  const labels = ["O", "H", "L", "C"] as const;
   return (
-    <span className="flex gap-2">
-      {fields.map(([label, value]) => (
+    <span ref={valuesRef} className="flex gap-2">
+      {labels.map((label) => (
         <span key={label} className="text-[#787b86]">
-          {label}<span style={{ color }}>{formatPrice(value)}</span>
+          {label}<span data-field={label} style={{ color }}>{fields[label]}</span>
         </span>
       ))}
-      <span style={{ color }}>
-        {change >= 0 ? "+" : ""}{formatPrice(change, bar.close)} ({change >= 0 ? "+" : ""}{changePct.toFixed(2)}%)
-      </span>
+      <span data-field="change" style={{ color }}>{fields.change}</span>
       <span className="text-[#787b86]">
-        Vol <span style={{ color }}>{VOLUME_FORMAT.format(bar.volume)}</span>
+        Vol <span data-field="Vol" style={{ color }}>{fields.Vol}</span>
       </span>
     </span>
   );
