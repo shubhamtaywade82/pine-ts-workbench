@@ -2,7 +2,7 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { registry, type InputsBag } from "@nemesis-oss/pine-ts";
+import { registry, type Bar, type InputsBag } from "@nemesis-oss/pine-ts";
 import { STUB_BARS } from "@/lib/stub-bars";
 import {
   fetchHistoricalBars,
@@ -55,10 +55,12 @@ export interface ChartCellProps {
   readonly canRemove: boolean;
   readonly editorOverlays: ChartOverlay[];
   readonly tradeMarkers?: TradeMarker[];
+  /** Receives this cell's bars while it is active, so the editor runs on what the chart shows. */
+  readonly onActiveBarsChange?: (bars: readonly Bar[]) => void;
 }
 
 export function ChartCell({
-  cellId, isActive, onActivate, onRemove, canRemove, editorOverlays, tradeMarkers,
+  cellId, isActive, onActivate, onRemove, canRemove, editorOverlays, tradeMarkers, onActiveBarsChange,
 }: ChartCellProps) {
   const [symbol, setSymbol] = useState<SymbolOption>(SUPPORTED_SYMBOLS[0]!);
   const [interval, setInterval] = useState<ChartInterval>("1m");
@@ -170,7 +172,15 @@ export function ChartCell({
   const onInputChange = useCallback((id: string, name: string, v: number | string | boolean) =>
     setMounted((p) => p.map((m) => m.instanceId === id ? { ...m, inputs: { ...m.inputs, [name]: v } } : m)), []);
 
-  const allOverlays = [...mainOverlays, ...editorOverlays];
+  useEffect(() => {
+    if (isActive) onActiveBarsChange?.(bars);
+  }, [isActive, bars, onActiveBarsChange]);
+
+  // Editor plots have no overlay flag; a sub-pane keeps oscillators (RSI etc.)
+  // from squashing the price scale.
+  const allSubPanes = editorOverlays.length > 0
+    ? [...subPanes, { paneId: "editor", title: "Custom", overlays: editorOverlays }]
+    : subPanes;
 
   return (
     <div
@@ -225,7 +235,7 @@ export function ChartCell({
             Loading…
           </div>
         ) : (
-          <ChartWorkbench bars={bars} mainOverlays={allOverlays} subPanes={subPanes} tradeMarkers={tradeMarkers} />
+          <ChartWorkbench bars={bars} mainOverlays={mainOverlays} subPanes={allSubPanes} tradeMarkers={tradeMarkers} />
         )}
       </div>
     </div>

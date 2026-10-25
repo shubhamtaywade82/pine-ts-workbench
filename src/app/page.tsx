@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useState, useEffect, useMemo } from "react";
+import type { Bar } from "@nemesis-oss/pine-ts";
 import { STUB_BARS } from "@/lib/stub-bars";
 import { SUPPORTED_SYMBOLS, type SymbolOption, type ChartInterval } from "@/lib/public-binance-feed";
 import { ChartCell, MemoizedChartCell } from "@/components/chart/chart-cell";
@@ -150,7 +151,7 @@ export default function Home() {
   };
 
   // The active cell's bars (for the editor).
-  const editorBars = STUB_BARS;
+  const [editorBars, setEditorBars] = useState<readonly Bar[]>(STUB_BARS);
 
   // Load saved layouts on mount.
   useEffect(() => { setSavedLayouts(loadLayouts()); }, []);
@@ -257,6 +258,7 @@ export default function Home() {
                 canRemove={cells.length > 1}
                 editorOverlays={cell.id === activeCellId ? editorOverlays : []}
                 tradeMarkers={cell.id === activeCellId ? tradeMarkers : []}
+                onActiveBarsChange={setEditorBars}
               />
             ))}
           </div>
