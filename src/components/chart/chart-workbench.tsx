@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   createChart,
   CandlestickSeries,
@@ -12,6 +12,7 @@ import {
   type Time,
 } from "lightweight-charts";
 import type { Bar } from "@nemesis-oss/pine-ts";
+import { ChartLegend } from "@/components/chart/chart-legend";
 
 /**
  * A single indicator overlay applied to the chart.
@@ -83,6 +84,8 @@ export interface ChartWorkbenchProps {
   readonly subPanes: readonly ChartSubPane[];
   /** Trade markers (entry/exit arrows) from the strategy backtest. Wave 21. */
   readonly tradeMarkers?: readonly TradeMarker[];
+  /** Legend heading, e.g. "BTC / USD · 1m". */
+  readonly title: string;
 }
 
 /**
@@ -92,7 +95,7 @@ export interface ChartWorkbenchProps {
  * `chart.addSeries(LineSeries, options)` (function-style, not the old
  * `chart.addLineSeries`).
  */
-export function ChartWorkbench({ bars, mainOverlays, subPanes, tradeMarkers }: ChartWorkbenchProps) {
+export function ChartWorkbench({ bars, mainOverlays, subPanes, tradeMarkers, title }: ChartWorkbenchProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candlestickRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
@@ -103,6 +106,8 @@ export function ChartWorkbench({ bars, mainOverlays, subPanes, tradeMarkers }: C
   const animationRef = useRef<number | null>(null);
   // LWC v5 markers plugin (replaces series.setMarkers which was removed in v5).
   const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
+  const [hoverTime, setHoverTime] = useState<number | null>(null);
+  const [paneHeights, setPaneHeights] = useState<number[]>([]);
 
   // Initialize the chart once.
   useEffect(() => {
@@ -141,6 +146,9 @@ export function ChartWorkbench({ bars, mainOverlays, subPanes, tradeMarkers }: C
       height: container.clientHeight,
     });
     chartRef.current = chart;
+    chart.subscribeCrosshairMove((param) => {
+      setHoverTime(param.time === undefined ? null : (param.time as number) * 1000);
+    });
 
     // ResizeObserver to keep the chart sized to its container.
     const resize = () => {
@@ -149,6 +157,7 @@ export function ChartWorkbench({ bars, mainOverlays, subPanes, tradeMarkers }: C
         width: containerRef.current.clientWidth,
         height: containerRef.current.clientHeight,
       });
+      setPaneHeights(chart.panes().map((pane) => pane.getHeight()));
     };
     const observer = new ResizeObserver(resize);
     observer.observe(container);
@@ -354,7 +363,17 @@ export function ChartWorkbench({ bars, mainOverlays, subPanes, tradeMarkers }: C
     }
     // TradingView gives price ~75% of the height; LWC defaults to equal panes.
     chart.panes().forEach((pane, i) => pane.setStretchFactor(i === 0 ? 3 : 1));
+    // Pane heights settle on LWC's next paint, not synchronously.
+    requestAnimationFrame(() => setPaneHeights(chart.panes().map((pane) => pane.getHeight())));
   }, [subPanes]);
 
-  return <div ref={containerRef} className="h-full w-full" />;
+  return (
+    <div className="relative h-full w-full">
+      <div ref={containerRef} className="h-full w-full" />
+      <ChartLegend
+        title={title} bars={bars} mainOverlays={mainOverlays} subPanes={subPanes}
+        hoverTime={hoverTime} paneHeights={paneHeights}
+      />
+    </div>
+  );
 }

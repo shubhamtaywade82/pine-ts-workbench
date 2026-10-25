@@ -235,7 +235,7 @@ export function ChartCell({
             Loading…
           </div>
         ) : (
-          <ChartWorkbench bars={bars} mainOverlays={mainOverlays} subPanes={allSubPanes} tradeMarkers={tradeMarkers} />
+          <ChartWorkbench title={`${symbol.displayName} · ${interval}`} bars={bars} mainOverlays={mainOverlays} subPanes={allSubPanes} tradeMarkers={tradeMarkers} />
         )}
       </div>
     </div>
