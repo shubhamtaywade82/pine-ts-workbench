@@ -98,30 +98,33 @@ Open http://localhost:3100
 ### Custom indicator example
 
 ```typescript
-export function calculate({ ta, ctx, inputs }: {
-  ta: typeof import("@nemesis-oss/pine-ts").ta,
-  ctx: import("@nemesis-oss/pine-ts").PineContext,
-  inputs: Record<string, unknown>,
-}): Record<string, number | undefined> {
-  const rsi = ta.rsi(ctx.close, 14).at(0);
-  return { main: rsi, upper: 70, lower: 30 };
-}
+indicator("RSI", ({ close, input, plot, hline }) => {
+  plot(ta.rsi(close, input.int(14, "Length", { min: 1 })), "RSI");
+  hline(70);
+  hline(30);
+});
 ```
+
+The body runs once per bar. In scope: `open`, `high`, `low`, `close`, `volume`,
+`hl2`, `hlc3`, `ohlc4`, `time`, `bar_index`, `input`, `plot`, `hline`, `ta`,
+`math`, and `ctx` (the full Pine context). The `@nemesis-oss/pine-ts` import is
+optional in the editor.
 
 ### Strategy example
 
 ```typescript
-export function strategy({ ta, ctx, engine, inputs }: {
-  ta: typeof import("@nemesis-oss/pine-ts").ta,
-  ctx: import("@nemesis-oss/pine-ts").PineContext,
-  engine: import("@nemesis-oss/pine-ts").strategy.StrategyEngine,
-  inputs: Record<string, unknown>,
-}) {
-  const sma = ta.sma(ctx.close, 20);
-  if (ta.crossover(ctx.close, sma)) engine.entry("long", "long", 0.001);
-  if (ta.crossunder(ctx.close, sma)) engine.close("long");
-}
+defineStrategy("SMA Crossover", { initial_capital: 10_000, default_qty_value: 0.001 },
+  ({ close, input, strategy }) => {
+    const sma = ta.sma(close, input.int(20, "Length"));
+    strategy.entry("long", "long", { when: ta.crossover(close, sma) });
+    strategy.close("long", { when: ta.crossunder(close, sma) });
+  });
 ```
+
+`ta.crossover(...)` returns a boolean *series*: pass it as `when`, or use
+`.value` inside an `if`. Backtests run on confirmed bars only (the forming bar
+is excluded). Legacy `calculate({ ta, ctx, inputs })` / `strategy({ ta, ctx,
+engine, inputs })` functions still run unchanged.
 
 ## Binance trading setup
 
