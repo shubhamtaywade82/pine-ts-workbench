@@ -65,7 +65,7 @@ export function ChartCell({
   cellId, symbol, interval, indicators: mounted, onChange,
   isActive, onActivate, onRemove, canRemove, editorOverlays, tradeMarkers, onActiveBarsChange,
 }: ChartCellProps) {
-  const { bars, status, error } = useLiveBars(symbol.binanceSymbol, interval);
+  const { bars, status, error, loadOlder } = useLiveBars(symbol.binanceSymbol, interval);
   const [runResults, setRunResults] = useState<Record<string, IndicatorRunResult>>({});
 
   // Drive indicators.
@@ -150,7 +150,7 @@ export function ChartCell({
             {error ?? `Loading ${symbol.displayName} from Binance…`}
           </div>
         ) : (
-          <ChartWorkbench title={`${symbol.displayName} · ${interval} · Binance`} interval={interval} bars={bars} mainOverlays={mainOverlays} subPanes={allSubPanes} tradeMarkers={tradeMarkers} />
+          <ChartWorkbench title={`${symbol.displayName} · ${interval} · Binance`} interval={interval} bars={bars} onNeedOlderBars={loadOlder} mainOverlays={mainOverlays} subPanes={allSubPanes} tradeMarkers={tradeMarkers} />
         )}
       </div>
     </div>

@@ -68,16 +68,19 @@ const MAX_KLINES_LIMIT = 1000;
 type KlineRow = [number, string, string, string, string, string, number, ...unknown[]];
 
 /**
- * Fetches the latest `limit` candles, oldest first. The last candle is
- * usually still forming, so `isClosed` reflects its close time.
+ * Fetches up to `limit` candles, oldest first: the latest ones, or with
+ * `endTime` (ms) the ones opening at or before it (for loading older history).
+ * The last candle is usually still forming, so `isClosed` reflects its close time.
  * Throws on network failure or a non-2xx response.
  */
 export const fetchHistoricalBars = async (
   symbol: BinanceSymbol,
   interval: ChartInterval,
   limit: number = 200,
+  endTime?: number,
 ): Promise<Bar[]> => {
   const params = new URLSearchParams({ symbol, interval, limit: String(Math.min(limit, MAX_KLINES_LIMIT)) });
+  if (endTime !== undefined) params.set("endTime", String(endTime));
   const res = await fetch(`${KLINES_URL}?${params}`);
   if (!res.ok) {
     throw new Error(`Binance klines ${symbol} ${interval} failed with ${res.status}: ${await res.text()}`);

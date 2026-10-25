@@ -84,7 +84,8 @@ const formatCountdown = (msLeft: number): string => {
  *   new OHLC; one rAF loop chases the latest target, so new ticks retarget it
  *   instead of restarting an animation (which would look like a jump);
  * - one bar appended → settle the previous candle, then append;
- * - anything else (initial load, symbol switch) → full reset.
+ * - anything else (initial load, older history prepended, reconnect) → full reset
+ *   that keeps the view on the same candles.
  * Also shows the time left on the forming candle in the last-price label, and
  * reports every drawn frame to `onFrame` (e.g. for the legend).
  * Returns the candle series (for markers), recreated whenever the chart is.
@@ -143,10 +144,23 @@ export function useCandleSeries(
     animationRef.current = requestAnimationFrame(step);
   };
 
-  const resetAll = (series: CandleSeries) => {
+  /**
+   * Replaces all data. First load fits the chart; later replacements (older history
+   * prepended on scroll-back, history refetched on reconnect) keep the view on the
+   * same candles by shifting the visible range by however many bars were added before them.
+   */
+  const resetAll = (series: CandleSeries, previous: readonly Bar[]) => {
+    const timeScale = series.chart.timeScale();
+    const visible = timeScale.getVisibleLogicalRange();
     series.candle.setData(bars.map(toCandle));
     series.volume.setData(bars.map(toVolume));
-    series.chart.timeScale().fitContent();
+    const previousFirst = previous[0];
+    if (previousFirst === undefined || visible === null) {
+      timeScale.fitContent();
+      return;
+    }
+    const shift = bars.findIndex((b) => b.time === previousFirst.time);
+    if (shift > 0) timeScale.setVisibleLogicalRange({ from: visible.from + shift, to: visible.to + shift });
   };
 
   useEffect(() => {
@@ -180,7 +194,7 @@ export function useCandleSeries(
       series.volume.update(toVolume(last));
       draw(series, last, last);
     } else {
-      resetAll(series);
+      resetAll(series, shown);
       displayedRef.current = last ?? null;
       if (last !== undefined) onFrameRef.current?.({ ...last });
     }

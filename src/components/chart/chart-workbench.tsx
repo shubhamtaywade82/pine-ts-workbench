@@ -43,6 +43,8 @@ const TV = {
   exit: "#e040fb",
 };
 
+const LOAD_OLDER_THRESHOLD_BARS = 30;
+
 const lineOptions = (overlay: ChartOverlay) => ({
   color: overlay.color,
   lineWidth: 1 as const,
@@ -88,6 +90,8 @@ export interface ChartWorkbenchProps {
   readonly title: string;
   /** Bar interval — drives the countdown to the candle close. */
   readonly interval: ChartInterval;
+  /** Called when the user scrolls near the oldest loaded candle, to lazy-load older history. */
+  readonly onNeedOlderBars?: () => void;
 }
 
 /**
@@ -97,7 +101,7 @@ export interface ChartWorkbenchProps {
  * `chart.addSeries(LineSeries, options)` (function-style, not the old
  * `chart.addLineSeries`).
  */
-export function ChartWorkbench({ bars, mainOverlays, subPanes, tradeMarkers, title, interval }: ChartWorkbenchProps) {
+export function ChartWorkbench({ bars, mainOverlays, subPanes, tradeMarkers, title, interval, onNeedOlderBars }: ChartWorkbenchProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const overlaySeriesRef = useRef<Map<string, ISeriesApi<"Line">>>(new Map());
@@ -175,6 +179,20 @@ export function ChartWorkbench({ bars, mainOverlays, subPanes, tradeMarkers, tit
     if (liveOhlcRef.current !== null) writeLiveOhlc(liveOhlcRef.current, frame);
   }, []);
   const candlestickRef = useCandleSeries(chartRef, bars, INTERVAL_MS[interval], onCandleFrame);
+
+  // Logical index 0 is the oldest loaded bar; asking a little before the user reaches it
+  // means the older page usually arrives before blank space scrolls into view.
+  const onNeedOlderRef = useRef(onNeedOlderBars);
+  useEffect(() => { onNeedOlderRef.current = onNeedOlderBars; }, [onNeedOlderBars]);
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (chart === null) return;
+    const onRangeChange = (range: { from: number } | null) => {
+      if (range !== null && range.from < LOAD_OLDER_THRESHOLD_BARS) onNeedOlderRef.current?.();
+    };
+    chart.timeScale().subscribeVisibleLogicalRangeChange(onRangeChange);
+    return () => chart.timeScale().unsubscribeVisibleLogicalRangeChange(onRangeChange);
+  }, []);
 
   // Update trade markers (entry/exit arrows) on the candlestick series. Wave 21.
   // Uses LWC v5's createSeriesMarkers API (series.setMarkers was removed in v5).

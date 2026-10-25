@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { Bar } from "@nemesis-oss/pine-ts";
 import {
   fetchHistoricalBars,
@@ -12,6 +12,8 @@ import {
 } from "@/lib/public-binance-feed";
 
 const HISTORY_BARS = 200;
+// Bars fetched per scroll-back request; Binance allows up to 1000 per call.
+const OLDER_PAGE_BARS = 500;
 // Trades can arrive hundreds of times a second; React state updates at 10/s
 // are smooth for the eye (the candle lerp fills the gaps) and cheap to render.
 const FLUSH_INTERVAL_MS = 100;
@@ -24,7 +26,16 @@ export interface LiveBars {
   readonly status: LiveStatus;
   /** Last load failure, cleared once the stream is live again. */
   readonly error: string | null;
+  /** Prepends the page of candles before the oldest one; no-op while loading or once history is exhausted. */
+  readonly loadOlder: () => void;
 }
+
+/** Keeps `existing` bars older than `fresh` (scroll-back history survives a reconnect), then `fresh`. */
+const withOlderHistory = (existing: readonly Bar[], fresh: readonly Bar[]): readonly Bar[] => {
+  const firstFresh = fresh[0];
+  if (firstFresh === undefined) return existing;
+  return [...existing.filter((b) => b.time < firstFresh.time), ...fresh];
+};
 
 /** Inserts `bar` by time: replaces the bar at the same time, appends a newer one, drops an older one. */
 export const mergeBar = (bars: readonly Bar[], bar: Bar): readonly Bar[] => {
@@ -62,10 +73,13 @@ export function useLiveBars(symbol: BinanceSymbol, interval: ChartInterval): Liv
   const [attempt, setAttempt] = useState(0);
   // Working copy updated on every message; React state is synced from it on a timer.
   const workingRef = useRef<readonly Bar[]>([]);
+  const isLoadingOlderRef = useRef(false);
+  const hasOlderRef = useRef(true);
 
   useEffect(() => {
     // New symbol/interval: show the loader instead of the previous market's candles.
     workingRef.current = [];
+    hasOlderRef.current = true;
     setBars([]);
     setStatus("loading");
   }, [symbol, interval]);
@@ -85,8 +99,8 @@ export function useLiveBars(symbol: BinanceSymbol, interval: ChartInterval): Liv
     const start = async () => {
       const history = await fetchHistoricalBars(symbol, interval, HISTORY_BARS);
       if (isCancelled) return;
-      workingRef.current = history;
-      setBars(history);
+      workingRef.current = withOlderHistory(workingRef.current, history);
+      setBars(workingRef.current);
       closeStream = openMarketStream(symbol, interval, {
         onOpen: () => { setStatus("live"); setError(null); },
         onClose: scheduleReconnect,
@@ -112,5 +126,25 @@ export function useLiveBars(symbol: BinanceSymbol, interval: ChartInterval): Liv
     };
   }, [symbol, interval, attempt]);
 
-  return { bars, status, error };
+  const loadOlder = useCallback(() => {
+    const first = workingRef.current[0];
+    if (first === undefined || isLoadingOlderRef.current || !hasOlderRef.current) return;
+    isLoadingOlderRef.current = true;
+    fetchHistoricalBars(symbol, interval, OLDER_PAGE_BARS, first.time - 1)
+      .then((older) => {
+        // A short page means Binance has no data before it (the pair's listing date).
+        if (older.length < OLDER_PAGE_BARS) hasOlderRef.current = false;
+        // Symbol/interval switched while fetching: these bars belong to the old market.
+        if (workingRef.current[0]?.time !== first.time) return;
+        workingRef.current = [...older.filter((b) => b.time < first.time), ...workingRef.current];
+        setBars(workingRef.current);
+      })
+      .catch((err: unknown) => {
+        // Retried on the next scroll to the left edge.
+        setError(`Failed to load older ${symbol} ${interval} candles: ${err instanceof Error ? err.message : String(err)}`);
+      })
+      .finally(() => { isLoadingOlderRef.current = false; });
+  }, [symbol, interval]);
+
+  return { bars, status, error, loadOlder };
 }
