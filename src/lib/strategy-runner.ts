@@ -121,22 +121,21 @@ export async function runBacktest(
     }
 
     // Create a StrategyEngine (built-in emulator, no broker adapter).
-    const engine = new StrategyEngine({
-      declaration: {
-        title: "Backtest",
-        pyramiding: 1,
-        initial_capital: 10_000,
-        default_qty_type: "fixed",
-        default_qty_value: 1,
-        commission_type: "percent",
-        commission_value: 0.1,
-        slippage: 0,
-        slippage_unit: "points",
-        margin_long: 100,
-        margin_short: 100,
-      },
+    const engine = new StrategyEngine();
+    engine.configure({
+      // pine-ts 0.1.x uses `title` as the broker symbol (no setSymbol API).
+      title: "BACKTEST",
+      pyramiding: 1,
+      initial_capital: 10_000,
+      default_qty_type: "fixed",
+      default_qty_value: 1,
+      commission_type: "percent",
+      commission_value: 0.1,
+      slippage: 0,
+      slippage_unit: "points",
+      margin_long: 100,
+      margin_short: 100,
     });
-    engine.setSymbol("BACKTEST");
 
     // Create a PineRuntime with the bars.
     const testInfo = { ticker: "BACKTEST", tickerId: "BACKTEST", timezone: "UTC", type: "crypto" as const };
@@ -152,6 +151,9 @@ export async function runBacktest(
 
     // Drive the runtime bar-by-bar, calling the strategy on each bar.
     await runtime.run((ctx: PineContext) => {
+      // PineRuntime doesn't drive the engine; fill orders queued on the
+      // previous bar against this bar before the strategy places new ones.
+      engine.processBar(ctx.bar);
       try {
         strategyFn({ ta, ctx, engine, inputs });
       } catch (err) {
