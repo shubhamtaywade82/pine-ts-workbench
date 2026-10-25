@@ -1,0 +1,45 @@
+feat: complete syminfo.* variables and v6 constants namespaces
+
+Wave 9c — syminfo.* + constants.*:
+
+src/syminfo/index.ts (new):
+  - 17 accessors for the documented v6 `syminfo.*` variables: ticker,
+    tickerid, basecurrency, currency, mintick, pointvalue, pricescale,
+    minmove, timezone, session, volumetype, root, prefix, main_tickerid,
+    current_contract, type, description, mincontract, plus getSymbolInfo.
+  - Each reads from the active session's `SymbolInfo`; returns the
+    type-appropriate empty value (NaN for numbers, "" for strings) when
+    the provider did not supply the field.
+  - Provider-limited fields (root, prefix, main_tickerid, current_contract)
+    are exposed; crypto providers like Binance don't supply them, so
+    callers get "" until a provider that does is wired in.
+
+src/core/types.ts (extended):
+  - `SymbolInfo` extended with the missing v6 fields: pointValue,
+    priceScale, minMove, session, volumeType, root, prefix, mainTickerId,
+    currentContract, currency, description.
+  - Each field has a JSDoc comment naming its Pine v6 variable.
+
+src/constants/index.ts (new):
+  - 24 named-constant records covering the most-used v6 namespaces:
+    barmerge, dayofweek, session, adjustment, backadjustment,
+    settlement_as_close, currency (37 ISO 4217 codes), order, alert,
+    display, format, plot, shape, location, size, text, font, extend,
+    xloc, yloc, position, scale, hline, line.style_*, label.style_*.
+  - `all` consolidates every record for callers who want one import.
+
+src/index.ts: exports `syminfo` and `constants` namespaces.
+
+tests/wave9c-syminfo-constants.test.ts (new): 18 tests covering:
+  - Every `syminfo.*` accessor reads from the session's SymbolInfo.
+  - Sensible defaults when fields are missing (mintick=NaN, pointvalue=1,
+    pricescale=100, minmove=1, currency="", session="").
+  - getSymbolInfo returns the full SymbolInfo object.
+  - Every `constants.*` record exposes the documented v6 sentinels
+    (barmerge, dayofweek, currency, order, alert, plot, shape, location,
+    size, extend, xloc/yloc, position, hline, line.style_*, label.style_*,
+    and the consolidated `all` record).
+
+Quality gate (all green): pnpm build (~1.14 MB dist), pnpm typecheck,
+pnpm lint, pnpm manifest:validate (67 ta functions), pnpm test 559/559
+passing (was 541; +18 from Wave 9c).

@@ -1,0 +1,87 @@
+feat(ta,visual,broker,constants): close the remaining PineScript-parity gaps
+
+Wave 10 — the follow-up to the ecosystem audit (Task 7). Closes every gap
+that was actionable in this environment; only the live Binance SDK wiring
+(needs real API credentials), the optional Pine source transpiler, and
+direct reference-vector pinning for the remaining 54 draft ta.* functions
+require work that depends on external inputs.
+
+1. RunningSum Kahan kernel (closes the last-bits numerical divergence)
+   - New src/ta/running-sum.ts: ports OakScriptJS's RunningSum arithmetic
+     (MIT, attribution in JSDoc) as a session-scoped state class.
+   - Rewrites math.sum, ta.sma, ta.variance, ta.stdev, ta.mfi to use the
+     kernel. Outputs now match Pine bit-for-bit on cancellation-heavy
+     windows, resync just below a power of two, series-length changes,
+     na/+Infinity skipping. ta.stdev uses Pine's clamp
+     `v > 0 ? sqrt(v) : 0` for tiny negative Kahan residues.
+   - New tests/reference-pine-vectors-running-sum.test.ts: 12 tests
+     transcribed from OakScriptJS's MIT tests/ta/running-sum.test.ts,
+     pinning the kernel against actual PineScript outputs.
+   - Promotes ta.sma, ta.ema, ta.variance, ta.stdev to `verified` in
+     api-manifest/ta.yaml with the new vectors listed.
+
+2. request.security_lower_tf gaps/lookahead semantics (was deferred)
+   - lookahead=off now excludes the still-forming intrabar
+     (bar.isClosed === false or close_time > callerCloseTime).
+   - gaps=on returns an empty tuple when no intrabars match.
+   - gaps=off carries forward the last intrabar's value as a single-
+     element tuple (or [undefined] when no prior intrabar exists).
+   - Refactored to keep cognitive complexity under 15.
+   - New tests in tests/wave8-request-security.test.ts cover all
+     combinations.
+
+3. Remaining ~200 v6 constants (Wave 4 from the worklog gap list)
+   - 23 new constant records added to src/constants/index.ts:
+     barstate (28 flags), syminfo_type (9 types), months (12),
+     frequency (8), display_extended (12), plot_freq (18), earnings (3),
+     quandl (2), economic (8), volumetype (7), barmerge_gaps (3),
+     line_extended (3), color_palette (6), text_align (9), text_wrap (2),
+     text_font_family (6), cell_border (6), tooltip (5), event (5),
+     strategy_direction (3), strategy_evaluations (5), chart (5),
+     linefill (3).
+   - All wired into the `all` consolidated record.
+   - 22 new tests in tests/wave9c-syminfo-constants.test.ts.
+
+4. Canvas/SVG chart-renderer adapter (Wave 7 from the worklog gap list)
+   - New src/visual/adapter.ts: ChartAdapter consumes the VisualEvent
+     stream from the visual runtime and produces (a) a list of typed
+     Primitive records for Canvas/WebGL hosts, (b) an SVG string for
+     snapshot tests / static reports / quick visual inspection.
+   - Color conversion: handles Pine-ts Color objects ({r,g,b,t}) and
+     CSS strings.
+   - Drawing object lifecycle: drawing.create / drawing.update /
+     drawing.delete are honored via removeById across all collections.
+   - XML escaping for label text (XSS-safe).
+   - 10 new tests in tests/wave10-visual-adapter.test.ts.
+   - Exported as `visualAdapter` namespace in src/index.ts.
+
+5. MockBinanceTradingSurface reference implementation (Wave 9 live-trading)
+   - New class in src/broker/index.ts implements BinanceTradingSurface
+     in-memory, simulating market/limit/stop/stop-limit fills against a
+     bar OHLC, tracking positions (with pyramiding + reversal), and
+     firing onOrderUpdate callbacks. Downstream integrators can wire a
+     real Binance SDK against this exact contract surface; tests run
+     end-to-end without real API credentials.
+   - Extracted new types: BinanceOrderUpdateEvent, BinanceOrderResponse,
+     BinanceNewOrderParams, BinancePositionResponse, BinanceOrderType
+     (cleaner downstream surface).
+   - 6 new tests in tests/wave9-broker.test.ts.
+
+6. Documentation updates
+   - README.md: expanded project-status to reflect Wave 10 surface.
+   - docs/ECOSYSTEM.md: running-sum gap marked CLOSED with the bit-for-bit
+     verification reference.
+   - docs/V6-GAP-ANALYSIS.md: roadmap items 4-10 ticked off with status.
+   - docs/ROADMAP.md: Phase 4 gaps/lookahead, Phase 5 ChartAdapter, Phase 6
+     MockBinanceTradingSurface all marked done.
+   - docs/TA-COVERAGE.md: 13 verified (was 11), variance/stdev/sma/ema rows
+     updated with the new reference-vector provenance.
+
+Quality gate (all green):
+  - pnpm build      ~1.36 MB dist
+  - pnpm typecheck   clean
+  - pnpm lint        clean
+  - pnpm manifest:validate 67 functions, 0 planned
+  - pnpm test        630/630 passing (was 578; +52 new tests across this wave)
+
+Worklog: appended to /home/z/my-project/worklog.md as Task ID 8.

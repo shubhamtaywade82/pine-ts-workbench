@@ -1,0 +1,95 @@
+feat(registry): indicator registry + 6 built-in indicators (Wave 13)
+
+The indicator registry is the GLUE LAYER between the pine-ts runtime and a
+future chart workbench UI (Wave 14) + strategy backtest workbench (Wave 20+).
+The shape mirrors lightweight-charts-indicators (1713 indicators use this
+exact `inputConfig` / `plotConfig` / `metadata` / `calculate` shape) so any
+indicator written against this contract can be rendered generically.
+
+What shipped:
+
+1. `src/registry/types.ts` — declarative metadata model:
+   - `InputConfig` kinds: int, float, bool, string, source, color,
+     timeframe, symbol, session, resolution.
+   - `PlotConfig` kinds: line, histogram, marker, hline, fill_band,
+     bgcolor, barcolor, candle, bar, area. Each plot declares a `pane`
+     ("main" overlay vs "sub" oscillator pane).
+   - `IndicatorMetadata`: id, name, description, version, author, category
+     (overlay/oscillator/volume/trend/momentum/bands/volatility/custom),
+     tags, overlay flag, inputs, plots, screenshot URL.
+   - `Indicator`: metadata + `calculate({ ctx, inputs }) → IndicatorResult`.
+   - `IndicatorRegistry`: register/list/get/metadata/instantiate.
+   - `IndicatorInstance`: `run(bars)` async-generator yields one
+     `IndicatorResult` (plotId → value) per bar.
+
+2. `src/registry/define.ts` — authoring factories:
+   - `intInput`, `floatInput`, `boolInput`, `stringInput`, `sourceInput`,
+     `colorInput`, `timeframeInput`, `symbolInput`, `sessionInput`,
+     `resolutionInput` factories for inputs.
+   - `linePlot`, `histogramPlot`, `markerPlot`, `hlinePlot`, `fillBandPlot`,
+     `bgcolorPlot`, `barcolorPlot`, `candlePlot`, `barPlot`, `areaPlot`
+     factories for plots.
+   - `defineIndicator({...})` factory that auto-derives the `overlay` flag
+     from the category (oscillator/volume → sub pane, others → main).
+
+3. `src/registry/helpers.ts` — runtime helpers:
+   - `resolveSource(ctx, selector)` maps `open`/`high`/`low`/`close`/
+     `hl2`/`hlc3`/`ohlc4` to the bar series; throws `RangeError` on
+     unknown selectors.
+   - `readNumber`, `readBoolean`, `readString` type-checked input readers.
+
+4. `src/registry/registry.ts` — `IndicatorRegistryImpl` class:
+   - `register(indicator)` — idempotent for the same object, throws on
+     duplicate id with a different object.
+   - `list()` — all registered `IndicatorMetadata`.
+   - `get(id)` / `metadata(id)` — look up by id.
+   - `instantiate(id, inputs?)` — returns an `IndicatorInstance` whose
+     `run(bars)` async-generator drives the indicator's `calculate`
+     bar-by-bar against a stub provider + `PineRuntime`.
+   - `getIndicatorRegistry()`, `registerIndicator()`,
+     `resetIndicatorRegistry()` module-global accessors.
+
+5. `src/registry/indicators/` — 6 built-in indicators that self-register
+   on module import:
+   - `sma` — Simple Moving Average (overlay, length=14 default).
+   - `ema` — Exponential Moving Average (overlay, length=12 default).
+   - `rsi` — Relative Strength Index (oscillator sub-pane, length=14
+     default; constant 70/30 bands).
+   - `macd` — Moving Average Convergence Divergence (oscillator sub-pane;
+     12/26/9 defaults; macd/signal/histogram/zero baseline plots).
+   - `bb` — Bollinger Bands (overlay; length=20, mult=2.0 defaults;
+     middle/upper/lower/band-fill plots).
+   - `obv` — On-Balance Volume (volume sub-pane; no inputs).
+   Each is a thin TypeScript wrapper around the pine-ts runtime
+   (`ta.sma`, `ta.ema`, `ta.rsi`, `ta.macd`, `ta.bb`, `ta.obv`).
+
+6. `src/registry/index.ts` — re-exports everything; `src/index.ts` exposes
+   the registry as `registry` namespace and the built-in indicators as
+   `indicators` namespace.
+
+7. `tests/wave13-indicator-registry.test.ts` — 21 tests covering:
+   - register / list / get / metadata / instantiate (idempotent
+     registration, duplicate-id throws, unknown-id returns undefined).
+   - `resolveDefaults` (defaults filled from InputConfig.defaultValue,
+     user overrides preserved).
+   - `resolveSource` (every selector maps to the right bar series;
+     unknown selector throws RangeError).
+   - `readNumber` / `readBoolean` / `readString` type guards.
+   - 6 built-in indicator end-to-end runs (SMA warm-up, EMA SMA-seed
+     + recurrence, RSI 70/30 bands, MACD macd/signal/histogram/zero +
+     histogram = macd - signal, BB middle/upper/lower, OBV cumulative).
+
+8. `README.md` — new "Indicator registry (Wave 13)" section with the
+   module layout + usage example.
+
+9. `docs/ROADMAP.md` — new Phase 8 "TradingView replacement surface"
+   section listing Waves 13-20+ (Wave 13 done, 14-20+ planned).
+
+Quality gate (all green):
+  - pnpm build      ~1.45 MB dist
+  - pnpm typecheck   clean
+  - pnpm lint        clean
+  - pnpm manifest:validate 67 functions, 0 planned
+  - pnpm test        654/654 passing (was 633; +21 new from this wave)
+
+Worklog: appended to /home/z/my-project/worklog.md as Task ID 10.

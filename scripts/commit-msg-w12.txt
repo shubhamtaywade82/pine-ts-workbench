@@ -1,0 +1,68 @@
+feat(ta): port wmaAdd partial-sum kernel, promote ta.wma to verified
+
+Wave 12 — the WMA partial-sum kernel port (the follow-up to the running-sum
+port in Wave 11). Closes the last numerical-divergence gap identified at
+the end of Task 7 / Wave 11.
+
+What changed:
+
+1. `src/ta/core.ts` — new `wmaAdd(a, b)` helper transcribed from
+   OakScriptJS's MIT `wmaAdd`. The rule: `a + b`, or `0` when
+   `|a + b| <= 1e-10 * max(1, |a| + |b|)` — a partial sum that cancels to
+   a tiny residue (relative to the operands, or below 1e-10) is 0, not
+   the residue.
+
+2. `src/ta/core.ts` — `ta.wma` rewritten to:
+   - Sum the window OLDEST-FIRST (weight 1 for oldest, `length` for
+     newest) using `wmaAdd`, matching Pine's bit-for-bit order.
+   - SKIP na and ±Infinity source values for warm-up counting, but FILL
+     na values INSIDE the window with the previous non-na value
+     (carry-forward fill, matching Pine's `filled` array semantics).
+   - Return na on a bar whose OWN source is na (even if the window has
+     enough non-na history) — matching Pine's `if (isNa) result = NaN`.
+   - Warm-up returns na until `length` non-na values have been received.
+   - The `init` replays committed history with carry-forward fill so a
+     node created mid-run (a `series int` length change) matches one
+     that had been running all along.
+   - Explicit `source.at(length - 1)` read in `evaluate` triggers the
+     `maxBarsBack` bounds check (preserves the OLD wma's per-bar loop
+     semantics — the existing `max_bars_back` execution-model test still
+     passes).
+
+3. `tests/reference-pine-vectors-wma.test.ts` — new file, 3 tests
+   transcribed from OakScriptJS's MIT `tests/ta/wma.test.ts`:
+   - 21-bar cancellation-residue vector: `ta.wma(window, 21)[20]` is
+     `0.17483288638087427` (vs plain sum `0.17483288638087413`) because
+     the 1.55 - 1.55 cancellation on the 4th value zeroes the residue.
+   - 1e-10 threshold: `ta.wma([1, -0.4999999999001], 2)` → `[na, 0]`
+     (the residue 1.9979995435903675e-10 is below
+     `1e-10 * 1.9999999998` → 0); `ta.wma([1, -0.4999999999], 2)` →
+     `[na, 6.66666721826914e-11]` (the residue 2.000000165480742e-10
+     is above the threshold → not 0; divided by 3).
+   - Tiny values: `ta.wma([5e-11, 2e-10, 1.2e-10, 5e-11], 1)` →
+     `[0, 2e-10, 1.2e-10, 0]` (values below 1e-10 are 0); length-2
+     variants verify the `wmaAdd` chain across multiple steps.
+
+4. `api-manifest/ta.yaml` — `ta.wma` promoted from `draft` to `verified`,
+   with the new test listed as a vector source and the semantics
+   (weights, sum order, na handling) documented inline.
+
+5. `docs/TA-COVERAGE.md` — `ta.wma` row updated with the new
+   reference-vector provenance; verified count bumped 13 → 14.
+
+6. `docs/ECOSYSTEM.md` — new "WMA partial-sum kernel also CLOSED"
+   paragraph documenting the wmaAdd port alongside the running-sum
+   closure.
+
+7. `README.md` — new paragraph documenting the wmaAdd kernel and its
+   reference-vector test file.
+
+Quality gate (all green):
+  - pnpm build      ~1.37 MB dist
+  - pnpm typecheck   clean
+  - pnpm lint        clean
+  - pnpm manifest:validate 67 functions, 0 planned
+  - pnpm test        633/633 passing (was 630; +3 from the new WMA
+                     reference-vector tests)
+
+Worklog: appended to /home/z/my-project/worklog.md as Task ID 9.

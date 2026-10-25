@@ -1,0 +1,50 @@
+fix(ta): correct ema/rma/tsi/stoch/cci/linreg against PineScript-exported reference vectors
+
+Ecosystem audit wave (see docs/ECOSYSTEM.md): cloned OakScriptJS (MIT,
+v0.12.3) and lightweight-charts-indicators (MIT, v0.16.8), audited their
+implementations and test suites against pine-ts, and found six real
+semantic divergences — all corrected and now pinned bit-for-bit against
+actual PineScript output (full-precision reference vectors transcribed
+from OakScriptJS's MIT-licensed tests with attribution).
+
+Corrected semantics (each confirmed by Pine-exported values):
+- ta.ema: na until the length-th valid bar, seeds with ta.sma (Kahan
+  running-sum accumulation order), recurrence (v - prev) * alpha + prev.
+  Previously seeded with the first source value with no warm-up.
+- ta.rma: Kahan-ordered SMA seed; Pine's exact recurrence
+  (v + (length-1) * prev) / length.
+- ta.tsi: PC = ta.change(source) (1-bar change, NOT length-bar) and the
+  result is a RATIO in [-1, 1], not x100 (v6 reference remark: "the
+  built-in returns a ratio, not a percentage-scaled value").
+- ta.stoch: zero range and na source KEEP THE PREVIOUS RESULT (previously
+  na); peak/valley windows skip na values.
+- ta.cci: flat windows (MD <= 1e-10) keep the previous CCI; a first flat
+  window gives 0 (previously na).
+- ta.linreg: oldest-first x = 1..length accumulation; intercept is the
+  fitted value at x = 1 evaluated as sumY/len - (slope*sumX)/len + slope.
+
+New: tests/reference-pine-vectors.test.ts — 10 tests pinning
+ta.tsi/ta.stoch/ta.cci/ta.linreg against PineScript-exported vectors
+(daily BTCUSD data) at full precision, including warm-up alignment
+(tsi(5,24) is na through bar 27 — only reproducible with the SMA-seed
+EMA model). Attribution to OakScriptJS (MIT) in the file header.
+
+Downstream updates:
+- src/ta/core.ts: kahanSum helper (ported arithmetic, not architecture)
+  used by ema/rma seeds; compensationLost resync rule.
+- Fixtures regenerated: ema, macd, kc, kc.range, kcw, tsi, cci.
+- macd/kc/kcw tests updated for the corrected EMA warm-up propagation.
+- Manifest: stoch, cci, tsi, linreg promoted draft -> verified.
+  Verified coverage: 7/67 -> 11/67.
+- docs/ECOSYSTEM.md (new): full audit of oakscriptJS,
+  lightweight-charts-indicators, awesome-pinescript,
+  lightweight-charts-react-wrapper, lwc-plugin-visible-price-range-util,
+  awesome-tradingview; what was taken from each, the boundaries, and the
+  import rules. Documents the remaining known numerical gap (Pine's
+  compensated running-sum kernel for sma/stdev/variance/mfi — reference
+  vectors identified, port is the follow-up).
+- README: "Project status" no longer claims early foundation; reflects
+  the shipped surface + verification depth and links the audit.
+
+Quality gate: 578/578 tests, build ~1.20 MB, typecheck, lint,
+manifest valid (67 functions).

@@ -1,0 +1,128 @@
+feat: complete the Pine v6 surface (ta.*, str, color, input, log, global, request, strategy, visual, broker)
+
+Reverse-engineering of Pine Script v6 into pine-ts across 9 waves. The
+package now exposes the full Pine v6 surface a script can use today:
+
+Wave 1-2 — `ta.*` namespace completion (67/67 functions, 0 planned):
+  - Wave 1: `ta.correlation` (paired-non-na Pearson).
+  - Wave 2: `ta.alma`, `ta.cci`, `ta.cog`, `ta.max`, `ta.min`, `ta.median`,
+    `ta.mode`, `ta.range`, `ta.rci`, `ta.tsi` + variables `ta.iii`,
+    `ta.wad`, `ta.wvad`. Plus `ta.pivot_point_levels` (the last `planned`
+    entry, returns `PineArray<number>` of 11 levels across 6 chart styles:
+    TRADITIONAL, FIBONACCI, WOODIE, CLASSIC, DE_MARK, CAMARILLA).
+
+Wave 3 — Utility namespaces:
+  - `str.*` (17 functions incl. `format` w/ ICU-style substitution,
+    `tostring` w/ `format.*` specifiers, `match` w/ ECMA-262 regex).
+  - `color.*` (7 functions + 17 named constants; `rgb` clamps channels,
+    `from_gradient` linearly interpolates between two colors).
+  - `input.*` (16 typed input-binding functions: `int`/`float`/`bool`/
+    `string`/`color`/`source`/`timeframe`/`session`/`symbol`/`interval`/
+    `price`/`qty` + polymorphic `input()`; range clamping, `options`
+    validation, host override via `setActiveBindings`).
+  - `log.*` + `runtime.error` (per-invocation `LogSink` w/ bar context;
+    `RuntimeError` aborts the current bar).
+
+Wave 4 — Global built-ins:
+  - `alert`, `alertcondition`, `max_bars_back`, `time`, `time_close`,
+    `timenow`, `time_tradingday`, `last_bar_time`, `bool`/`int`/`float`/
+    `string`/`color` casts, `timestamp(year, month, day, hour?, minute?,
+    second?, timezone?)` constructor. `AlertEvent`/`AlertCondition` sink.
+
+Wave 5 → 8 — `request.*` multi-context execution engine:
+  - `RequestEngine` in `src/request/engine.ts` with per-`(symbol,
+    timeframe)` cache, alignment logic for `lookahead=off` (non-repainting,
+    latest closed HTF bar) and `lookahead=on` (containing bar), per-
+    expression result caching by `expression.toString()` (Pine v6 call-site
+    identity approximation), `runtime.prepareSecurity(symbol, tf)` host API.
+  - `request.security` / `request.security_lower_tf` now dispatch on the
+    active engine instead of throwing `RequestNotImplemented`. Calling
+    without pre-warming raises `RequestNotPrepared` (no silent fabrication).
+  - Provider-limited `request.financial`, `dividends`, `splits`, `earnings`,
+    `economic`, `quandl`, `seed`, `currency_rate`, `footprint` still raise
+    `RequestNotImplemented` honestly — Pine v6 NEVER invents provider data.
+
+Wave 6 — `strategy.*` engine + broker emulator:
+  - `StrategyEngine` class with `entry`/`order`/`exit`/`close`/
+    `close_all`/`cancel`/`cancel_all`, market/limit/stop/stop-limit fills,
+    OCA groups, pyramiding cap, position reversal, commission (percent/cash)
+    + slippage (points/percent), position state (`position_size`,
+    `position_avg_price`, `equity`, `netprofit`, `grossprofit/loss`,
+    `drawdown/max_drawdown`, `closedtrades_number`, `opentrades_number`),
+    `closedtrades.*` / `opentrades.*` accessors, `risk.*` stubs.
+
+Wave 7 — Visual runtime:
+  - `plot`/`plotshape`/`plotchar`/`plotarrow`/`plotbar`/`plotcandle`,
+    `hline` (returns id)/`fill` (links two hlines)/`bgcolor`/`barcolor`.
+  - Drawing objects w/ full create/update/delete lifecycle + `*.all`
+    registry: `line`, `label`, `box`, `table`, `linefill`, `polyline`,
+    `chart.point` (`from_time`/`from_index`).
+  - Renderer-neutral `VisualEvent` stream via `setVisualSink`.
+
+Wave 9a — Live/paper broker adapters (BrokerAdapter boundary):
+  - `BrokerAdapter` interface (submitOrder, cancelOrder, getPosition,
+    getBalance, onOrderUpdate, optional processBar/close).
+  - `PaperBrokerAdapter`: in-memory broker simulating fills against bar
+    OHLC w/ the same intrabar path assumption as the emulator (market at
+    next-bar open or current-bar close; limit triggers on bar low/high;
+    stop on bar high/low; stop-limit triggers then limit). Supports
+    pyramiding, reversal, commission+slippage, OCA groups, `onOrderUpdate`.
+  - `BinanceBrokerAdapter` scaffold: typed `BinanceTradingSurface` interface
+    (newOrder, cancelOrder, getPosition, getBalance, onOrderUpdate) so a
+    downstream adapter can be wired to `@nemesis-oss/binance-sdk`'s trading
+    surface with real credentials.
+  - Wired into `StrategyEngine.setBrokerAdapter(adapter)`; when installed,
+    `entry`/`order`/`exit`/`close`/`close_all` forward to the adapter
+    (fire-and-forget); `cancel`/`cancel_all` fire-and-forget; the built-in
+    emulator is bypassed.
+
+Quality gate (all green): 541/541 tests passing, `pnpm typecheck`,
+`pnpm lint`, `pnpm manifest:validate` (67 ta functions, 0 `planned`),
+`pnpm build` (~1.09 MB dist).
+
+Pine v6 coverage by area after this commit:
+  - `ta.*` 67/67 functions (7 verified + 60 draft, 0 planned).
+  - `math.*` 24/24, `array.*` 55/55, `matrix.*` 49/49, `map.*` 11/11.
+  - `str.*`, `color.*`, `input.*`, `log.*`, `global` built-ins,
+    `strategy.*` engine + broker emulator, `visual` runtime event stream +
+    drawing object model — all shipped as `draft`.
+  - `request.security` / `security_lower_tf` — backed by the multi-context
+    engine (gap/lookahead semantics on lower_tf deferred).
+
+Remaining honest gaps for true PineScript-parity:
+  - BinanceBrokerAdapter live trading wiring (scaffold in place; downstream
+    integrator wires to binance-sdk's trading surface w/ real credentials).
+  - Chart-renderer adapters (VisualEvent stream is in place from Wave 7; a
+    Canvas/SVG host adapter is the next concrete deliverable).
+  - ~240 v6 constants + full `syminfo.*` completion (pure data, quick wins).
+  - `ticker.*` namespace (heikinashi, renko, kagi, linebreak, pointfigure,
+    standard, inherit) — non-standard chart types need synthetic bar
+    builders.
+  - gaps/lookahead semantics on `security_lower_tf` (deferred; returns all
+    intrabars within window regardless of options for now).
+  - TradingView-exported reference vector pinning for the 60 draft `ta.*`
+    functions (deterministic unit coverage but not TradingView-parity).
+
+The reverse-engineering recipe (read v6 ref → implement → fixture →
+manifest → tests → docs → quality gate) is now proven across 9 waves
+of work; the remaining items each map to one well-scoped PR using the
+same patterns.
+
+Files added (35):
+  - src/broker/, src/color/, src/global/, src/input/, src/log/,
+    src/request/, src/str/, src/strategy/, src/visual/ — 9 new modules.
+  - fixtures/v6/ta/{alma,cci,cog,correlation,iii,max,median,min,mode,
+    pivot_point_levels,range,rci,tsi,wad,wvad}.basic.json — 15 new fixtures.
+  - tests/wave3-utility-namespaces, wave4-global-builtins, wave6-strategy,
+    wave7-visual, wave8-request-security, wave9-broker,
+    wave9b-pivot-point-levels, ta-missing-wave2 — 8 new test files.
+
+Files modified (15):
+  - src/index.ts — exports the 14 namespaces.
+  - src/core/runtime.ts — wires RequestEngine + prepareSecurity.
+  - src/core/session.ts — adds `timeframe` field for security_lower_tf.
+  - src/ta/{extra,momentum,statistics,trend,volume}.ts — Wave 1-2 + 9b impls.
+  - src/ta/generated.ts — regenerated to 67 functions.
+  - api-manifest/ta.{yaml,v6.json} — manifest entries for new functions.
+  - docs/{ROADMAP,TA-COVERAGE,V6-GAP-ANALYSIS}.md — status updates.
+  - tests/ta-missing.test.ts — added `ta.correlation` tests.
