@@ -289,6 +289,7 @@ export default function Home() {
                           indicatorId: `editor.${plot.id}`,
                           indicatorName: `Custom (${plot.id})`,
                           color: plot.color,
+                          isLevel: plot.kind === "hline",
                           data,
                         } as ChartOverlay;
                       })
@@ -298,8 +299,10 @@ export default function Home() {
                 onMetadata={setEditorPlots}
               />
             </TabsContent>
-            <TabsContent value="strategy" className="flex-1 overflow-y-auto m-0">
-              <StrategyPanel bars={editorBars} onTradesChange={setBacktestTrades} binanceSettings={settings} />
+            {/* forceMount keeps the backtest re-running on bar/symbol changes while the
+                tab is hidden — otherwise stale trade markers stay on the new chart. */}
+            <TabsContent value="strategy" forceMount className="flex-1 overflow-y-auto m-0 data-[state=inactive]:hidden">
+              <StrategyPanel bars={editorBars} onTradesChange={setBacktestTrades} />
             </TabsContent>
           </Tabs>
         </ResizablePanel>

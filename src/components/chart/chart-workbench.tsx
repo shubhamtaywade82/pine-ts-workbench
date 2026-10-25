@@ -8,6 +8,7 @@ import {
   createSeriesMarkers,
   type IChartApi,
   type ISeriesApi,
+  type ISeriesMarkersPluginApi,
   type Time,
 } from "lightweight-charts";
 import type { Bar } from "@nemesis-oss/pine-ts";
@@ -23,7 +24,31 @@ export interface ChartOverlay {
   readonly indicatorName: string;
   readonly color: string;
   readonly data: readonly { time: number; value: number }[];
+  /** Horizontal level (e.g. RSI 70/30) — drawn thin and dashed, no price label. */
+  readonly isLevel?: boolean;
 }
+
+// TradingView's dark-theme palette, so the chart reads like the real thing.
+const TV = {
+  background: "#131722",
+  grid: "#1e222d",
+  text: "#b2b5be",
+  border: "#2a2e39",
+  up: "#089981",
+  down: "#f23645",
+  crosshair: "#9598a1",
+  crosshairLabel: "#363a45",
+  longEntry: "#2962ff",
+  exit: "#e040fb",
+};
+
+const lineOptions = (overlay: ChartOverlay) => ({
+  color: overlay.color,
+  lineWidth: 1 as const,
+  lineStyle: overlay.isLevel ? 2 : 0, // 2 = Dashed
+  priceLineVisible: false,
+  crosshairMarkerVisible: !overlay.isLevel,
+});
 
 /**
  * A pane (sub-chart) below the main price pane. Used for oscillators like
@@ -77,7 +102,7 @@ export function ChartWorkbench({ bars, mainOverlays, subPanes, tradeMarkers }: C
   const prevLastBarRef = useRef<{ time: number; open: number; high: number; low: number; close: number } | null>(null);
   const animationRef = useRef<number | null>(null);
   // LWC v5 markers plugin (replaces series.setMarkers which was removed in v5).
-  const markersRef = useRef<ReturnType<typeof createSeriesMarkers> | null>(null);
+  const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
 
   // Initialize the chart once.
   useEffect(() => {
@@ -85,40 +110,32 @@ export function ChartWorkbench({ bars, mainOverlays, subPanes, tradeMarkers }: C
     if (container === null) return;
     const chart = createChart(container, {
       layout: {
-        background: { color: "#0e0e10" },
-        textColor: "#d1d4dc",
+        background: { color: TV.background },
+        textColor: TV.text,
+        fontSize: 11,
         panes: {
-          separatorColor: "#2b2b2b",
-          separatorHoverColor: "#4a4a4a",
+          separatorColor: TV.border,
+          separatorHoverColor: TV.crosshairLabel,
         },
       },
       grid: {
-        vertLines: { color: "#1f1f22" },
-        horzLines: { color: "#1f1f22" },
+        vertLines: { color: TV.grid },
+        horzLines: { color: TV.grid },
       },
       crosshair: {
-        mode: 1,
-        vertLine: {
-          color: "#888",
-          width: 1,
-          style: 3,
-          labelBackgroundColor: "#444",
-        },
-        horzLine: {
-          color: "#888",
-          width: 1,
-          style: 3,
-          labelBackgroundColor: "#444",
-        },
+        mode: 0, // Normal: free-moving like TradingView, not magnet-snapped.
+        vertLine: { color: TV.crosshair, width: 1, style: 3, labelBackgroundColor: TV.crosshairLabel },
+        horzLine: { color: TV.crosshair, width: 1, style: 3, labelBackgroundColor: TV.crosshairLabel },
       },
       rightPriceScale: {
-        borderColor: "#2b2b2b",
+        borderColor: TV.border,
         scaleMargins: { top: 0.1, bottom: 0.1 },
       },
       timeScale: {
-        borderColor: "#2b2b2b",
+        borderColor: TV.border,
         timeVisible: true,
         secondsVisible: false,
+        rightOffset: 10,
       },
       width: container.clientWidth,
       height: container.clientHeight,
@@ -153,12 +170,12 @@ export function ChartWorkbench({ bars, mainOverlays, subPanes, tradeMarkers }: C
     if (chart === null) return;
     if (candlestickRef.current === null) {
       const candle = chart.addSeries(CandlestickSeries, {
-        upColor: "#26a69a",
-        downColor: "#ef5350",
-        borderUpColor: "#26a69a",
-        borderDownColor: "#ef5350",
-        wickUpColor: "#26a69a",
-        wickDownColor: "#ef5350",
+        upColor: TV.up,
+        downColor: TV.down,
+        borderUpColor: TV.up,
+        borderDownColor: TV.down,
+        wickUpColor: TV.up,
+        wickDownColor: TV.down,
       });
       candlestickRef.current = candle;
       // Create the LWC v5 markers plugin attached to the candlestick series.
@@ -256,21 +273,17 @@ export function ChartWorkbench({ bars, mainOverlays, subPanes, tradeMarkers }: C
       markersPlugin.setMarkers([]);
       return;
     }
-    // LWC v5 markers: { time, position, color, shape, text }
+    // TradingView-style: short labels, prices live in the trade list, not on the chart.
     const markerData = tradeMarkers.map((m) => {
-      const isEntry = m.type === "entry";
       const isLong = m.direction === "long";
-      // Entry long: green arrowUp below bar. Entry short: red arrowUp below bar.
-      // Exit long: red arrowDown above bar. Exit short: green arrowDown above bar.
-      const isGreen = isEntry ? isLong : !isLong;
+      const isBuy = m.type === "entry" ? isLong : !isLong;
       return {
         time: Math.floor(m.time / 1000) as Time,
-        position: isEntry ? "belowBar" as const : "aboveBar" as const,
-        color: isGreen ? "#26a69a" : "#ef5350",
-        shape: isEntry ? "arrowUp" as const : "arrowDown" as const,
-        text: isEntry
-          ? `${isLong ? "BUY" : "SELL"} @ ${m.price.toFixed(2)}`
-          : `${isLong ? "EXIT" : "COVER"} @ ${m.price.toFixed(2)}${m.profit !== undefined ? ` (${m.profit >= 0 ? "+" : ""}${m.profit.toFixed(2)})` : ""}`,
+        position: isBuy ? "belowBar" as const : "aboveBar" as const,
+        color: m.type === "entry" ? (isLong ? TV.longEntry : TV.down) : TV.exit,
+        shape: isBuy ? "arrowUp" as const : "arrowDown" as const,
+        text: m.type === "entry" ? (isLong ? "Long" : "Short") : "Close",
+        size: 0.5,
       };
     });
     // LWC requires markers sorted by time ascending.
@@ -287,15 +300,10 @@ export function ChartWorkbench({ bars, mainOverlays, subPanes, tradeMarkers }: C
       known.add(overlay.instanceId);
       let series = overlaySeriesRef.current.get(overlay.instanceId);
       if (series === undefined) {
-        series = chart.addSeries(LineSeries, {
-          color: overlay.color,
-          lineWidth: 2,
-          priceLineVisible: false,
-          lastValueVisible: false,
-        });
+        series = chart.addSeries(LineSeries, { ...lineOptions(overlay), lastValueVisible: false });
         overlaySeriesRef.current.set(overlay.instanceId, series);
       } else {
-        series.applyOptions({ color: overlay.color });
+        series.applyOptions(lineOptions(overlay));
       }
       series.setData(
         overlay.data.map((d) => ({
@@ -325,16 +333,10 @@ export function ChartWorkbench({ bars, mainOverlays, subPanes, tradeMarkers }: C
         known.add(key);
         let series = subPaneSeriesRef.current.get(key);
         if (series === undefined) {
-          series = chart.addSeries(LineSeries, {
-            color: overlay.color,
-            lineWidth: 2,
-            priceLineVisible: false,
-            lastValueVisible: true,
-            title: overlay.indicatorName,
-          }, paneIndex);
+          series = chart.addSeries(LineSeries, { ...lineOptions(overlay), lastValueVisible: !overlay.isLevel }, paneIndex);
           subPaneSeriesRef.current.set(key, series);
         } else {
-          series.applyOptions({ color: overlay.color });
+          series.applyOptions(lineOptions(overlay));
         }
         series.setData(
           overlay.data.map((d) => ({
@@ -350,6 +352,8 @@ export function ChartWorkbench({ bars, mainOverlays, subPanes, tradeMarkers }: C
         subPaneSeriesRef.current.delete(key);
       }
     }
+    // TradingView gives price ~75% of the height; LWC defaults to equal panes.
+    chart.panes().forEach((pane, i) => pane.setStretchFactor(i === 0 ? 3 : 1));
   }, [subPanes]);
 
   return <div ref={containerRef} className="h-full w-full" />;

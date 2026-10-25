@@ -127,8 +127,8 @@ export function PineEditor({ bars, onResults, onMetadata }: PineEditorProps) {
       onResults(results);
       onMetadata([
         { id: "main", color: "#1e88e5", kind: "line" },
-        { id: "upper", color: "#888888", kind: "line" },
-        { id: "lower", color: "#888888", kind: "line" },
+        { id: "upper", color: "#787b86", kind: "hline" },
+        { id: "lower", color: "#787b86", kind: "hline" },
       ]);
       setStatus({ ok: true, message: `OK — ${bars.length} bars` });
     } catch (err) {
