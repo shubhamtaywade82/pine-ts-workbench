@@ -2,6 +2,8 @@
 
 # dependencies
 node_modules
+# local pine-ts checkout (see README setup)
+/pine-ts/
 /.pnp
 .pnp.*
 .yarn/*
