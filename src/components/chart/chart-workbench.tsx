@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
   createChart,
-  CandlestickSeries,
   LineSeries,
   createSeriesMarkers,
   type IChartApi,
@@ -13,6 +12,7 @@ import {
 } from "lightweight-charts";
 import type { Bar } from "@nemesis-oss/pine-ts";
 import { ChartLegend } from "@/components/chart/chart-legend";
+import { useCandleSeries } from "@/hooks/use-candle-series";
 
 /**
  * A single indicator overlay applied to the chart.
@@ -35,7 +35,6 @@ const TV = {
   grid: "#1e222d",
   text: "#b2b5be",
   border: "#2a2e39",
-  up: "#089981",
   down: "#f23645",
   crosshair: "#9598a1",
   crosshairLabel: "#363a45",
@@ -98,14 +97,10 @@ export interface ChartWorkbenchProps {
 export function ChartWorkbench({ bars, mainOverlays, subPanes, tradeMarkers, title }: ChartWorkbenchProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
-  const candlestickRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
   const overlaySeriesRef = useRef<Map<string, ISeriesApi<"Line">>>(new Map());
   const subPaneSeriesRef = useRef<Map<string, ISeriesApi<"Line">>>(new Map());
-  // Lerp animation state for candle formation (Wave 23).
-  const prevLastBarRef = useRef<{ time: number; open: number; high: number; low: number; close: number } | null>(null);
-  const animationRef = useRef<number | null>(null);
-  // LWC v5 markers plugin (replaces series.setMarkers which was removed in v5).
-  const markersRef = useRef<ISeriesMarkersPluginApi<Time> | null>(null);
+  // LWC v5 markers plugin, bound to the candle series it was created on.
+  const markersRef = useRef<{ series: ISeriesApi<"Candlestick">; plugin: ISeriesMarkersPluginApi<Time> } | null>(null);
   const [hoverTime, setHoverTime] = useState<number | null>(null);
   const [paneHeights, setPaneHeights] = useState<number[]>([]);
 
@@ -166,118 +161,23 @@ export function ChartWorkbench({ bars, mainOverlays, subPanes, tradeMarkers, tit
       observer.disconnect();
       chart.remove();
       chartRef.current = null;
-      candlestickRef.current = null;
+      markersRef.current = null;
       overlaySeriesRef.current.clear();
       subPaneSeriesRef.current.clear();
     };
   }, []);
 
-  // Update the candlestick series when `bars` changes — with lerp animation
-  // for the last (forming) candle. Wave 23.
-  useEffect(() => {
-    const chart = chartRef.current;
-    if (chart === null) return;
-    if (candlestickRef.current === null) {
-      const candle = chart.addSeries(CandlestickSeries, {
-        upColor: TV.up,
-        downColor: TV.down,
-        borderUpColor: TV.up,
-        borderDownColor: TV.down,
-        wickUpColor: TV.up,
-        wickDownColor: TV.down,
-      });
-      candlestickRef.current = candle;
-      // Create the LWC v5 markers plugin attached to the candlestick series.
-      markersRef.current = createSeriesMarkers(candle, []);
-    }
-
-    const candle = candlestickRef.current;
-    const newLast = bars.length > 0 ? bars[bars.length - 1] : null;
-    const prev = prevLastBarRef.current;
-
-    // Cancel any ongoing animation.
-    if (animationRef.current !== null) {
-      cancelAnimationFrame(animationRef.current);
-      animationRef.current = null;
-    }
-
-    if (newLast === null) {
-      candle.setData([]);
-      prevLastBarRef.current = null;
-      return;
-    }
-
-    const newLastData = {
-      time: Math.floor(newLast.time / 1000) as Time,
-      open: newLast.open, high: newLast.high, low: newLast.low, close: newLast.close,
-    };
-
-    // Case 1: same candle (same time), different OHLC → lerp animation.
-    if (
-      prev !== null &&
-      prev.time === newLast.time &&
-      (prev.open !== newLast.open || prev.high !== newLast.high ||
-        prev.low !== newLast.low || prev.close !== newLast.close)
-    ) {
-      const startTime = performance.now();
-      const duration = 150; // ms — fast enough for real-time, slow enough to see
-      const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
-      // easeOutCubic: snappy at start, smooth at end — feels like a forming candle.
-      const ease = (t: number) => 1 - Math.pow(1 - t, 3);
-
-      const animate = () => {
-        const elapsed = performance.now() - startTime;
-        const t = Math.min(elapsed / duration, 1);
-        const e = ease(t);
-        candle.update({
-          time: newLastData.time,
-          open: lerp(prev.open, newLast.open, e),
-          high: lerp(prev.high, newLast.high, e),
-          low: lerp(prev.low, newLast.low, e),
-          close: lerp(prev.close, newLast.close, e),
-        });
-        if (t < 1) {
-          animationRef.current = requestAnimationFrame(animate);
-        } else {
-          animationRef.current = null;
-          prevLastBarRef.current = { time: newLast.time, open: newLast.open, high: newLast.high, low: newLast.low, close: newLast.close };
-        }
-      };
-      animationRef.current = requestAnimationFrame(animate);
-      return;
-    }
-
-    // Case 2: new candle (time advanced) → series.update() (append, no animation).
-    if (prev !== null && newLast.time > prev.time) {
-      candle.update(newLastData);
-      prevLastBarRef.current = { time: newLast.time, open: newLast.open, high: newLast.high, low: newLast.low, close: newLast.close };
-      return;
-    }
-
-    // Case 3: full dataset change (initial load, symbol switch) → setData() + fitContent().
-    candle.setData(bars.map((b) => ({
-      time: Math.floor(b.time / 1000) as Time,
-      open: b.open, high: b.high, low: b.low, close: b.close,
-    })));
-    chart.timeScale().fitContent();
-    prevLastBarRef.current = { time: newLast.time, open: newLast.open, high: newLast.high, low: newLast.low, close: newLast.close };
-  }, [bars]);
-
-  // Cleanup animation on unmount.
-  useEffect(() => {
-    return () => {
-      if (animationRef.current !== null) {
-        cancelAnimationFrame(animationRef.current);
-        animationRef.current = null;
-      }
-    };
-  }, []);
+  const candlestickRef = useCandleSeries(chartRef, bars);
 
   // Update trade markers (entry/exit arrows) on the candlestick series. Wave 21.
   // Uses LWC v5's createSeriesMarkers API (series.setMarkers was removed in v5).
   useEffect(() => {
-    const markersPlugin = markersRef.current;
-    if (markersPlugin === null) return;
+    const candle = candlestickRef.current;
+    if (candle === null) return;
+    if (markersRef.current?.series !== candle) {
+      markersRef.current = { series: candle, plugin: createSeriesMarkers(candle, []) };
+    }
+    const markersPlugin = markersRef.current.plugin;
     if (tradeMarkers === undefined || tradeMarkers.length === 0) {
       markersPlugin.setMarkers([]);
       return;

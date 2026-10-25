@@ -184,7 +184,8 @@ export function ChartCell({
 
   return (
     <div
-      className={`flex h-full flex-col rounded-lg border-2 ${isActive ? "border-blue-500" : "border-transparent"}`}
+      // Highlight only matters when there are several charts to pick from, as on TradingView.
+      className={`flex h-full flex-col border ${isActive && canRemove ? "border-primary" : "border-transparent"}`}
       onClick={() => onActivate(cellId)}
     >
       {/* Cell header — symbol/timeframe + stream + remove */}

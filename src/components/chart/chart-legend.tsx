@@ -20,8 +20,14 @@ export interface ChartLegendProps {
   readonly paneHeights: readonly number[];
 }
 
-/** Small prices (e.g. alts under $10) need more decimals to be readable. */
-const formatPrice = (value: number): string => value.toFixed(Math.abs(value) < 10 ? 4 : 2);
+const PRICE_FORMAT = new Intl.NumberFormat("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+// Small prices (e.g. alts under $10) need more decimals to be readable.
+const SMALL_PRICE_FORMAT = new Intl.NumberFormat("en-US", { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+const VOLUME_FORMAT = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 2 });
+
+/** `scale` picks the precision, so a bar's change uses the same decimals as its price. */
+const formatPrice = (value: number, scale: number = value): string =>
+  (Math.abs(scale) < 10 ? SMALL_PRICE_FORMAT : PRICE_FORMAT).format(value);
 
 /** Point at `time`, or the last point when not hovering. */
 const pointAt = <T extends { time: number }>(points: readonly T[], time: number | null): T | undefined =>
@@ -30,7 +36,9 @@ const pointAt = <T extends { time: number }>(points: readonly T[], time: number 
 /** TradingView-style top-left legend: symbol + OHLC, then one line per indicator in each pane. */
 export function ChartLegend({ title, bars, mainOverlays, subPanes, hoverTime, paneHeights }: ChartLegendProps) {
   const bar = pointAt(bars, hoverTime);
-  let paneTop = 0;
+  // Sub-pane i starts below the main pane and every sub-pane before it.
+  const paneTops = subPanes.map((_, i) =>
+    paneHeights.slice(0, i + 1).reduce((sum, height) => sum + height + PANE_SEPARATOR_PX, 0));
   return (
     <div className="pointer-events-none absolute inset-0 z-10 font-mono text-[11px]">
       <div className="absolute left-2 top-1 flex flex-col gap-0.5">
@@ -42,14 +50,11 @@ export function ChartLegend({ title, bars, mainOverlays, subPanes, hoverTime, pa
           <OverlayLine key={overlay.instanceId} name={overlay.indicatorName} overlays={[overlay]} hoverTime={hoverTime} />
         ))}
       </div>
-      {subPanes.map((pane, i) => {
-        paneTop += (paneHeights[i] ?? 0) + PANE_SEPARATOR_PX;
-        return (
-          <div key={pane.paneId} className="absolute left-2" style={{ top: paneTop + 2 }}>
-            <OverlayLine name={pane.title} overlays={pane.overlays} hoverTime={hoverTime} />
-          </div>
-        );
-      })}
+      {subPanes.map((pane, i) => (
+        <div key={pane.paneId} className="absolute left-2" style={{ top: paneTops[i]! + 2 }}>
+          <OverlayLine name={pane.title} overlays={pane.overlays} hoverTime={hoverTime} />
+        </div>
+      ))}
     </div>
   );
 }
@@ -67,7 +72,10 @@ function OhlcValues({ bar }: { bar: Bar }) {
         </span>
       ))}
       <span style={{ color }}>
-        {change >= 0 ? "+" : ""}{formatPrice(change)} ({change >= 0 ? "+" : ""}{changePct.toFixed(2)}%)
+        {change >= 0 ? "+" : ""}{formatPrice(change, bar.close)} ({change >= 0 ? "+" : ""}{changePct.toFixed(2)}%)
+      </span>
+      <span className="text-[#787b86]">
+        Vol <span style={{ color }}>{VOLUME_FORMAT.format(bar.volume)}</span>
       </span>
     </span>
   );

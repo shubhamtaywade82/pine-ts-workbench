@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
+import { CodeEditor } from "@/components/editor/code-editor";
 import { Play, AlertCircle, CheckCircle2, TrendingUp, TrendingDown } from "lucide-react";
 import type { Bar } from "@nemesis-oss/pine-ts";
 import {
@@ -80,22 +81,9 @@ export function StrategyPanel({ bars, onTradesChange }: StrategyPanelProps) {
       </div>
 
       {/* Code editor */}
-      <textarea
-        className="h-32 w-full resize-none rounded border border-border/50 bg-[#1e1e1e] p-2 font-mono text-[10px] text-[#d4d4d4] outline-none"
-        style={{ tabSize: 2 }}
-        value={code}
-        onChange={(e) => setCode(e.target.value)}
-        spellCheck={false}
-        onKeyDown={(e) => {
-          if (e.key === "Tab") {
-            e.preventDefault();
-            const t = e.target as HTMLTextAreaElement;
-            const s = t.selectionStart, end = t.selectionEnd;
-            setCode(code.slice(0, s) + "  " + code.slice(end));
-            t.selectionStart = t.selectionEnd = s + 2;
-          }
-        }}
-      />
+      <div className="h-40 shrink-0 overflow-hidden rounded border border-border">
+        <CodeEditor value={code} onChange={setCode} error={null} />
+      </div>
 
       {/* Status */}
       {result && (
