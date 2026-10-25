@@ -30,15 +30,15 @@ export const DEFAULT_LAYOUTS: SavedLayout[] = [
     id: "default-single",
     name: "Single BTC",
     layout: 1,
-    cells: [{ symbolProduct: "BTC-USD", interval: "1m" }],
+    cells: [{ symbolProduct: "BTCUSDT", interval: "1m" }],
   },
   {
     id: "default-dual",
     name: "Dual View",
     layout: 2,
     cells: [
-      { symbolProduct: "BTC-USD", interval: "1m" },
-      { symbolProduct: "ETH-USD", interval: "1m" },
+      { symbolProduct: "BTCUSDT", interval: "1m" },
+      { symbolProduct: "ETHUSDT", interval: "1m" },
     ],
   },
   {
@@ -46,10 +46,10 @@ export const DEFAULT_LAYOUTS: SavedLayout[] = [
     name: "Crypto Watch",
     layout: 4,
     cells: [
-      { symbolProduct: "BTC-USD", interval: "1m" },
-      { symbolProduct: "ETH-USD", interval: "1m" },
-      { symbolProduct: "SOL-USD", interval: "1m" },
-      { symbolProduct: "BNB-USD", interval: "1m" },
+      { symbolProduct: "BTCUSDT", interval: "1m" },
+      { symbolProduct: "ETHUSDT", interval: "1m" },
+      { symbolProduct: "SOLUSDT", interval: "1m" },
+      { symbolProduct: "BNBUSDT", interval: "1m" },
     ],
   },
 ];
@@ -84,7 +84,7 @@ export const saveCurrentLayout = (
     id,
     name,
     layout,
-    cells: cells.map((c) => ({ symbolProduct: c.symbol.coinbaseProduct, interval: c.interval })),
+    cells: cells.map((c) => ({ symbolProduct: c.symbol.binanceSymbol, interval: c.interval })),
   };
   const all = loadLayouts();
   saveLayouts([...all, saved]);
@@ -97,10 +97,16 @@ export const deleteLayout = (id: string): void => {
   saveLayouts(all.filter((l) => l.id !== id));
 };
 
+/** Layouts saved before the Binance switch store Coinbase ids ("BTC-USD"); map them to "BTCUSDT". */
+const findSymbol = (symbolProduct: string): SymbolOption => {
+  const binanceSymbol = symbolProduct.replace(/-USD$/, "USDT");
+  return SUPPORTED_SYMBOLS.find((s) => s.binanceSymbol === binanceSymbol) ?? SUPPORTED_SYMBOLS[0]!;
+};
+
 /** Converts a SavedLayout's cell configs back to runtime cell configs. */
 export const layoutToCells = (saved: SavedLayout): { symbol: SymbolOption; interval: ChartInterval }[] => {
   return saved.cells.map((c) => ({
-    symbol: SUPPORTED_SYMBOLS.find((s) => s.coinbaseProduct === c.symbolProduct) ?? SUPPORTED_SYMBOLS[0]!,
+    symbol: findSymbol(c.symbolProduct),
     interval: c.interval,
   }));
 };

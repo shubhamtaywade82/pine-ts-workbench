@@ -25,8 +25,11 @@ import { CodeEditor, type CodeError } from "@/components/editor/code-editor";
 
 export interface PineEditorProps {
   readonly bars: readonly Bar[];
-  readonly onResults: (results: Record<string, Array<number | undefined>>) => void;
-  readonly onMetadata: (plots: { id: string; color: string; kind: string }[]) => void;
+  /** Plot values per bar (aligned with `bars`), plus how to draw each plot. */
+  readonly onResults: (
+    results: Record<string, Array<number | undefined>>,
+    plots: { id: string; color: string; kind: string }[],
+  ) => void;
 }
 
 const DEFAULT_CODE = `// Custom indicator — write TypeScript using the pine-ts API.
@@ -139,7 +142,7 @@ const saveCode = (code: string): boolean => {
   }
 };
 
-export function PineEditor({ bars, onResults, onMetadata }: PineEditorProps) {
+export function PineEditor({ bars, onResults }: PineEditorProps) {
   const [code, setCode] = useState<string>(DEFAULT_CODE);
   const [savedCode, setSavedCode] = useState<string>(DEFAULT_CODE);
   const [autoRun, setAutoRun] = useState(true);
@@ -165,8 +168,7 @@ export function PineEditor({ bars, onResults, onMetadata }: PineEditorProps) {
   const runCode = useCallback(async (userCode: string) => {
     try {
       const { results, firstBarError } = await runOnBars(compileCalculate(userCode), bars);
-      onResults(results);
-      onMetadata(derivePlots(results));
+      onResults(results, derivePlots(results));
       setError(null);
       if (firstBarError !== null) log(firstBarError, true);
       else log("Compiled successfully. Script added to chart.", false);
@@ -175,7 +177,7 @@ export function PineEditor({ bars, onResults, onMetadata }: PineEditorProps) {
       setError(err instanceof ScriptCompileError ? err.position : null);
       log(message, true);
     }
-  }, [bars, onResults, onMetadata, log]);
+  }, [bars, onResults, log]);
 
   // Typing is debounced; new bars (stream ticks every ~100ms) re-run at once, or a
   // debounce would starve the live update. Refs give the bars effect the latest code
@@ -187,7 +189,8 @@ export function PineEditor({ bars, onResults, onMetadata }: PineEditorProps) {
   useEffect(() => {
     if (!autoRun) return;
     if (debounceRef.current !== null) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => { void runCode(code); }, AUTO_RUN_DEBOUNCE_MS);
+    // Via refs: this closure fires 500ms later, by when bars and callbacks may be newer.
+    debounceRef.current = setTimeout(() => { void runCodeRef.current(codeRef.current); }, AUTO_RUN_DEBOUNCE_MS);
     return () => { if (debounceRef.current !== null) clearTimeout(debounceRef.current); };
   }, [code, autoRun]);
 

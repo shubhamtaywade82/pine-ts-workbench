@@ -2,7 +2,6 @@
 
 import { useCallback, useState, useEffect, useMemo } from "react";
 import type { Bar } from "@nemesis-oss/pine-ts";
-import { STUB_BARS } from "@/lib/stub-bars";
 import { SUPPORTED_SYMBOLS, type SymbolOption, type ChartInterval } from "@/lib/public-binance-feed";
 import { ChartCell, MemoizedChartCell } from "@/components/chart/chart-cell";
 import { PineEditor } from "@/components/editor/pine-editor";
@@ -84,7 +83,6 @@ export default function Home() {
 
   // Editor state — shared, operates on the active cell's bars.
   const [editorOverlays, setEditorOverlays] = useState<ChartOverlay[]>([]);
-  const [editorPlots, setEditorPlots] = useState<{ id: string; color: string; kind: string }[]>([]);
   const [backtestTrades, setBacktestTrades] = useState<BacktestTrade[]>([]);
 
   // Convert backtest trades → trade markers for the active chart cell. Wave 21.
@@ -151,7 +149,7 @@ export default function Home() {
   };
 
   // The active cell's bars (for the editor).
-  const [editorBars, setEditorBars] = useState<readonly Bar[]>(STUB_BARS);
+  const [editorBars, setEditorBars] = useState<readonly Bar[]>([]);
 
   // Load saved layouts on mount.
   useEffect(() => { setSavedLayouts(loadLayouts()); }, []);
@@ -274,9 +272,8 @@ export default function Home() {
             <TabsContent value="indicator" className="flex-1 overflow-hidden m-0">
               <PineEditor
                 bars={editorBars}
-                onResults={(results) => {
-                  const overlays: ChartOverlay[] = (Object.keys(results).length > 0 && editorPlots.length > 0)
-                    ? editorPlots.map((plot) => {
+                onResults={(results, plots) => {
+                  const overlays: ChartOverlay[] = plots.map((plot) => {
                         const vals = results[plot.id] ?? [];
                         const data: { time: number; value: number }[] = [];
                         for (let i = 0; i < editorBars.length; i++) {
@@ -292,11 +289,9 @@ export default function Home() {
                           isLevel: plot.kind === "hline",
                           data,
                         } as ChartOverlay;
-                      })
-                    : [];
+                      });
                   setEditorOverlays(overlays);
                 }}
-                onMetadata={setEditorPlots}
               />
             </TabsContent>
             {/* forceMount keeps the backtest re-running on bar/symbol changes while the

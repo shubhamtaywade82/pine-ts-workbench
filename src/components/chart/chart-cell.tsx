@@ -80,7 +80,7 @@ export function ChartCell({
     (async () => {
       setBarsSource("fetching");
       try {
-        const fetched = await fetchHistoricalBars(symbol.coinbaseProduct, interval, 200);
+        const fetched = await fetchHistoricalBars(symbol.binanceSymbol, interval, 200);
         if (!cancelled) { setBars(fetched); setBarsSource("live"); }
       } catch (err) {
         if (!cancelled) {
@@ -172,9 +172,10 @@ export function ChartCell({
   const onInputChange = useCallback((id: string, name: string, v: number | string | boolean) =>
     setMounted((p) => p.map((m) => m.instanceId === id ? { ...m, inputs: { ...m.inputs, [name]: v } } : m)), []);
 
+  // Only real bars: the placeholder stub (2024 dates) would drag the chart's time scale back.
   useEffect(() => {
-    if (isActive) onActiveBarsChange?.(bars);
-  }, [isActive, bars, onActiveBarsChange]);
+    if (isActive) onActiveBarsChange?.(barsSource === "live" ? bars : []);
+  }, [isActive, bars, barsSource, onActiveBarsChange]);
 
   // Editor plots have no overlay flag; a sub-pane keeps oscillators (RSI etc.)
   // from squashing the price scale.
@@ -192,12 +193,12 @@ export function ChartCell({
       <div className="flex items-center justify-between px-2 py-1">
         <div className="flex items-center gap-1.5">
           <Select
-            value={symbol.coinbaseProduct}
-            onValueChange={(v) => { const o = SUPPORTED_SYMBOLS.find((s) => s.coinbaseProduct === v); if (o) setSymbol(o); }}
+            value={symbol.binanceSymbol}
+            onValueChange={(v) => { const o = SUPPORTED_SYMBOLS.find((s) => s.binanceSymbol === v); if (o) setSymbol(o); }}
           >
             <SelectTrigger className="h-9 w-28 text-xs sm:h-7 sm:w-28 sm:text-[10px]"><SelectValue /></SelectTrigger>
             <SelectContent>
-              {SUPPORTED_SYMBOLS.map((s) => <SelectItem key={s.coinbaseProduct} value={s.coinbaseProduct}>{s.displayName}</SelectItem>)}
+              {SUPPORTED_SYMBOLS.map((s) => <SelectItem key={s.binanceSymbol} value={s.binanceSymbol}>{s.displayName}</SelectItem>)}
             </SelectContent>
           </Select>
           <Select value={interval} onValueChange={(v) => setInterval(v as ChartInterval)}>
