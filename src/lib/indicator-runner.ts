@@ -72,6 +72,6 @@ export const runIndicatorCode = (userCode: string, bars: readonly Bar[]): Promis
   const loaded = loadScript<CalculateFn>(userCode, "calculate");
   if (loaded.kind === "indicator") return runIndicator(loaded.script, bars);
   if (loaded.kind === "legacy") return runLegacy(loaded.fn, bars);
-  throw new ScriptCompileError("This is a strategy; open it in the Strategy tab.", null);
+  throw new ScriptCompileError("This is a strategy; it runs in the Strategy Tester.", null);
 };
 
