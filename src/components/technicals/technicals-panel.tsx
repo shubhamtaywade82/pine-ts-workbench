@@ -1,10 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { fetchHistoricalBars, type BinanceSymbol, type ChartInterval } from "@/lib/public-binance-feed";
-import { computeTechnicals, PIVOT_STYLES, type TechnicalRow, type Technicals } from "@/lib/technicals";
+import { useState } from "react";
+import type { BinanceSymbol, ChartInterval } from "@/lib/public-binance-feed";
+import { PIVOT_STYLES, type TechnicalRow, type Technicals } from "@/lib/technicals";
 import { toRating, type Action } from "@/lib/technical-ratings";
 import { RatingGauge } from "@/components/technicals/rating-gauge";
+import { useTechnicals } from "@/hooks/use-technicals";
 
 /** TradingView's Technicals: rating gauges, oscillator and moving-average tables, pivots. */
 
@@ -12,38 +13,14 @@ const TIMEFRAMES: readonly (readonly [ChartInterval, string])[] = [
   ["1m", "1 minute"], ["5m", "5 minutes"], ["15m", "15 minutes"], ["30m", "30 minutes"], ["1h", "1 hour"],
   ["2h", "2 hours"], ["4h", "4 hours"], ["1d", "1 day"], ["1w", "1 week"], ["1M", "1 month"],
 ];
-// 200-bar MAs need 200 bars, plus room for warm-up of the smoothed oscillators.
-const HISTORY_BARS = 500;
-const REFRESH_MS = 30_000;
 const PIVOT_LABELS = ["P", "R1", "R2", "R3", "S1", "S2", "S3"];
 const PIVOT_TITLES: Record<string, string> = { CLASSIC: "Classic", FIBONACCI: "Fibonacci", CAMARILLA: "Camarilla", WOODIE: "Woodie", DE_MARK: "DM" };
 // Rows as TradingView lists pivots: R3 down to S3.
 const PIVOT_ROW_ORDER = [3, 2, 1, 0, 4, 5, 6];
 
-function useTechnicals(symbol: BinanceSymbol, interval: ChartInterval) {
-  const [technicals, setTechnicals] = useState<Technicals | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    let isCurrent = true;
-    const load = async () => {
-      try {
-        const result = await computeTechnicals(await fetchHistoricalBars(symbol, interval, HISTORY_BARS));
-        if (isCurrent) { setTechnicals(result); setError(null); }
-      } catch (err) {
-        if (isCurrent) setError(err instanceof Error ? err.message : String(err));
-      }
-    };
-    setTechnicals(null);
-    void load();
-    const timer = setInterval(() => void load(), REFRESH_MS);
-    return () => { isCurrent = false; clearInterval(timer); };
-  }, [symbol, interval]);
-  return { technicals, error };
-}
-
 export function TechnicalsPanel({ symbol, initialInterval }: { symbol: BinanceSymbol; initialInterval: ChartInterval }) {
   const [interval, setTimeframe] = useState<ChartInterval>(initialInterval);
-  const { technicals, error } = useTechnicals(symbol, interval);
+  const { technicals, error, isLoading } = useTechnicals(symbol, interval);
   return (
     <div className="flex h-full flex-col overflow-y-auto bg-background px-4 py-3">
       <h3 className="pb-2 text-base font-semibold">Technicals</h3>
@@ -56,7 +33,9 @@ export function TechnicalsPanel({ symbol, initialInterval }: { symbol: BinanceSy
         ))}
       </div>
       {error !== null && <p className="text-sm text-[#f23645]">{error}</p>}
-      {technicals === null && error === null && <p className="py-8 text-center text-sm text-muted-foreground">Loading…</p>}
+      {isLoading && technicals === null && error === null && (
+        <p className="py-8 text-center text-sm text-muted-foreground">Loading…</p>
+      )}
       {technicals !== null && <TechnicalsBody technicals={technicals} />}
       <p className="pt-6 text-xs text-muted-foreground">Not investment advice. Ratings follow TradingView&apos;s published rules, computed with pine-ts.</p>
     </div>
@@ -67,10 +46,28 @@ function TechnicalsBody({ technicals }: { technicals: Technicals }) {
   const { oscillators, movingAverages } = technicals;
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-end justify-center gap-x-6 gap-y-4">
-        <RatingGauge title="Oscillators" score={technicals.oscillatorScore} rating={toRating(technicals.oscillatorScore)} counts={countActions(oscillators)} />
-        <RatingGauge title="Summary" score={technicals.summaryScore} rating={toRating(technicals.summaryScore)} counts={countActions([...oscillators, ...movingAverages])} isLarge />
-        <RatingGauge title="Moving Averages" score={technicals.movingAverageScore} rating={toRating(technicals.movingAverageScore)} counts={countActions(movingAverages)} />
+      <div className="flex flex-col items-center gap-4">
+        <RatingGauge
+          title="Summary"
+          score={technicals.summaryScore}
+          rating={toRating(technicals.summaryScore)}
+          counts={countActions([...oscillators, ...movingAverages])}
+          isLarge
+        />
+        <div className="grid w-full grid-cols-2 gap-3">
+          <RatingGauge
+            title="Oscillators"
+            score={technicals.oscillatorScore}
+            rating={toRating(technicals.oscillatorScore)}
+            counts={countActions(oscillators)}
+          />
+          <RatingGauge
+            title="Moving Averages"
+            score={technicals.movingAverageScore}
+            rating={toRating(technicals.movingAverageScore)}
+            counts={countActions(movingAverages)}
+          />
+        </div>
       </div>
       <RatingTable title="Oscillators" rows={oscillators} />
       <RatingTable title="Moving Averages" rows={movingAverages} />

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchHistoricalBars, type BinanceSymbol, type ChartInterval } from "@/lib/public-binance-feed";
 import { computeTechnicals, type Technicals } from "@/lib/technicals";
 
@@ -37,6 +37,12 @@ export function useTechnicals(
     compute = computeTechnicals,
   } = options;
 
+  const fetchBarsRef = useRef(fetchBars);
+  useEffect(() => { fetchBarsRef.current = fetchBars; }, [fetchBars]);
+
+  const computeRef = useRef(compute);
+  useEffect(() => { computeRef.current = compute; }, [compute]);
+
   const [technicals, setTechnicals] = useState<Technicals | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -52,8 +58,8 @@ export function useTechnicals(
 
     const load = async () => {
       try {
-        const bars = await fetchBars(symbol, interval, historyBars);
-        const result = await compute(bars);
+        const bars = await fetchBarsRef.current(symbol, interval, historyBars);
+        const result = await computeRef.current(bars);
         if (!isCurrent) return;
         setTechnicals(result);
         setError(null);
@@ -76,7 +82,7 @@ export function useTechnicals(
       isCurrent = false;
       clearInterval(timer);
     };
-  }, [symbol, interval, historyBars, refreshMs, fetchBars, compute, trigger]);
+  }, [symbol, interval, historyBars, refreshMs, trigger]);
 
   return { technicals, error, isLoading, reload };
 }

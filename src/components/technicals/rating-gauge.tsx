@@ -31,8 +31,8 @@ export function RatingGauge({ title, score, rating, counts, isLarge = false }: {
   const needle = polar(((score + 1) / 2) * 180, 30);
   const span = 180 / SEGMENTS.length;
   return (
-    <div className="flex flex-col items-center gap-1">
-      <svg viewBox="0 0 100 56" className={isLarge ? "w-40" : "w-28"} role="img" aria-label={`${title}: ${rating}`}>
+    <div className="flex w-full max-w-[180px] flex-col items-center gap-1">
+      <svg viewBox="0 0 100 56" className={isLarge ? "w-36 sm:w-40" : "w-24 sm:w-28"} role="img" aria-label={`${title}: ${rating}`}>
         {SEGMENTS.map((color, i) => (
           <path key={i} d={arc(i * span + GAP_DEG / 2, (i + 1) * span - GAP_DEG / 2, 42)} stroke={color} strokeWidth="5" fill="none" strokeLinecap="round" />
         ))}
@@ -40,11 +40,11 @@ export function RatingGauge({ title, score, rating, counts, isLarge = false }: {
         <circle cx="50" cy="50" r="3" fill={NEUTRAL} />
       </svg>
       <span className="text-xs font-semibold">{title}</span>
-      <span className={`font-semibold ${isLarge ? "text-lg" : "text-base"}`}>{rating}</span>
-      <div className="grid grid-cols-3 gap-3 whitespace-nowrap rounded-md bg-muted px-3 py-1 text-center text-[11px]">
-        <span>Sell<br /><b className="text-sm">{counts.sell}</b></span>
-        <span>Neutral<br /><b className="text-sm">{counts.neutral}</b></span>
-        <span>Buy<br /><b className="text-sm">{counts.buy}</b></span>
+      <span className={`font-semibold ${isLarge ? "text-base sm:text-lg" : "text-sm sm:text-base"}`}>{rating}</span>
+      <div className="grid w-full grid-cols-3 gap-1 rounded-md bg-muted px-1.5 py-1 text-center text-[10px] sm:text-[11px]">
+        <span>Sell<br /><b className="text-xs sm:text-sm">{counts.sell}</b></span>
+        <span>Neutral<br /><b className="text-xs sm:text-sm">{counts.neutral}</b></span>
+        <span>Buy<br /><b className="text-xs sm:text-sm">{counts.buy}</b></span>
       </div>
     </div>
   );
