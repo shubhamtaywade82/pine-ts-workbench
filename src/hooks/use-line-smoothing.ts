@@ -1,10 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useRef } from "react";
-import type { ISeriesApi, LineData, Time } from "lightweight-charts";
+import type { ISeriesApi, LineData, Time, WhitespaceData } from "lightweight-charts";
 import { SMOOTHING_TAU_MS } from "@/hooks/use-candle-series";
 
 const SETTLE_EPSILON = 1e-7;
+
+export type OverlayPoint = LineData<Time> | WhitespaceData<Time>;
 
 interface Tween {
   readonly time: Time;
@@ -13,10 +15,15 @@ interface Tween {
 }
 
 /** Only the forming bar's value changed: same points, same last time. */
-const isLastValueUpdate = (previous: readonly LineData<Time>[] | undefined, next: readonly LineData<Time>[]): boolean => {
+const isLastValueUpdate = (previous: readonly OverlayPoint[] | undefined, next: readonly OverlayPoint[]): boolean => {
   if (previous === undefined || previous.length !== next.length || next.length < 2) return false;
-  const [prevLast, nextLast] = [previous.at(-1)!, next.at(-1)!];
-  return prevLast.time === nextLast.time && previous.at(-2)!.value === next.at(-2)!.value;
+  const prevLast = previous.at(-1)!;
+  const nextLast = next.at(-1)!;
+  if (!("value" in prevLast) || !("value" in nextLast)) return false;
+  const prevPrev = previous.at(-2)!;
+  const nextPrev = next.at(-2)!;
+  if (!("value" in prevPrev) || !("value" in nextPrev)) return false;
+  return prevLast.time === nextLast.time && prevPrev.value === nextPrev.value;
 };
 
 /**
@@ -25,7 +32,7 @@ const isLastValueUpdate = (previous: readonly LineData<Time>[] | undefined, next
  * candle) instead of jumping; any other change replaces the data at once.
  */
 export function useLineSmoothing() {
-  const shownData = useRef(new WeakMap<ISeriesApi<"Line">, readonly LineData<Time>[]>());
+  const shownData = useRef(new WeakMap<ISeriesApi<"Line">, readonly OverlayPoint[]>());
   const tweens = useRef(new Map<ISeriesApi<"Line">, Tween>());
   const frame = useRef<number | null>(null);
 
@@ -49,17 +56,18 @@ export function useLineSmoothing() {
   useEffect(() => () => { if (frame.current !== null) cancelAnimationFrame(frame.current); }, []);
 
   /** `series.setData(data)`, except a moved last point eases to its new value. */
-  return useCallback((series: ISeriesApi<"Line">, data: readonly LineData<Time>[]) => {
+  return useCallback((series: ISeriesApi<"Line">, data: readonly OverlayPoint[]) => {
     const previous = shownData.current.get(series);
     shownData.current.set(series, data);
     const last = data.at(-1);
-    if (last === undefined || !isLastValueUpdate(previous, data)) {
+    if (last === undefined || !("value" in last) || !isLastValueUpdate(previous, data)) {
       tweens.current.delete(series);
       series.setData([...data]);
       return;
     }
     const running = tweens.current.get(series);
-    tweens.current.set(series, { time: last.time, shown: running?.shown ?? previous!.at(-1)!.value, target: last.value });
+    const prevVal = "value" in previous!.at(-1)! ? (previous!.at(-1) as LineData<Time>).value : last.value;
+    tweens.current.set(series, { time: last.time, shown: running?.shown ?? prevVal, target: last.value });
     animate();
   }, [animate]);
 }

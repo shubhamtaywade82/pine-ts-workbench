@@ -28,7 +28,7 @@ export interface ChartOverlay {
   readonly indicatorId: string;
   readonly indicatorName: string;
   readonly color: string;
-  readonly data: readonly { time: number; value: number }[];
+  readonly data: readonly { time: number; value?: number }[];
   /** Horizontal level (e.g. RSI 70/30) — drawn thin and dashed, no price label. */
   readonly isLevel?: boolean;
   /** The indicator this plot belongs to (one legend row per owner); defaults to `instanceId`. */

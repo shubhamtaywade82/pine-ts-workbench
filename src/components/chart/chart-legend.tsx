@@ -158,9 +158,10 @@ function OverlayLine({ row, hoverTime, onAction, statusLine }: {
       {/* Values stay (dimmed with the row) so the buttons don't jump under the cursor when hiding. */}
       {statusLine.showIndicatorValues && row.overlays.filter((o) => !o.isLevel).map((overlay) => {
         const point = pointAt(overlay.data, hoverTime);
+        if (point === undefined || point.value === undefined) return null;
         return (
           <span key={overlay.instanceId} style={{ color: overlay.color }}>
-            {point === undefined ? "∅" : formatPrice(point.value)}
+            {formatPrice(point.value)}
           </span>
         );
       })}

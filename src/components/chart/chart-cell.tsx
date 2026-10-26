@@ -40,7 +40,7 @@ const FALLBACK_COLOR = "#1e88e5";
 
 interface IndicatorRunResult {
   readonly plots: Record<string, Array<number | undefined>>;
-  readonly meta: { readonly plots: readonly { id: string; kind: string; color?: string; isHidden?: boolean }[] } | undefined;
+  readonly meta: { readonly plots: readonly { id: string; kind: string; color?: string; isHidden?: boolean; display?: string }[] } | undefined;
   /** SMC drawings of a saved script (built-ins draw none). */
   readonly drawings?: ScriptDrawings;
   /** Intervals a saved script shows on (its Visibility tab); undefined = all. */
@@ -238,8 +238,10 @@ function LiveBadge({ status }: { status: LiveStatus }) {
 }
 
 /** A plot with the same value on every bar (RSI's 70/30 bands) is drawn as a dashed level, as on TradingView. */
-const isConstant = (data: readonly { value: number }[]): boolean =>
-  data.length > 1 && data.every((d) => d.value === data[0]!.value);
+const isConstant = (data: readonly { value?: number }[]): boolean => {
+  const withVal = data.filter((d): d is { value: number } => d.value !== undefined);
+  return withVal.length > 1 && withVal.every((d) => d.value === withVal[0]!.value);
+};
 
 const isShownOn = (result: IndicatorRunResult, interval: ChartInterval): boolean =>
   result.visibleIntervals?.includes(interval) ?? true;
@@ -272,12 +274,16 @@ function computeOverlays(
     const paneOverlays: ChartOverlay[] = [];
     for (const plot of result.meta.plots) {
       if (plot.kind !== "line" && plot.kind !== "histogram") continue;
+      if (plot.display === "none") continue;
       const seriesValues = result.plots[plot.id] ?? [];
-      const data: { time: number; value: number }[] = [];
+      const data: { time: number; value?: number }[] = [];
       for (let i = 0; i < bars.length; i++) {
         const v = seriesValues[i];
-        if (v === undefined || Number.isNaN(v)) continue;
-        data.push({ time: bars[i]!.time, value: v });
+        if (v === undefined || Number.isNaN(v)) {
+          data.push({ time: bars[i]!.time });
+        } else {
+          data.push({ time: bars[i]!.time, value: v });
+        }
       }
       paneOverlays.push({
         instanceId: `${m.instanceId}:${plot.id}`,

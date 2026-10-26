@@ -50,7 +50,10 @@ export function useOverlaySeries(
       } else {
         series.applyOptions(lineOptions(overlay, placement));
       }
-      setLineData(series, overlay.data.map((d) => ({ time: Math.floor(d.time / 1000) as Time, value: d.value })));
+      setLineData(
+        series,
+        overlay.data.map((d) => (d.value !== undefined ? { time: Math.floor(d.time / 1000) as Time, value: d.value } : { time: Math.floor(d.time / 1000) as Time })),
+      );
     }
     // Remove series that are no longer present.
     for (const [id, series] of overlaySeriesRef.current.entries()) {
@@ -86,7 +89,10 @@ export function useOverlaySeries(
           // A pane added or removed before this one shifts its index; series don't follow on their own.
           if (series.getPane().paneIndex() !== paneIndex) series.moveToPane(paneIndex);
         }
-        setLineData(series, overlay.data.map((d) => ({ time: Math.floor(d.time / 1000) as Time, value: d.value })));
+        setLineData(
+        series,
+        overlay.data.map((d) => (d.value !== undefined ? { time: Math.floor(d.time / 1000) as Time, value: d.value } : { time: Math.floor(d.time / 1000) as Time })),
+      );
       }
     });
     // TradingView gives price ~75% of the height; LWC defaults to equal panes.
