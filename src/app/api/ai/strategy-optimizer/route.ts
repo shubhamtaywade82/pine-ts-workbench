@@ -1,5 +1,11 @@
 import { NextResponse } from "next/server";
-import { OllamaClient, Agent, ToolRegistry, type AnyTool } from "@nemesis-oss/ollama-sdk";
+import {
+  OllamaClient,
+  Agent,
+  ToolRegistry,
+  OllamaAgentMaxIterationsError,
+  type AnyTool,
+} from "@nemesis-oss/ollama-sdk";
 import type { Bar } from "@nemesis-oss/pine-ts";
 import { runBacktest, type BacktestSummary, type BacktestTrade } from "@/lib/strategy-runner";
 import type { InputValue } from "@/lib/script-library";
@@ -24,11 +30,10 @@ Your mission is to audit backtest results, inspect trade excursions (MAE/MFE), a
 
 WORKFLOW:
 1. Inspect the strategy's performance metrics and identify weaknesses (high drawdown, low profit factor, poor R:R).
-2. Call the "test_parameter_variation" tool to test 1 to 3 variations on inputs declared in the strategy (e.g., lengths, thresholds, multipliers).
-3. Evaluate the tested variations and choose the optimal, robust parameter set.
-4. Provide a structured response:
+2. You may call the "test_parameter_variation" tool AT MOST ONCE to test new input parameters.
+3. After receiving the tool result, DO NOT call any more tools. You MUST immediately write your final response:
    - ### Strategy Audit: Diagnostic breakdown of performance, risk, and excursions.
-   - ### Parameter Optimization: Summary table comparing original vs optimal parameters and backtest metrics.
+   - ### Parameter Optimization: Summary comparing original vs optimal parameters.
    - ### Optimized Script: Complete updated script inside a \`\`\`typescript ... \`\`\` block.`;
 
 function createSweepTool(code: string): AnyTool {
