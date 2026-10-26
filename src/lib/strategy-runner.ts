@@ -1,5 +1,3 @@
-"use client";
-
 import {
   StrategyEngine, PineRuntime, ta, type Bar, type InputConfig, type PineContext, type StrategyOptions, type StrategyScript,
 } from "@nemesis-oss/pine-ts";
