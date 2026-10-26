@@ -7,6 +7,8 @@ import { describeCode } from "@/lib/script-library";
 import { injectSkillsIntoMessages } from "@/lib/skills-loader";
 
 const DEFAULT_MODEL = "minicpm5-toolagent:latest";
+// Generous timeout for local multi-turn agent runs on CPU/GPU.
+const OLLAMA_TIMEOUT_MS = 120_000;
 
 // 20 synthetic bars with realistic price action for dry-running indicators and strategies.
 const TRIAL_BARS: readonly Bar[] = Array.from({ length: 20 }, (_, i) => {
@@ -115,7 +117,10 @@ function findValidatedCode(turns: readonly AgentTurn[]): string | null {
 
 export async function GET() {
   try {
-    const client = new OllamaClient({ baseUrl: process.env.OLLAMA_BASE_URL || "http://localhost:11434" });
+    const client = new OllamaClient({
+      baseUrl: process.env.OLLAMA_BASE_URL || "http://localhost:11434",
+      timeoutMs: OLLAMA_TIMEOUT_MS,
+    });
     const models = await client.listModels();
     const toolModels = models
       .filter((m) => {
@@ -132,7 +137,10 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as { prompt: string; currentCode?: string; error?: string; model?: string };
-    const client = new OllamaClient({ baseUrl: process.env.OLLAMA_BASE_URL || "http://localhost:11434" });
+    const client = new OllamaClient({
+      baseUrl: process.env.OLLAMA_BASE_URL || "http://localhost:11434",
+      timeoutMs: OLLAMA_TIMEOUT_MS,
+    });
     const tools = new ToolRegistry([createValidationTool()]);
     const agent = new Agent(client, { tools, maxIterations: 5 });
 

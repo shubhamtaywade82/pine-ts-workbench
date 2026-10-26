@@ -11,6 +11,8 @@ import { runBacktest, type BacktestSummary, type BacktestTrade } from "@/lib/str
 import type { InputValue } from "@/lib/script-library";
 
 const DEFAULT_MODEL = "minicpm5-toolagent:latest";
+// Generous timeout for local multi-turn agent runs on CPU/GPU.
+const OLLAMA_TIMEOUT_MS = 120_000;
 
 // 30 synthetic bars with realistic trend and mean reversion for backtesting parameter sweeps.
 const TRIAL_BARS: readonly Bar[] = Array.from({ length: 30 }, (_, i) => {
@@ -28,10 +30,22 @@ const TRIAL_BARS: readonly Bar[] = Array.from({ length: 30 }, (_, i) => {
 const SYSTEM_PROMPT = `You are a quant trading strategy auditor and parameter optimizer for @nemesis-oss/pine-ts.
 Your mission is to audit backtest results, inspect trade excursions (MAE/MFE), and optimize strategy parameters.
 
+CRITICAL PINE-TS STRATEGY SYNTAX:
+- Declaration: defineStrategy("Title", { initial_capital: 10_000, default_qty_value: 1 }, ({ close, open, high, low, strategy, input, ta, smc }) => { ... })
+- Allowed strategy methods:
+  - strategy.entry("Long", "long", { when: condition, qty?: number })
+  - strategy.entry("Short", "short", { when: condition, qty?: number })
+  - strategy.close("Long", { when: condition })
+  - strategy.close_all({ when?: condition })
+  - strategy.exit("Exit", { from_entry: "Long", profit?: number, loss?: number, limit?: number, stop?: number, when?: condition })
+- FORBIDDEN: DO NOT call strategy.getPositions(), strategy.positions, or strategy.order(). They do NOT exist.
+- Inspecting position size: read strategy.engine.position_size or pass { when: condition } to strategy.entry/close.
+- Technical analysis: ta.rsi(close, length), ta.sma(close, length), ta.ema(close, length), ta.crossover(a, b), ta.crossunder(a, b)
+
 WORKFLOW:
-1. Inspect the strategy's performance metrics and identify weaknesses (high drawdown, low profit factor, poor R:R).
+1. Inspect the strategy's performance metrics and identify weaknesses.
 2. You may call the "test_parameter_variation" tool AT MOST ONCE to test new input parameters.
-3. After receiving the tool result, DO NOT call any more tools. You MUST immediately write your final response:
+3. Provide your final response in markdown:
    - ### Strategy Audit: Diagnostic breakdown of performance, risk, and excursions.
    - ### Parameter Optimization: Summary comparing original vs optimal parameters.
    - ### Optimized Script: Complete updated script inside a \`\`\`typescript ... \`\`\` block.`;
@@ -39,7 +53,7 @@ WORKFLOW:
 function createSweepTool(code: string): AnyTool {
   return {
     name: "test_parameter_variation",
-    description: "Runs a trial backtest of the strategy with modified parameter inputs. Returns performance metrics.",
+    description: "Runs trial backtest of strategy with modified inputs.",
     schema: {
       safeParse: (input: unknown) => {
         if (typeof input === "object" && input !== null && "inputs" in input) {
@@ -122,9 +136,61 @@ export function buildAuditMessage(
   return parts.join("");
 }
 
+async function runOptimizationAgent(
+  client: OllamaClient,
+  model: string,
+  code: string,
+  auditMessage: string,
+): Promise<{ rawContent: string; iterations: number }> {
+  const tools = new ToolRegistry([createSweepTool(code)]);
+  // Cap at 4 turns to balance parameter experimentation with quick convergence.
+  const agent = new Agent(client, { tools, maxIterations: 4 });
+  const messages = [
+    { role: "system" as const, content: SYSTEM_PROMPT },
+    { role: "user" as const, content: auditMessage },
+  ];
+
+  try {
+    const res = await agent.run({ model, messages });
+    return { rawContent: res.finalMessage.content || "", iterations: res.totalIterations };
+  } catch (err) {
+    // Eager tool models exceed iterations: synthesize from final chat turn without tools.
+    if (err instanceof OllamaAgentMaxIterationsError) {
+      const fallback = await client.chat({
+        model,
+        messages: [
+          ...messages,
+          {
+            role: "user",
+            content: "Synthesize your audit and output the final code inside ```typescript ... ``` now.",
+          },
+        ],
+      });
+      return { rawContent: fallback.message.content || "", iterations: 4 };
+    }
+    throw err;
+  }
+}
+
+export async function validateOptimizedCode(
+  candidate: string,
+  original: string,
+): Promise<{ code: string; notice?: string }> {
+  const test = await runBacktest(candidate, TRIAL_BARS);
+  if (test.ok) return { code: candidate };
+  // Guard user against broken hallucinated code by retaining original script with a diagnostic warning.
+  return {
+    code: original,
+    notice: `\n\n> ⚠️ **Compiler Validation Warning**: Candidate script failed execution test: *${test.error}*. Original script was retained.`,
+  };
+}
+
 export async function GET() {
   try {
-    const client = new OllamaClient({ baseUrl: process.env.OLLAMA_BASE_URL || "http://localhost:11434" });
+    const client = new OllamaClient({
+      baseUrl: process.env.OLLAMA_BASE_URL || "http://localhost:11434",
+      timeoutMs: OLLAMA_TIMEOUT_MS,
+    });
     const models = await client.listModels();
     const toolModels = models
       .filter((m) => {
@@ -146,29 +212,24 @@ export async function POST(req: Request) {
       trades?: readonly BacktestTrade[];
       model?: string;
     };
-
     if (!body.code) return NextResponse.json({ ok: false, error: "Missing strategy code" }, { status: 400 });
 
-    const client = new OllamaClient({ baseUrl: process.env.OLLAMA_BASE_URL || "http://localhost:11434" });
-    const tools = new ToolRegistry([createSweepTool(body.code)]);
-    const agent = new Agent(client, { tools, maxIterations: 5 });
-
-    const result = await agent.run({
-      model: body.model || DEFAULT_MODEL,
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: buildAuditMessage(body.code, body.summary, body.trades) },
-      ],
+    const client = new OllamaClient({
+      baseUrl: process.env.OLLAMA_BASE_URL || "http://localhost:11434",
+      timeoutMs: OLLAMA_TIMEOUT_MS,
     });
+    const model = body.model || DEFAULT_MODEL;
+    const auditMessage = buildAuditMessage(body.code, body.summary, body.trades);
+    const { rawContent, iterations } = await runOptimizationAgent(client, model, body.code, auditMessage);
 
-    const rawContent = result.finalMessage.content || "";
-    const extractedCode = extractCodeBlock(rawContent) ?? body.code;
+    const extracted = extractCodeBlock(rawContent);
+    const validation = extracted ? await validateOptimizedCode(extracted, body.code) : { code: body.code };
 
     return NextResponse.json({
       ok: true,
-      analysis: rawContent,
-      optimizedCode: extractedCode,
-      iterations: result.totalIterations,
+      analysis: rawContent + (validation.notice ?? ""),
+      optimizedCode: validation.code,
+      iterations,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { GET, extractCodeBlock, buildAuditMessage } from "./route";
+import { GET, extractCodeBlock, buildAuditMessage, validateOptimizedCode } from "./route";
 
 describe("strategy-optimizer api route", () => {
   test("GET returns models array and defaultModel", async () => {
@@ -33,5 +33,22 @@ describe("strategy-optimizer api route", () => {
     expect(msg).toContain("Net Profit: $1250.00");
     expect(msg).toContain("Profit Factor: 2.66");
     expect(msg).toContain("Win Rate: 65.0%");
+  });
+
+  test("validateOptimizedCode accepts valid strategy and preserves candidate", async () => {
+    const valid = 'defineStrategy("Valid", { default_qty_value: 1 }, ({ strategy }) => { strategy.entry("L", "long"); });';
+    const original = 'defineStrategy("Orig", {}, () => {});';
+    const result = await validateOptimizedCode(valid, original);
+    expect(result.code).toBe(valid);
+    expect(result.notice).toBeUndefined();
+  });
+
+  test("validateOptimizedCode guards against hallucinated getPositions and retains original", async () => {
+    const broken = 'defineStrategy("Broken", {}, ({ strategy }) => { (strategy as any).getPositions(); });';
+    const original = 'defineStrategy("Orig", {}, () => {});';
+    const result = await validateOptimizedCode(broken, original);
+    expect(result.code).toBe(original);
+    expect(result.notice).toContain("Compiler Validation Warning");
+    expect(result.notice).toContain("getPositions is not a function");
   });
 });
