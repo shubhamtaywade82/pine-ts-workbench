@@ -2,29 +2,26 @@
 
 import { useCallback, useState, useEffect, useMemo, useRef } from "react";
 import type { ImperativePanelHandle } from "react-resizable-panels";
-import type { Bar } from "@nemesis-oss/pine-ts";
-import { SUPPORTED_SYMBOLS, type SymbolOption, type ChartInterval } from "@/lib/public-binance-feed";
-import { MemoizedChartCell, type CellSettings } from "@/components/chart/chart-cell";
-import { nextInstanceId, type MountedIndicator } from "@/components/chart/indicator-dialogs";
+import type { Bar, ScriptDrawings } from "@nemesis-oss/pine-ts";
+import type { ChartDrawing } from "@/components/chart/script-drawings-primitive";
+import { MemoizedChartCell } from "@/components/chart/chart-cell";
+import { TopToolbar, LAYOUT_OPTIONS, type GridLayout } from "@/components/chart/top-toolbar";
+import { useChartGrid, newCell } from "@/hooks/use-chart-grid";
 import { PineEditor } from "@/components/editor/pine-editor";
 import { useBacktest, StrategyCodeTab, StrategyTester } from "@/components/strategy/strategy-panel";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { TradeMarker } from "@/components/chart/chart-workbench";
 import type { BacktestTrade } from "@/lib/strategy-runner";
-import { SettingsDialog, loadSettings, type BinanceSettings, DEFAULT_SETTINGS } from "@/components/trading/settings-dialog";
-import { AlertSettingsDialog } from "@/components/alerts/alert-settings-dialog";
+import { loadSettings, type BinanceSettings, DEFAULT_SETTINGS } from "@/components/trading/settings-dialog";
 import { loadAlertSettings, type AlertSettings, DEFAULT_ALERT_SETTINGS } from "@/lib/alert-sinks";
 import {
-  loadLayouts, saveCurrentLayout, deleteLayout, layoutToCells, findSymbol, loadWorkspace, saveWorkspace,
+  saveCurrentLayout, layoutToCells, findSymbol, loadWorkspace, saveWorkspace,
   type SavedLayout, type Workspace,
 } from "@/lib/saved-layouts";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { Button } from "@/components/ui/button";
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
-import { LayoutGrid, Plus, Sun, Moon, Save, Code2, FlaskConical } from "lucide-react";
+import { Code2, FlaskConical } from "lucide-react";
 import type { ChartOverlay, IndicatorAction } from "@/components/chart/chart-workbench";
 
 /**
@@ -42,29 +39,6 @@ import type { ChartOverlay, IndicatorAction } from "@/components/chart/chart-wor
  * The whole workspace (grid, symbols, timeframes, indicators, panels, theme)
  * is auto-saved to localStorage and restored on load.
  */
-
-type GridLayout = 1 | 2 | 4 | 6;
-
-const LAYOUT_OPTIONS: { value: GridLayout; label: string; cols: number; rows: number }[] = [
-  { value: 1, label: "1 chart", cols: 1, rows: 1 },
-  { value: 2, label: "2 charts", cols: 2, rows: 1 },
-  { value: 4, label: "4 charts", cols: 2, rows: 2 },
-  { value: 6, label: "6 charts", cols: 3, rows: 2 },
-];
-
-interface CellConfig extends CellSettings {
-  readonly id: string;
-}
-
-let cellCounter = 0;
-const newCellId = () => `cell-${++cellCounter}`;
-
-const defaultIndicators = (): MountedIndicator[] => [
-  { instanceId: nextInstanceId("sma"), indicatorId: "sma", indicatorName: "Simple Moving Average", inputs: { source: "close", length: 20 }, pane: "main" },
-];
-
-const newCell = (symbol: SymbolOption, interval: ChartInterval = "1m"): CellConfig =>
-  ({ id: newCellId(), symbol, interval, indicators: defaultIndicators() });
 
 /** Plot values per editor bar → chart overlays; constant plots become dashed levels. */
 const toEditorOverlays = (
@@ -89,6 +63,27 @@ const toEditorOverlays = (
   };
 });
 
+const NO_DRAWINGS: ChartDrawing[] = [];
+
+/** Script drawings use bar indices; the chart needs the times of the bars the editor ran on. */
+const toChartDrawings = (drawings: ScriptDrawings, bars: readonly Bar[]): ChartDrawing[] => {
+  const time = (index: number) => bars[index]?.time;
+  const resolved: ChartDrawing[] = [];
+  for (const line of drawings.lines) {
+    const [from, to] = [time(line.fromBar), time(line.toBar)];
+    if (from === undefined || to === undefined) continue;
+    const isBullish = line.direction === "bullish";
+    // BOS dashed, CHoCH solid, as in the SMC Confluence Engine.
+    resolved.push({ kind: "line", from, to, price: line.price, text: line.text, isBullish, isDashed: line.text === "BOS" });
+  }
+  for (const box of drawings.boxes) {
+    const [from, to] = [time(box.fromBar), time(box.toBar)];
+    if (from === undefined || to === undefined) continue;
+    resolved.push({ kind: "box", from, to, top: box.top, bottom: box.bottom, isBullish: box.direction === "bullish" });
+  }
+  return resolved;
+};
+
 /** Expands or collapses a panel to match `isOpen` (panels stay mounted either way). */
 const syncPanel = (panel: ImperativePanelHandle | null, isOpen: boolean) => {
   if (panel === null || panel.isExpanded() === isOpen) return;
@@ -97,13 +92,9 @@ const syncPanel = (panel: ImperativePanelHandle | null, isOpen: boolean) => {
 };
 
 export default function Home() {
-  const [layout, setLayout] = useState<GridLayout>(1);
-  const [cells, setCells] = useState<CellConfig[]>(() => [newCell(SUPPORTED_SYMBOLS[0]!)]);
-  const [activeCellId, setActiveCellId] = useState<string>(cells[0]?.id ?? "");
-  const [savedLayouts, setSavedLayouts] = useState<SavedLayout[]>([]);
+  const grid = useChartGrid();
+  const { layout, cells, activeCellId, replaceGrid, onCellChange } = grid;
   const [theme, setTheme] = useState<"dark" | "light">("dark");
-  const [showSaveDialog, setShowSaveDialog] = useState(false);
-  const [layoutName, setLayoutName] = useState("");
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [editorTab, setEditorTab] = useState<Workspace["editorTab"]>("indicator");
   const [isTesterOpen, setIsTesterOpen] = useState(false);
@@ -122,6 +113,7 @@ export default function Home() {
 
   // Editor state — shared, operates on the active cell's bars.
   const [editorOverlays, setEditorOverlays] = useState<ChartOverlay[]>([]);
+  const [editorDrawings, setEditorDrawings] = useState<ChartDrawing[]>([]);
   // Legend eye / × on the editor script's pane; "Add to chart" in the editor puts it back.
   const [isEditorScriptHidden, setIsEditorScriptHidden] = useState(false);
   const [isEditorScriptOnChart, setIsEditorScriptOnChart] = useState(true);
@@ -146,9 +138,7 @@ export default function Home() {
     const workspace = loadWorkspace();
     if (workspace !== null) {
       const restored = workspace.cells.map((c) => ({ ...newCell(findSymbol(c.symbolProduct), c.interval), indicators: c.indicators }));
-      setLayout(workspace.layout as GridLayout);
-      setCells(restored);
-      setActiveCellId((restored[workspace.activeCellIndex] ?? restored[0]!).id);
+      replaceGrid(workspace.layout as GridLayout, restored, workspace.activeCellIndex);
       setIsEditorOpen(workspace.isEditorOpen);
       setEditorTab(workspace.editorTab);
       setIsTesterOpen(workspace.isTesterOpen);
@@ -156,7 +146,7 @@ export default function Home() {
       document.documentElement.classList.toggle("dark", workspace.theme === "dark");
     }
     setIsRestored(true);
-  }, []);
+  }, [replaceGrid]);
 
   useEffect(() => {
     if (!isRestored) return;
@@ -178,46 +168,6 @@ export default function Home() {
     else { setIsEditorOpen(true); setEditorTab("indicator"); }
   }, []);
 
-  const onCellChange = useCallback((cellId: string, patch: Partial<CellSettings>) => {
-    setCells((prev) => prev.map((c) => (c.id === cellId ? { ...c, ...patch } : c)));
-  }, []);
-
-  // Layout change: add/remove cells to match the layout.
-  const onLayoutChange = useCallback((newLayout: GridLayout) => {
-    setLayout(newLayout);
-    setCells((prev) => {
-      if (prev.length < newLayout) {
-        const additions: CellConfig[] = [];
-        for (let i = prev.length; i < newLayout; i++) {
-          additions.push(newCell(SUPPORTED_SYMBOLS[i % SUPPORTED_SYMBOLS.length]!));
-        }
-        return [...prev, ...additions];
-      }
-      if (prev.length > newLayout) {
-        return prev.slice(0, newLayout);
-      }
-      return prev;
-    });
-  }, []);
-
-  const onRemoveCell = useCallback((cellId: string) => {
-    setCells((prev) => {
-      const next = prev.filter((c) => c.id !== cellId);
-      if (next.length === 0) return prev; // keep at least 1
-      if (activeCellId === cellId) setActiveCellId(next[0]!.id);
-      setLayout(next.length as GridLayout);
-      return next;
-    });
-  }, [activeCellId]);
-
-  const onAddCell = useCallback(() => {
-    if (cells.length >= 6) return;
-    const added = newCell(SUPPORTED_SYMBOLS[cells.length % SUPPORTED_SYMBOLS.length]!);
-    setCells((prev) => [...prev, added]);
-    setLayout(Math.min(cells.length + 1, 6) as GridLayout);
-    setActiveCellId(added.id);
-  }, [cells.length]);
-
   // Grid CSS — responsive: 1 column on mobile, layout-based on desktop.
   const layoutConfig = LAYOUT_OPTIONS.find((l) => l.value === layout)!;
   const gridStyle = {
@@ -228,35 +178,13 @@ export default function Home() {
     gap: "4px",
   };
 
-  // Load saved layouts on mount.
-  useEffect(() => { setSavedLayouts(loadLayouts()); }, []);
+  const onSaveLayout = useCallback((name: string) => {
+    saveCurrentLayout(name, layout, cells.map((c) => ({ symbol: c.symbol, interval: c.interval })));
+  }, [layout, cells]);
 
-  // Save current layout.
-  const onSaveLayout = useCallback(() => {
-    if (!layoutName.trim()) return;
-    const cellConfigs = cells.map((c) => ({ symbol: c.symbol, interval: c.interval }));
-    saveCurrentLayout(layoutName.trim(), layout, cellConfigs);
-    setSavedLayouts(loadLayouts());
-    setLayoutName("");
-    setShowSaveDialog(false);
-  }, [layoutName, layout, cells]);
-
-  // Load a saved layout.
-  const onLoadLayout = useCallback((id: string) => {
-    const saved = savedLayouts.find((l) => l.id === id);
-    if (!saved) return;
-    const cellConfigs = layoutToCells(saved);
-    setLayout(saved.layout as GridLayout);
-    const loaded = cellConfigs.map((c) => newCell(c.symbol, c.interval));
-    setCells(loaded);
-    setActiveCellId(loaded[0]!.id);
-  }, [savedLayouts]);
-
-  // Delete a saved layout.
-  const onDeleteLayout = useCallback((id: string) => {
-    deleteLayout(id);
-    setSavedLayouts(loadLayouts());
-  }, []);
+  const onLoadLayout = useCallback((saved: SavedLayout) => {
+    replaceGrid(saved.layout as GridLayout, layoutToCells(saved).map((c) => newCell(c.symbol, c.interval)));
+  }, [replaceGrid]);
 
   // Toggle theme.
   const toggleTheme = useCallback(() => {
@@ -269,55 +197,21 @@ export default function Home() {
 
   return (
     <div className={`flex h-screen flex-col bg-background text-foreground ${theme === "dark" ? "dark" : ""}`}>
-      {/* Header */}
-      <header className="flex h-12 items-center justify-between border-b border-border bg-card px-2 sm:px-4">
-        <div className="flex items-center gap-1 sm:gap-2">
-          <span className="text-xs sm:text-sm font-semibold">pine-ts</span>
-          <span className="hidden sm:inline text-xs text-muted-foreground">Wave 24</span>
-        </div>
-        <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
-          {/* Layout selector */}
-          <Select value={String(layout)} onValueChange={(v) => onLayoutChange(Number(v) as GridLayout)}>
-            <SelectTrigger className="h-8 w-28 text-xs">
-              <LayoutGrid className="h-3 w-3 mr-1" />
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {LAYOUT_OPTIONS.map((l) => (
-                <SelectItem key={l.value} value={String(l.value)}>{l.label}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {/* Saved layouts dropdown — hidden on mobile */}
-          <Select value="" onValueChange={(v) => v && onLoadLayout(v)}>
-            <SelectTrigger className="hidden sm:flex h-8 w-28 text-xs">
-              <Save className="h-3 w-3 mr-1" />
-              <span className="text-xs text-muted-foreground">Layouts</span>
-            </SelectTrigger>
-            <SelectContent>
-              {savedLayouts.map((l) => (
-                <SelectItem key={l.id} value={l.id} className="flex items-center justify-between">
-                  {l.name} ({l.layout} charts)
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          {/* Save current layout — hidden on mobile */}
-          <Button variant="outline" size="sm" className="hidden sm:flex" onClick={() => setShowSaveDialog(true)}>
-            <Save className="h-3 w-3 mr-1" /> Save
-          </Button>
-          {/* Add cell */}
-          <Button variant="outline" size="sm" onClick={onAddCell} disabled={cells.length >= 6}>
-            <Plus className="h-3 w-3 mr-1" /> Add
-          </Button>
-          {/* Theme toggle */}
-          <Button variant="ghost" size="sm" onClick={toggleTheme}>
-            {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-          </Button>
-          <AlertSettingsDialog onSaved={setAlertSettings} />
-          <SettingsDialog onSaved={setSettings} />
-        </div>
-      </header>
+      <TopToolbar
+        activeCell={grid.activeCell}
+        onActiveCellChange={(patch) => onCellChange(grid.activeCell.id, patch)}
+        onAddIndicator={grid.onAddIndicator}
+        layout={layout}
+        onLayoutChange={grid.onLayoutChange}
+        canAddCell={grid.canAddCell}
+        onAddCell={grid.onAddCell}
+        onSaveLayout={onSaveLayout}
+        onLoadLayout={onLoadLayout}
+        theme={theme}
+        onToggleTheme={toggleTheme}
+        onAlertSettingsSaved={setAlertSettings}
+        onSettingsSaved={setSettings}
+      />
 
       {/* Body: [chart grid | Pine Editor] over Strategy Tester, as on TradingView */}
       <ResizablePanelGroup direction="vertical" autoSaveId="workbench-vertical" className="flex-1">
@@ -334,10 +228,11 @@ export default function Home() {
                     indicators={cell.indicators}
                     onChange={onCellChange}
                     isActive={cell.id === activeCellId}
-                    onActivate={setActiveCellId}
-                    onRemove={onRemoveCell}
+                    onActivate={grid.setActiveCellId}
+                    onRemove={grid.onRemoveCell}
                     canRemove={cells.length > 1}
                     editorOverlays={cell.id === activeCellId ? shownEditorOverlays : []}
+                    editorDrawings={cell.id === activeCellId && isEditorScriptOnChart && !isEditorScriptHidden ? editorDrawings : NO_DRAWINGS}
                     onEditorScriptAction={onEditorScriptAction}
                     tradeMarkers={cell.id === activeCellId ? tradeMarkers : []}
                     onActiveBarsChange={setEditorBars}
@@ -359,7 +254,10 @@ export default function Home() {
                 <TabsContent value="indicator" forceMount className="m-0 min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden">
                   <PineEditor
                     bars={editorBars}
-                    onResults={(results, plots) => setEditorOverlays(toEditorOverlays(results, plots, editorBars))}
+                    onResults={(results, plots, drawings) => {
+                      setEditorOverlays(toEditorOverlays(results, plots, editorBars));
+                      setEditorDrawings(toChartDrawings(drawings, editorBars));
+                    }}
                     onAddToChart={() => setIsEditorScriptOnChart(true)}
                   />
                 </TabsContent>
@@ -395,27 +293,6 @@ export default function Home() {
         </Button>
       </footer>
 
-      {/* Save layout dialog */}
-      {showSaveDialog && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setShowSaveDialog(false)}>
-          <div className="rounded-lg border border-border bg-card p-4 shadow-lg" onClick={(e) => e.stopPropagation()}>
-            <h3 className="mb-3 text-sm font-semibold">Save Layout</h3>
-            <input
-              type="text"
-              placeholder="Layout name (e.g. My Watchlist)"
-              value={layoutName}
-              onChange={(e) => setLayoutName(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && onSaveLayout()}
-              className="mb-3 w-64 rounded border border-border px-2 py-1 text-xs"
-              autoFocus
-            />
-            <div className="flex justify-end gap-2">
-              <Button variant="ghost" size="sm" onClick={() => setShowSaveDialog(false)}>Cancel</Button>
-              <Button size="sm" onClick={onSaveLayout} disabled={!layoutName.trim()}>Save</Button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

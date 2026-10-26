@@ -203,7 +203,6 @@ export class BrokerActionSink implements AlertSink {
       const surface = new RealBinanceTradingSurface({
         apiKey: s.apiKey,
         apiSecret: s.apiSecret,
-        testnet: s.testnet,
         liveTradeEnabled: s.liveTradeEnabled,
       });
       const res = await surface.newOrder({

@@ -10,7 +10,7 @@ A complete TradingView replacement for Binance (and DhanHQ), built on [pine-ts](
 - **Indicator registry** — 6 built-in indicators (SMA, EMA, RSI, MACD, Bollinger Bands, OBV) + custom indicators authored in TypeScript via the Pine editor with live preview
 - **Pine editor** — write custom indicators in TypeScript using the pine-ts API (`ta.*`, `ctx.*`) with sucrase transpilation + hot-reload + live preview on the chart
 - **Strategy backtest** — write trading strategies in TypeScript, run them against historical bars via the StrategyEngine + built-in broker emulator, see P&L summary, equity curve, trade list, and trade markers on the chart
-- **Strategy-to-live bridge** — "Go Live" button submits the last bar's trading signal as a REAL order to Binance (testnet or mainnet)
+- **Strategy-to-live bridge** — "Go Live" button submits the last bar's trading signal as a REAL order to Binance mainnet
 - **Live Binance broker** — order forms (market/limit/stop/stop-limit), confirmation dialog, account panel with auto-refreshing balance + open orders
 - **Alert delivery** — 4 channels (webhook, Telegram, email, Binance broker action), 6 conditions (RSI above/below, price above/below SMA, MACD histogram positive/negative), fired alerts list with per-sink delivery status
 - **Saved layouts** — persist chart grid configs (symbols, timeframes, layout size) to localStorage; load them anytime
@@ -129,10 +129,9 @@ engine, inputs })` functions still run unchanged.
 ## Binance trading setup
 
 1. Click Settings in the header
-2. Enter Binance API Key + Secret (testnet: testnet.binance.vision, mainnet: binance.com)
-3. Toggle Testnet ON (recommended)
-4. Toggle Enable Live Trading ON
-5. Save
+2. Enter Binance API Key + Secret (binance.com — mainnet only, real funds)
+3. Toggle Enable Live Trading ON
+4. Save
 
 API keys stored in browser localStorage. Recommend "Spot Trading + Read" permissions only. Never enable withdrawals.
 

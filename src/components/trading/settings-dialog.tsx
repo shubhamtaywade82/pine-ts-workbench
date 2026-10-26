@@ -15,9 +15,10 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
+import { Settings } from "lucide-react";
 
 /**
- * Settings storage — API keys + testnet/live + liveTradeEnabled are stored
+ * Settings storage — API keys + liveTradeEnabled are stored
  * in localStorage. NEVER sent to a server. The user's browser owns them.
  *
  * Security: recommend API key permissions "Spot Trading + Read" only;
@@ -29,14 +30,12 @@ const STORAGE_KEY = "pine-ts-workbench-binance-settings";
 export interface BinanceSettings {
   readonly apiKey: string;
   readonly apiSecret: string;
-  readonly testnet: boolean;
   readonly liveTradeEnabled: boolean;
 }
 
 export const DEFAULT_SETTINGS: BinanceSettings = {
   apiKey: "",
   apiSecret: "",
-  testnet: true,
   liveTradeEnabled: false,
 };
 
@@ -79,7 +78,9 @@ export function SettingsDialog({ onSaved }: { onSaved: (s: BinanceSettings) => v
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="ghost" size="sm">Settings</Button>
+        <Button variant="ghost" size="sm" className="h-8 w-8 p-0" title="Settings">
+          <Settings className="h-4 w-4" />
+        </Button>
       </DialogTrigger>
       <DialogContent className="max-w-md">
         <DialogHeader>
@@ -115,24 +116,10 @@ export function SettingsDialog({ onSaved }: { onSaved: (s: BinanceSettings) => v
 
           <div className="flex items-center justify-between">
             <div className="flex flex-col">
-              <Label htmlFor="testnet">Testnet</Label>
-              <span className="text-xs text-muted-foreground">
-                {settings.testnet ? "Using testnet (fake funds)" : "⚠ Mainnet — real funds"}
-              </span>
-            </div>
-            <Switch
-              id="testnet"
-              checked={settings.testnet}
-              onCheckedChange={(checked) => setSettings({ ...settings, testnet: checked })}
-            />
-          </div>
-
-          <div className="flex items-center justify-between">
-            <div className="flex flex-col">
               <Label htmlFor="liveTrade">Enable Live Trading</Label>
               <span className="text-xs text-muted-foreground">
                 {settings.liveTradeEnabled
-                  ? "⚠ Orders will be submitted to Binance"
+                  ? "⚠ Orders will be submitted to Binance mainnet (real funds)"
                   : "Dry-run mode (no real orders)"}
               </span>
             </div>

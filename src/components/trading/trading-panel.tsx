@@ -34,8 +34,7 @@ import type { BinanceSettings } from "@/components/trading/settings-dialog";
  * Safety:
  *  - Dry-run mode (liveTradeEnabled = false): form renders, but Submit
  *    throws a friendly error instead of placing a real order.
- *  - Testnet mode: orders go to testnet.binance.vision (fake funds).
- *  - Mainnet: requires liveTradeEnabled + testnet=false in Settings.
+ *  - Always Binance mainnet: real orders require liveTradeEnabled in Settings.
  *  - Confirmation dialog before every submission, with the full spec.
  *
  * On submit: creates a RealBinanceTradingSurface (if not already cached),
@@ -51,7 +50,7 @@ export interface TradingPanelProps {
   readonly symbol: string;
   /** The latest close price — used to prefill limit price. */
   readonly lastPrice: number;
-  /** Binance settings (apiKey/secret/testnet/liveTradeEnabled). */
+  /** Binance settings (apiKey/secret/liveTradeEnabled). */
   readonly settings: BinanceSettings;
 }
 
@@ -90,7 +89,6 @@ export function TradingPanel({ symbol, lastPrice, settings }: TradingPanelProps)
     setSurface(new RealBinanceTradingSurface({
       apiKey: settings.apiKey,
       apiSecret: settings.apiSecret,
-      testnet: settings.testnet,
       liveTradeEnabled: settings.liveTradeEnabled,
     }));
   }, [settings]);
@@ -123,8 +121,8 @@ export function TradingPanel({ symbol, lastPrice, settings }: TradingPanelProps)
       setResult({
         orderId: res.orderId,
         status: res.status,
-        executedQty: res.filledQty,
-        avgPrice: res.avgFillPrice,
+        executedQty: res.executedQty,
+        avgPrice: res.avgPrice,
         rejectReason: res.rejectReason,
       });
     } catch (err) {
@@ -141,7 +139,7 @@ export function TradingPanel({ symbol, lastPrice, settings }: TradingPanelProps)
           <span>Trading — {symbol}</span>
           <Badge variant={settings.liveTradeEnabled ? "destructive" : "secondary"} className="text-[10px]">
             {settings.liveTradeEnabled
-              ? (settings.testnet ? "TESTNET" : "MAINNET ⚠")
+              ? "MAINNET ⚠"
               : "DRY-RUN"}
           </Badge>
         </CardTitle>
@@ -286,9 +284,7 @@ export function TradingPanel({ symbol, lastPrice, settings }: TradingPanelProps)
               <DialogTitle>Confirm Order</DialogTitle>
               <DialogDescription>
                 {settings.liveTradeEnabled
-                  ? settings.testnet
-                    ? "This order will be submitted to Binance TESTNET (fake funds)."
-                    : "⚠ This order will be submitted to Binance MAINNET with REAL funds."
+                  ? "⚠ This order will be submitted to Binance MAINNET with REAL funds."
                   : "Live trading is disabled. This will throw an error (dry-run)."}
               </DialogDescription>
             </DialogHeader>

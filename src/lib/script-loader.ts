@@ -1,6 +1,6 @@
 import { transform } from "sucrase";
 import {
-  defineStrategy, indicator, math, ta, type IndicatorScript, type StrategyScript,
+  defineStrategy, indicator, math, smc, ta, type IndicatorScript, type StrategyScript,
 } from "@nemesis-oss/pine-ts";
 
 /**
@@ -9,7 +9,7 @@ import {
  * - concise (default): `indicator("RSI", ({ close, plot }) => ...)` or
  *   `defineStrategy("X", { ... }, ({ close, strategy }) => ...)`. The
  *   `@nemesis-oss/pine-ts` import is optional — `indicator`, `defineStrategy`,
- *   `ta` and `math` are injected.
+ *   `ta`, `math` and `smc` are injected.
  * - legacy: a top-level `calculate` / `strategy` function (pre-existing saved scripts).
  */
 
@@ -57,10 +57,10 @@ export const loadScript = <TLegacy>(userCode: string, legacyName: "calculate" | 
     return script;
   };
   const factory = new Function(
-    "indicator", "defineStrategy", "ta", "math",
+    "indicator", "defineStrategy", "ta", "math", "smc",
     `${transpiled}\nreturn typeof ${legacyName} === 'function' ? ${legacyName} : null;`,
   ) as (...injected: unknown[]) => TLegacy | null;
-  const legacy = factory(captureIndicator, captureStrategy, ta, math);
+  const legacy = factory(captureIndicator, captureStrategy, ta, math, smc);
 
   if (created.length > 1) {
     throw new ScriptCompileError(`Define exactly one script; found ${created.length}.`, null);

@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      pine-ts-ref:
+        description: "pine-ts branch, tag or SHA to build against"
+        required: false
+        default: "main"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      # package.json depends on `file:./pine-ts`, the local pine-ts checkout
+      # (gitignored; see README setup). CI recreates it from GitHub.
+      - uses: actions/checkout@v5
+        with:
+          repository: shubhamtaywade82/pine-ts
+          ref: ${{ inputs.pine-ts-ref || 'main' }}
+          path: pine-ts
+
+      - uses: pnpm/action-setup@v6
+        with:
+          package_json_file: pine-ts/package.json
+          run_install: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pine-ts/pnpm-lock.yaml
+      - name: Build pine-ts
+        working-directory: pine-ts
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm build
+
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: bunx prisma generate
+      - run: bun run lint
+      - run: bun run typecheck
+      - run: bun run build

@@ -14,6 +14,7 @@ import type { Bar } from "@nemesis-oss/pine-ts";
 import { ChartLegend, writeLiveOhlc } from "@/components/chart/chart-legend";
 import { useCandleSeries, type CandleFrame } from "@/hooks/use-candle-series";
 import { INTERVAL_MS, type ChartInterval } from "@/lib/public-binance-feed";
+import { ScriptDrawingsPrimitive, type ChartDrawing } from "@/components/chart/script-drawings-primitive";
 
 /**
  * A single indicator overlay applied to the chart.
@@ -98,6 +99,8 @@ export interface ChartWorkbenchProps {
   readonly subPanes: readonly ChartSubPane[];
   /** Trade markers (entry/exit arrows) from the strategy backtest. Wave 21. */
   readonly tradeMarkers?: readonly TradeMarker[];
+  /** Editor-script drawings (SMC lines and boxes) on the price pane. */
+  readonly drawings?: readonly ChartDrawing[];
   /** Legend heading, e.g. "BTC / USDT · 1m". */
   readonly title: string;
   /** Bar interval — drives the countdown to the candle close. */
@@ -116,7 +119,7 @@ export interface ChartWorkbenchProps {
  * `chart.addLineSeries`).
  */
 export function ChartWorkbench({
-  bars, subscribeBars, mainOverlays, subPanes, tradeMarkers, title, interval, onNeedOlderBars, onIndicatorAction,
+  bars, subscribeBars, mainOverlays, subPanes, tradeMarkers, drawings, title, interval, onNeedOlderBars, onIndicatorAction,
 }: ChartWorkbenchProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -240,6 +243,19 @@ export function ChartWorkbench({
     markerData.sort((a, b) => (a.time as number) - (b.time as number));
     markersPlugin.setMarkers(markerData);
   }, [tradeMarkers]);
+
+  // The primitive is bound to the candle series, which is recreated with the chart.
+  const drawingsRef = useRef<{ series: ISeriesApi<"Candlestick">; primitive: ScriptDrawingsPrimitive } | null>(null);
+  useEffect(() => {
+    const candle = candlestickRef.current;
+    if (candle === null) return;
+    if (drawingsRef.current?.series !== candle) {
+      const primitive = new ScriptDrawingsPrimitive();
+      candle.attachPrimitive(primitive);
+      drawingsRef.current = { series: candle, primitive };
+    }
+    drawingsRef.current.primitive.setDrawings(drawings ?? []);
+  }, [drawings, candlestickRef]);
 
   // Update the main-pane overlays.
   useEffect(() => {

@@ -17,7 +17,7 @@ import {
   loadAlertSettings, saveAlertSettings,
   type AlertSettings, DEFAULT_ALERT_SETTINGS,
 } from "@/lib/alert-sinks";
-import { Bell } from "lucide-react";
+import { AlarmClockPlus } from "lucide-react";
 
 export function AlertSettingsDialog({ onSaved }: { onSaved: (s: AlertSettings) => void }) {
   const [open, setOpen] = useState(false);
@@ -34,8 +34,8 @@ export function AlertSettingsDialog({ onSaved }: { onSaved: (s: AlertSettings) =
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="ghost" size="sm">
-          <Bell className="h-4 w-4 mr-1" /> Alerts
+        <Button variant="ghost" size="sm" className="h-8 text-sm">
+          <AlarmClockPlus className="h-4 w-4 mr-1" /> Alert
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-lg max-h-[80vh] overflow-y-auto">

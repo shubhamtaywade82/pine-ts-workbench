@@ -68,6 +68,10 @@ const formatCountdown = (msLeft: number): string => {
   return hours > 0 ? `${hours}:${mm}:${ss}` : `${mm}:${ss}`;
 };
 
+/** TradingView opens a chart at roughly this many candles, with a small gap after the last one. */
+const INITIAL_VISIBLE_BARS = 150;
+const INITIAL_RIGHT_OFFSET_BARS = 10;
+
 /**
  * Keeps a candlestick + volume series in sync with `bars`:
  * - the forming bar is updated by `subscribeBars` on every tick (once per
@@ -97,7 +101,7 @@ export function useCandleSeries(
   };
 
   /**
-   * Replaces all data. First load fits the chart; later replacements (older history
+   * Replaces all data. First load shows the newest bars at TradingView's default zoom; later replacements (older history
    * prepended on scroll-back, history refetched on reconnect) keep the view on the
    * same candles by shifting the visible range by however many bars were added before them.
    */
@@ -109,7 +113,9 @@ export function useCandleSeries(
     shownBarsRef.current = nextBars;
     const previousFirst = previous[0];
     if (previousFirst === undefined || visible === null) {
-      timeScale.fitContent();
+      // Fitting every loaded bar squeezes 1000+ candles into a few pixels each.
+      const lastIndex = nextBars.length - 1;
+      timeScale.setVisibleLogicalRange({ from: lastIndex - INITIAL_VISIBLE_BARS, to: lastIndex + INITIAL_RIGHT_OFFSET_BARS });
       return;
     }
     const shift = nextBars.findIndex((b) => b.time === previousFirst.time);

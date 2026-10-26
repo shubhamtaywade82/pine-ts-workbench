@@ -55,3 +55,4 @@ server.log
 # Skills directory
 /skills/
 prisma/db/custom.db
+.remember/

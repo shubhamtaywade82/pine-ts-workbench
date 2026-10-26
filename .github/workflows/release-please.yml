@@ -1,0 +1,30 @@
+# Automated versioning for the app (not published to npm).
+#
+# On every push to main, release-please reads the Conventional Commit
+# subjects since the last release and keeps one release PR open with the
+# next version in package.json and CHANGELOG.md:
+#   fix: → patch · feat: → minor · feat!: or a BREAKING CHANGE footer → major
+#   (pre-1.0, `bump-minor-pre-major` makes breaking changes bump the minor)
+# Merging the release PR tags vX.Y.Z and creates the GitHub release.
+#
+# Repository setting required: Settings → Actions → General → "Allow GitHub
+# Actions to create and approve pull requests".
+
+name: Release Please
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v5
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json

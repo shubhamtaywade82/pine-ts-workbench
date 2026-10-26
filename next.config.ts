@@ -7,9 +7,6 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: process.cwd(),
   },
-  typescript: {
-    ignoreBuildErrors: true,
-  },
   reactStrictMode: false,
   // Allow the Z.ai preview panel to load the dev server's JS bundles.
   // The preview runs on preview-chat-*.space-z.ai and makes cross-origin

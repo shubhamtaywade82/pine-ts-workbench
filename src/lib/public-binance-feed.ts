@@ -42,7 +42,7 @@ export interface BinanceKlineEvent {
 export type BinanceSymbol = "BTCUSDT" | "ETHUSDT" | "SOLUSDT" | "BNBUSDT";
 
 /** Workbench intervals — the strings are valid Binance kline intervals as-is. */
-export type ChartInterval = "1m" | "5m" | "15m" | "1h" | "4h" | "1d";
+export type ChartInterval = "1m" | "3m" | "5m" | "15m" | "30m" | "1h" | "2h" | "4h" | "1d" | "1w" | "1M";
 
 export interface SymbolOption {
   readonly binanceSymbol: BinanceSymbol;
@@ -56,7 +56,13 @@ export const SUPPORTED_SYMBOLS: readonly SymbolOption[] = [
   { binanceSymbol: "BNBUSDT", displayName: "BNB / USDT" },
 ];
 
-export const SUPPORTED_INTERVALS: readonly ChartInterval[] = ["1m", "5m", "15m", "1h", "4h", "1d"];
+export const SUPPORTED_INTERVALS: readonly ChartInterval[] = ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "1d", "1w", "1M"];
+
+/** TradingView's toolbar labels. */
+export const INTERVAL_LABELS: Record<ChartInterval, string> = {
+  "1m": "1m", "3m": "3m", "5m": "5m", "15m": "15m", "30m": "30m",
+  "1h": "1h", "2h": "2h", "4h": "4h", "1d": "D", "1w": "W", "1M": "M",
+};
 
 // ---------- REST: historical candles ----------
 
@@ -103,11 +109,18 @@ export const fetchHistoricalBars = async (
 /** Bar duration per interval, to know when a trade starts a new candle. */
 export const INTERVAL_MS: Record<ChartInterval, number> = {
   "1m": 60_000,
+  "3m": 180_000,
   "5m": 300_000,
   "15m": 900_000,
+  "30m": 1_800_000,
   "1h": 3_600_000,
+  "2h": 7_200_000,
   "4h": 14_400_000,
   "1d": 86_400_000,
+  "1w": 604_800_000,
+  // ponytail: months vary in length; 31 days keeps trades in the forming bar
+  // until the kline stream opens the next month's bar (within ~2 s).
+  "1M": 2_678_400_000,
 };
 
 export interface LiveTrade {

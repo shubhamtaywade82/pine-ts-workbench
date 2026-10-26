@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Plus, Save } from "lucide-react";
-import type { Bar, IndicatorScript, PineContext } from "@nemesis-oss/pine-ts";
+import type { Bar, IndicatorScript, PineContext, ScriptDrawings } from "@nemesis-oss/pine-ts";
 import { ta, PineRuntime } from "@nemesis-oss/pine-ts";
 import { CodeEditor, type CodeError } from "@/components/editor/code-editor";
 import { loadScript, ScriptCompileError } from "@/lib/script-loader";
@@ -29,6 +29,7 @@ export interface PineEditorProps {
   readonly onResults: (
     results: Record<string, Array<number | undefined>>,
     plots: { id: string; color: string; kind: string }[],
+    drawings: ScriptDrawings,
   ) => void;
   /** "Add to chart" / Ctrl+Enter: puts the script back on the chart if it was removed from the legend. */
   readonly onAddToChart?: () => void;
@@ -80,7 +81,14 @@ type CalculateFn = (args: { ta: typeof ta; ctx: PineContext; inputs: Record<stri
   Record<string, number | undefined>;
 
 type PlotSpec = { id: string; color: string; kind: string };
-type ScriptRun = { results: Record<string, Array<number | undefined>>; plots: PlotSpec[]; firstBarError: string | null };
+type ScriptRun = {
+  results: Record<string, Array<number | undefined>>;
+  plots: PlotSpec[];
+  drawings: ScriptDrawings;
+  firstBarError: string | null;
+};
+
+const NO_DRAWINGS: ScriptDrawings = { lines: [], boxes: [] };
 
 interface ConsoleLine { readonly time: string; readonly text: string; readonly isError: boolean }
 
@@ -93,7 +101,7 @@ const runIndicator = async (script: IndicatorScript, bars: readonly Bar[]): Prom
     kind: plot.kind,
     color: plot.color ?? (plot.kind === "hline" ? LEVEL_COLOR : PLOT_COLORS[i % PLOT_COLORS.length]!),
   }));
-  return { results, plots, firstBarError: null };
+  return { results, plots, drawings: output.drawings, firstBarError: null };
 };
 
 /** Runs a legacy `calculate` function on every bar; collects plot values and the first per-bar error. */
@@ -117,7 +125,7 @@ const runLegacy = async (calculateFn: CalculateFn, bars: readonly Bar[]): Promis
     }
     barIndex++;
   }, bars as never);
-  return { results, plots: derivePlots(results), firstBarError };
+  return { results, plots: derivePlots(results), drawings: NO_DRAWINGS, firstBarError };
 };
 
 /** One plot per returned key; a key that is the same number on every bar is a level (hline). */
@@ -178,8 +186,8 @@ export function PineEditor({ bars, onResults, onAddToChart }: PineEditorProps) {
 
   const runCode = useCallback(async (userCode: string) => {
     try {
-      const { results, plots, firstBarError } = await runScript(userCode, bars);
-      onResults(results, plots);
+      const { results, plots, drawings, firstBarError } = await runScript(userCode, bars);
+      onResults(results, plots, drawings);
       setError(null);
       if (firstBarError !== null) log(firstBarError, true);
       else log("Compiled successfully. Script added to chart.", false);

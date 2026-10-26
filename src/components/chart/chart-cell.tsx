@@ -10,16 +10,11 @@ import {
   ChartWorkbench, type ChartOverlay, type ChartSubPane, type IndicatorAction, type TradeMarker,
 } from "@/components/chart/chart-workbench";
 import {
-  IndicatorsDialog, IndicatorSettingsDialog, createMountedIndicator, indicatorLabel, type MountedIndicator,
+  IndicatorSettingsDialog, indicatorLabel, type MountedIndicator,
 } from "@/components/chart/indicator-dialogs";
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
+import type { ChartDrawing } from "@/components/chart/script-drawings-primitive";
 import { Button } from "@/components/ui/button";
-import {
-  SUPPORTED_SYMBOLS, SUPPORTED_INTERVALS,
-} from "@/lib/public-binance-feed";
-import { FunctionSquare, X } from "lucide-react";
+import { X } from "lucide-react";
 import { useLiveBars, type LiveStatus } from "@/hooks/use-live-bars";
 
 /**
@@ -56,6 +51,7 @@ export interface ChartCellProps extends CellSettings {
   readonly onRemove?: (cellId: string) => void;
   readonly canRemove: boolean;
   readonly editorOverlays: ChartOverlay[];
+  readonly editorDrawings?: readonly ChartDrawing[];
   readonly tradeMarkers?: TradeMarker[];
   /** Receives this cell's bars while it is active, so the editor runs on what the chart shows. */
   readonly onActiveBarsChange?: (bars: readonly Bar[]) => void;
@@ -68,21 +64,15 @@ const EDITOR_PANE_ID = "editor";
 
 export function ChartCell({
   cellId, symbol, interval, indicators: mounted, onChange,
-  isActive, onActivate, onRemove, canRemove, editorOverlays, tradeMarkers, onActiveBarsChange, onEditorScriptAction,
+  isActive, onActivate, onRemove, canRemove, editorOverlays, editorDrawings, tradeMarkers, onActiveBarsChange, onEditorScriptAction,
 }: ChartCellProps) {
   const { bars, status, error, loadOlder, subscribe } = useLiveBars(symbol.binanceSymbol, interval);
   const [runResults, setRunResults] = useState<Record<string, IndicatorRunResult>>({});
-  const [isIndicatorsDialogOpen, setIsIndicatorsDialogOpen] = useState(false);
   const [settingsInstanceId, setSettingsInstanceId] = useState<string | null>(null);
 
   const setIndicators = useCallback((update: (prev: readonly MountedIndicator[]) => readonly MountedIndicator[]) => {
     onChange(cellId, { indicators: update(mounted) });
   }, [onChange, cellId, mounted]);
-
-  const onAddIndicator = useCallback((indicatorId: string) => {
-    const added = createMountedIndicator(indicatorId);
-    if (added !== undefined) setIndicators((prev) => [...prev, added]);
-  }, [setIndicators]);
 
   const onIndicatorAction = useCallback((ownerId: string, action: IndicatorAction) => {
     if (ownerId === EDITOR_PANE_ID) { onEditorScriptAction?.(action); return; }
@@ -153,43 +143,18 @@ export function ChartCell({
   return (
     <div
       // Highlight only matters when there are several charts to pick from, as on TradingView.
-      className={`flex h-full flex-col border ${isActive && canRemove ? "border-primary" : "border-transparent"}`}
+      className={`relative flex h-full flex-col border ${isActive && canRemove ? "border-primary" : "border-transparent"}`}
       onClick={() => onActivate(cellId)}
     >
-      {/* Cell header — symbol/timeframe + stream + remove */}
-      <div className="flex items-center justify-between px-2 py-1">
-        <div className="flex items-center gap-1.5">
-          <Select
-            value={symbol.binanceSymbol}
-            onValueChange={(v) => { const o = SUPPORTED_SYMBOLS.find((s) => s.binanceSymbol === v); if (o) onChange(cellId, { symbol: o }); }}
-          >
-            <SelectTrigger className="h-9 w-28 text-xs sm:h-7 sm:w-28 sm:text-[10px]"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {SUPPORTED_SYMBOLS.map((s) => <SelectItem key={s.binanceSymbol} value={s.binanceSymbol}>{s.displayName}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          <Select value={interval} onValueChange={(v) => onChange(cellId, { interval: v as ChartInterval })}>
-            <SelectTrigger className="h-9 w-16 text-xs sm:h-7 sm:w-16 sm:text-[10px]"><SelectValue /></SelectTrigger>
-            <SelectContent>
-              {SUPPORTED_INTERVALS.map((i) => <SelectItem key={i} value={i}>{i}</SelectItem>)}
-            </SelectContent>
-          </Select>
-          <Button
-            variant="ghost" size="sm" className="h-9 px-2 text-xs sm:h-7 sm:text-[10px]"
-            onClick={(e) => { e.stopPropagation(); setIsIndicatorsDialogOpen(true); }}
-          >
-            <FunctionSquare className="mr-1 h-3.5 w-3.5" /> Indicators
+      {/* Symbol, interval and Indicators live in the page's top toolbar, as on TradingView. */}
+      <div className="absolute right-16 top-1 z-10 flex items-center gap-1.5">
+        <LiveBadge status={status} />
+        <span className="text-[10px] text-muted-foreground">{bars.length} bars</span>
+        {canRemove && onRemove && (
+          <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={(e) => { e.stopPropagation(); onRemove(cellId); }}>
+            <X className="h-3 w-3" />
           </Button>
-          <LiveBadge status={status} />
-        </div>
-        <div className="flex items-center gap-1.5">
-          <span className="text-[10px] text-muted-foreground">{bars.length} bars</span>
-          {canRemove && onRemove && (
-            <Button variant="ghost" size="sm" className="h-9 w-9 p-0 sm:h-7 sm:w-7" onClick={(e) => { e.stopPropagation(); onRemove(cellId); }}>
-              <X className="h-3 w-3" />
-            </Button>
-          )}
-        </div>
+        )}
       </div>
 
       {/* Chart body */}
@@ -199,10 +164,9 @@ export function ChartCell({
             {error ?? `Loading ${symbol.displayName} from Binance…`}
           </div>
         ) : (
-          <ChartWorkbench title={`${symbol.displayName} · ${interval} · Binance`} interval={interval} bars={bars} subscribeBars={subscribe} onNeedOlderBars={loadOlder} onIndicatorAction={onIndicatorAction} mainOverlays={mainOverlays} subPanes={allSubPanes} tradeMarkers={tradeMarkers} />
+          <ChartWorkbench title={`${symbol.displayName} · ${interval} · Binance`} interval={interval} bars={bars} subscribeBars={subscribe} onNeedOlderBars={loadOlder} onIndicatorAction={onIndicatorAction} mainOverlays={mainOverlays} subPanes={allSubPanes} tradeMarkers={tradeMarkers} drawings={editorDrawings} />
         )}
       </div>
-      <IndicatorsDialog open={isIndicatorsDialogOpen} onOpenChange={setIsIndicatorsDialogOpen} onAdd={onAddIndicator} />
       <IndicatorSettingsDialog
         indicator={mounted.find((m) => m.instanceId === settingsInstanceId)}
         onClose={() => setSettingsInstanceId(null)}

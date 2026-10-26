@@ -52,7 +52,6 @@ export function AccountPanel({ symbol, settings }: AccountPanelProps) {
       const client = new BinanceClient({
         apiKey: settings.apiKey,
         apiSecret: settings.apiSecret,
-        testnet: settings.testnet,
       });
       const account = await client.spot.account.account();
       // Show only non-zero balances.
@@ -61,7 +60,7 @@ export function AccountPanel({ symbol, settings }: AccountPanelProps) {
         .filter((b) => b.free > 0 || b.locked > 0);
       setBalances(rows);
 
-      const orders = await client.spot.trading.getOpenOrders({ symbol });
+      const orders = await client.spot.trading.getOpenOrders(symbol);
       const orderRows: OpenOrderRow[] = orders.map((o) => ({
         orderId: String(o.orderId),
         symbol: o.symbol,
@@ -96,9 +95,7 @@ export function AccountPanel({ symbol, settings }: AccountPanelProps) {
         <CardTitle className="flex items-center justify-between text-sm">
           <span>Account</span>
           <div className="flex items-center gap-2">
-            <Badge variant={settings.testnet ? "secondary" : "destructive"} className="text-[10px]">
-              {settings.testnet ? "TESTNET" : "MAINNET"}
-            </Badge>
+            <Badge variant="destructive" className="text-[10px]">MAINNET</Badge>
             <Button variant="ghost" size="sm" onClick={refresh} disabled={loading || !hasCreds}>
               {loading ? "…" : "↻"}
             </Button>

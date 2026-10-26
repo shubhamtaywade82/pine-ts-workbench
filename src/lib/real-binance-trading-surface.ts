@@ -1,7 +1,12 @@
 "use client";
 
 import { BinanceClient } from "@nemesis-oss/binance-sdk";
-import type { BinanceTradingSurface, BinanceOrderResponse, BinanceNewOrderParams, BinancePositionResponse, BinanceOrderUpdateEvent } from "@nemesis-oss/pine-ts";
+import type { BinanceTradingSurface, broker } from "@nemesis-oss/pine-ts";
+
+type BinanceOrderResponse = broker.BinanceOrderResponse;
+type BinanceNewOrderParams = broker.BinanceNewOrderParams;
+type BinancePositionResponse = broker.BinancePositionResponse;
+type BinanceOrderUpdateEvent = broker.BinanceOrderUpdateEvent;
 
 /**
  * Real Binance SDK → pine-ts BinanceTradingSurface adapter.
@@ -28,15 +33,13 @@ import type { BinanceTradingSurface, BinanceOrderResponse, BinanceNewOrderParams
  *    service.
  *  - Recommend API key permissions: "Spot Trading + Read" only; never
  *    enable withdrawals.
- *  - Testnet by default (`testnet: true`). Mainnet requires the user
- *    to explicitly toggle `liveTradeEnabled` AND select "mainnet" in
- *    the Settings dialog — two intentional confirmations.
+ *  - Always Binance mainnet (no testnet). Orders require the user to
+ *    toggle `liveTradeEnabled` in Settings and confirm each order.
  */
 
 export interface RealBinanceOptions {
   readonly apiKey: string;
   readonly apiSecret: string;
-  readonly testnet: boolean;
   /** When false (default), every order submission throws "Live trading disabled". */
   readonly liveTradeEnabled: boolean;
 }
@@ -51,7 +54,6 @@ export class RealBinanceTradingSurface implements BinanceTradingSurface {
     this.client = new BinanceClient({
       apiKey: options.apiKey,
       apiSecret: options.apiSecret,
-      testnet: options.testnet,
     });
     this.liveTradeEnabled = options.liveTradeEnabled;
   }
@@ -89,10 +91,7 @@ export class RealBinanceTradingSurface implements BinanceTradingSurface {
 
   public async cancelOrder(params: { symbol: string; orderId: string }): Promise<void> {
     this.assertLiveEnabled();
-    await this.client.spot.trading.cancelOrder({
-      symbol: params.symbol,
-      orderId: Number(params.orderId),
-    });
+    await this.client.spot.trading.cancelOrder(params.symbol, { orderId: Number(params.orderId) });
   }
 
   public async getPosition(symbol: string): Promise<BinancePositionResponse | undefined> {
