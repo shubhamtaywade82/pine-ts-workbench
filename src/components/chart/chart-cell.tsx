@@ -30,8 +30,11 @@ import { useLiveBars, type LiveStatus } from "@/hooks/use-live-bars";
  */
 
 const INDICATOR_COLORS: Record<string, string> = {
-  sma: "#1e88e5", ema: "#ff6d00", rsi: "#7e57c2",
-  macd: "#1e88e5", bb: "#7e57c2", obv: "#26a69a",
+  sma: "#1e88e5", ema: "#ff6d00", rsi: "#7e57c2", macd: "#1e88e5",
+  bb: "#7e57c2", obv: "#26a69a", vwap: "#eab308", supertrend: "#22c55e",
+  stoch: "#2196f3", atr: "#b388ff", kc: "#2196f3", sar: "#2962ff",
+  mfi: "#26a69a", wma: "#9c27b0", hma: "#00bcd4", cci: "#e91e63",
+  wpr: "#009688", dmi: "#ff007f",
 };
 const FALLBACK_COLOR = "#1e88e5";
 
