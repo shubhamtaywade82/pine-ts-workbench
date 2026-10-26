@@ -50,54 +50,51 @@ WORKFLOW:
    - ### Parameter Optimization: Summary comparing original vs optimal parameters.
    - ### Optimized Script: Complete updated script inside a \`\`\`typescript ... \`\`\` block.`;
 
+const SWEEP_TOOL_DEFINITION = {
+  type: "function" as const,
+  function: {
+    name: "test_parameter_variation",
+    description: "Runs trial backtest with modified inputs.",
+    parameters: {
+      type: "object" as const,
+      properties: {
+        inputs: { type: "object" as const, description: "Key-value dictionary of strategy input parameter overrides" },
+      },
+      required: ["inputs"] as const,
+    },
+  },
+};
+
+const SWEEP_SCHEMA = {
+  safeParse: (input: unknown) => {
+    if (typeof input === "object" && input !== null && "inputs" in input) {
+      return { success: true, data: input as { inputs: Record<string, unknown> } };
+    }
+    return { success: false, error: new Error("Expected object with inputs dictionary") };
+  },
+} as unknown as AnyTool["schema"];
+
+async function executeSweep(code: string, inputs: Record<string, unknown>) {
+  try {
+    const res = await runBacktest(code, TRIAL_BARS, {
+      inputs: inputs as Record<string, InputValue>,
+      properties: {},
+    });
+    if (!res.ok || !res.summary) return { ok: false, error: res.error ?? "Backtest failed" };
+    const { netProfit, profitFactor, maxDrawdown, winRate, totalTrades } = res.summary;
+    return { ok: true, netProfit, profitFactor, maxDrawdown, winRate, totalTrades };
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+}
+
 function createSweepTool(code: string): AnyTool {
   return {
     name: "test_parameter_variation",
     description: "Runs trial backtest of strategy with modified inputs.",
-    schema: {
-      safeParse: (input: unknown) => {
-        if (typeof input === "object" && input !== null && "inputs" in input) {
-          return { success: true, data: input as { inputs: Record<string, unknown> } };
-        }
-        return { success: false, error: new Error("Expected object with inputs dictionary") };
-      },
-    } as unknown as AnyTool["schema"],
-    execute: async (params: { inputs: Record<string, unknown> }) => {
-      try {
-        const res = await runBacktest(code, TRIAL_BARS, {
-          inputs: params.inputs as Record<string, InputValue>,
-          properties: {},
-        });
-        if (!res.ok || !res.summary) return { ok: false, error: res.error ?? "Backtest failed" };
-        return {
-          ok: true,
-          netProfit: res.summary.netProfit,
-          profitFactor: res.summary.profitFactor,
-          maxDrawdown: res.summary.maxDrawdown,
-          winRate: res.summary.winRate,
-          totalTrades: res.summary.totalTrades,
-        };
-      } catch (err) {
-        return { ok: false, error: err instanceof Error ? err.message : String(err) };
-      }
-    },
-    definition: {
-      type: "function",
-      function: {
-        name: "test_parameter_variation",
-        description: "Runs trial backtest with modified inputs.",
-        parameters: {
-          type: "object",
-          properties: {
-            inputs: {
-              type: "object",
-              description: "Key-value dictionary of strategy input parameter overrides",
-            },
-          },
-          required: ["inputs"],
-        },
-      },
-    },
+    schema: SWEEP_SCHEMA,
+    execute: (params: { inputs: Record<string, unknown> }) => executeSweep(code, params.inputs),
+    definition: SWEEP_TOOL_DEFINITION,
   };
 }
 
@@ -136,6 +133,24 @@ export function buildAuditMessage(
   return parts.join("");
 }
 
+async function synthesizeFallback(
+  client: OllamaClient,
+  model: string,
+  messages: readonly { role: "system" | "user"; content: string }[],
+): Promise<string> {
+  const fallback = await client.chat({
+    model,
+    messages: [
+      ...messages,
+      {
+        role: "user",
+        content: "Synthesize your audit and output the final code inside ```typescript ... ``` now.",
+      },
+    ],
+  });
+  return fallback.message.content || "";
+}
+
 async function runOptimizationAgent(
   client: OllamaClient,
   model: string,
@@ -156,17 +171,8 @@ async function runOptimizationAgent(
   } catch (err) {
     // Eager tool models exceed iterations: synthesize from final chat turn without tools.
     if (err instanceof OllamaAgentMaxIterationsError) {
-      const fallback = await client.chat({
-        model,
-        messages: [
-          ...messages,
-          {
-            role: "user",
-            content: "Synthesize your audit and output the final code inside ```typescript ... ``` now.",
-          },
-        ],
-      });
-      return { rawContent: fallback.message.content || "", iterations: 4 };
+      const rawContent = await synthesizeFallback(client, model, messages);
+      return { rawContent, iterations: 4 };
     }
     throw err;
   }
@@ -204,14 +210,16 @@ export async function GET() {
   }
 }
 
+interface AuditRequestBody {
+  code: string;
+  summary?: BacktestSummary;
+  trades?: readonly BacktestTrade[];
+  model?: string;
+}
+
 export async function POST(req: Request) {
   try {
-    const body = (await req.json()) as {
-      code: string;
-      summary?: BacktestSummary;
-      trades?: readonly BacktestTrade[];
-      model?: string;
-    };
+    const body = (await req.json()) as AuditRequestBody;
     if (!body.code) return NextResponse.json({ ok: false, error: "Missing strategy code" }, { status: 400 });
 
     const client = new OllamaClient({

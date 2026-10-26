@@ -134,27 +134,32 @@ export async function GET() {
   }
 }
 
+interface ScriptRequestBody {
+  prompt: string;
+  currentCode?: string;
+  error?: string;
+  model?: string;
+}
+
+async function runScriptGeneration(client: OllamaClient, body: ScriptRequestBody) {
+  const tools = new ToolRegistry([createValidationTool()]);
+  const agent = new Agent(client, { tools, maxIterations: 5 });
+  const baseMessages = [
+    { role: "system" as const, content: SYSTEM_PROMPT },
+    { role: "user" as const, content: buildUserMessage(body.prompt, body.currentCode, body.error) },
+  ];
+  const messages = await injectSkillsIntoMessages(baseMessages, body.prompt);
+  return agent.run({ model: body.model || DEFAULT_MODEL, messages });
+}
+
 export async function POST(req: Request) {
   try {
-    const body = (await req.json()) as { prompt: string; currentCode?: string; error?: string; model?: string };
+    const body = (await req.json()) as ScriptRequestBody;
     const client = new OllamaClient({
       baseUrl: process.env.OLLAMA_BASE_URL || "http://localhost:11434",
       timeoutMs: OLLAMA_TIMEOUT_MS,
     });
-    const tools = new ToolRegistry([createValidationTool()]);
-    const agent = new Agent(client, { tools, maxIterations: 5 });
-
-    const baseMessages = [
-      { role: "system" as const, content: SYSTEM_PROMPT },
-      { role: "user" as const, content: buildUserMessage(body.prompt, body.currentCode, body.error) },
-    ];
-    const messages = await injectSkillsIntoMessages(baseMessages, body.prompt);
-
-    const result = await agent.run({
-      model: body.model || DEFAULT_MODEL,
-      messages,
-    });
-
+    const result = await runScriptGeneration(client, body);
     const validatedCode = findValidatedCode(result.turns);
     const rawContent = result.finalMessage.content || "";
     const extracted = extractCodeBlock(rawContent);

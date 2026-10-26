@@ -1,13 +1,10 @@
 import type { NextConfig } from "next";
-import path from "node:path";
-
 const nextConfig: NextConfig = {
   output: "standalone",
   serverExternalPackages: ["@nemesis-oss/ollama-sdk"],
-  // Root pinned to projects directory so workspace symlinks (pine-ts, ollama-sdk)
-  // are within the filesystem root while avoiding ~ lockfile warning.
+  // Pin workspace root to process.cwd() now that dependencies are packaged cleanly.
   turbopack: {
-    root: path.resolve(process.cwd(), "../.."),
+    root: process.cwd(),
   },
   reactStrictMode: false,
   // Allow the Z.ai preview panel to load the dev server's JS bundles.
