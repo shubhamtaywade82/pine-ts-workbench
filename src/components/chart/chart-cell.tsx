@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { registry, type Bar } from "@nemesis-oss/pine-ts";
+import { registry, type Bar, type ScriptDrawings } from "@nemesis-oss/pine-ts";
 import {
   type ChartInterval,
   type SymbolOption,
@@ -15,7 +15,8 @@ import {
 import type { ChartDrawing } from "@/components/chart/script-drawings-primitive";
 import type { ChartSettings } from "@/lib/chart-settings";
 import { Button } from "@/components/ui/button";
-import { loadLibrary, currentCode } from "@/lib/script-library";
+import { loadLibrary, currentCode, EMPTY_SETTINGS } from "@/lib/script-library";
+import { toChartDrawings } from "@/lib/editor-output";
 import { runIndicatorCode } from "@/lib/indicator-runner";
 import { X } from "lucide-react";
 import { useLiveBars, type LiveStatus } from "@/hooks/use-live-bars";
@@ -36,17 +37,31 @@ const FALLBACK_COLOR = "#1e88e5";
 
 interface IndicatorRunResult {
   readonly plots: Record<string, Array<number | undefined>>;
-  readonly meta: { readonly plots: readonly { id: string; kind: string; color?: string }[] } | undefined;
+  readonly meta: { readonly plots: readonly { id: string; kind: string; color?: string; isHidden?: boolean }[] } | undefined;
+  /** SMC drawings of a saved script (built-ins draw none). */
+  readonly drawings?: ScriptDrawings;
+  /** Intervals a saved script shows on (its Visibility tab); undefined = all. */
+  readonly visibleIntervals?: readonly ChartInterval[];
 }
+
+/** A saved "My scripts" indicator, run with the inputs, plot styles and visibility saved in its settings. */
+const runSavedScript = async (scriptId: string, bars: readonly Bar[]): Promise<IndicatorRunResult | undefined> => {
+  const script = loadLibrary().find((s) => s.id === scriptId);
+  if (script === undefined) return undefined;
+  const { inputs, plotStyles, visibleIntervals } = script.settings ?? EMPTY_SETTINGS;
+  const run = await runIndicatorCode(currentCode(script), bars, inputs);
+  const plots = run.plots.map((p) => ({
+    ...p,
+    kind: p.kind === "hline" ? "line" : p.kind,
+    color: plotStyles[p.id]?.color ?? p.color,
+    isHidden: plotStyles[p.id]?.isHidden === true,
+  }));
+  return { plots: run.results, meta: { plots }, drawings: run.drawings, visibleIntervals };
+};
 
 /** Runs one mounted indicator over `bars`: a registry built-in, or a saved "My scripts" indicator. */
 const runMounted = async (m: MountedIndicator, bars: readonly Bar[]): Promise<IndicatorRunResult | undefined> => {
-  if (m.scriptId !== undefined) {
-    const script = loadLibrary().find((s) => s.id === m.scriptId);
-    if (script === undefined) return undefined;
-    const run = await runIndicatorCode(currentCode(script), bars);
-    return { plots: run.results, meta: { plots: run.plots.map((p) => ({ ...p, kind: p.kind === "hline" ? "line" : p.kind })) } };
-  }
+  if (m.scriptId !== undefined) return runSavedScript(m.scriptId, bars);
   const meta = registry.metadata(m.indicatorId);
   const instance = registry.instantiate(m.indicatorId, m.inputs);
   if (!instance || !meta) return undefined;
@@ -133,8 +148,12 @@ export function ChartCell({
   }, [bars, mounted]);
 
   const { mainOverlays, subPanes } = useMemo(() => {
-    return computeOverlays(bars, mounted, runResults);
-  }, [bars, mounted, runResults]);
+    return computeOverlays(bars, mounted, runResults, interval);
+  }, [bars, mounted, runResults, interval]);
+  const drawings = useMemo(
+    () => [...(editorDrawings ?? []), ...scriptDrawings(bars, mounted, runResults, interval)],
+    [editorDrawings, bars, mounted, runResults, interval],
+  );
 
   // The page runs the editor + backtest on these bars. Hand them over when the
   // series changes (new bar, older page, switch, forming close) at the 1/s
@@ -184,7 +203,7 @@ export function ChartCell({
             {error ?? `Loading ${symbol.displayName} from Binance…`}
           </div>
         ) : (
-          <ChartWorkbench title={`${symbol.displayName} · ${interval} · Binance`} interval={interval} bars={bars} subscribeBars={subscribe} onNeedOlderBars={loadOlder} onIndicatorAction={onIndicatorAction} mainOverlays={mainOverlays} subPanes={allSubPanes} tradeMarkers={tradeMarkers} drawings={editorDrawings} settings={chartSettings} onSettingsChange={onChartSettingsChange} onOpenSettings={onOpenChartSettings} />
+          <ChartWorkbench title={`${symbol.displayName} · ${interval} · Binance`} interval={interval} bars={bars} subscribeBars={subscribe} onNeedOlderBars={loadOlder} onIndicatorAction={onIndicatorAction} mainOverlays={mainOverlays} subPanes={allSubPanes} tradeMarkers={tradeMarkers} drawings={drawings} settings={chartSettings} onSettingsChange={onChartSettingsChange} onOpenSettings={onOpenChartSettings} />
         )}
       </div>
       <IndicatorSettingsDialog
@@ -219,16 +238,34 @@ function LiveBadge({ status }: { status: LiveStatus }) {
 const isConstant = (data: readonly { value: number }[]): boolean =>
   data.length > 1 && data.every((d) => d.value === data[0]!.value);
 
+const isShownOn = (result: IndicatorRunResult, interval: ChartInterval): boolean =>
+  result.visibleIntervals?.includes(interval) ?? true;
+
+/** Saved scripts' drawings in chart time, for the scripts shown and not hidden in the legend. */
+function scriptDrawings(
+  bars: readonly Bar[],
+  mounted: readonly MountedIndicator[],
+  runResults: Record<string, IndicatorRunResult>,
+  interval: ChartInterval,
+): ChartDrawing[] {
+  return mounted.flatMap((m) => {
+    const result = runResults[m.instanceId];
+    if (result?.drawings === undefined || m.isHidden === true || !isShownOn(result, interval)) return [];
+    return toChartDrawings(result.drawings, bars);
+  });
+}
+
 function computeOverlays(
   bars: readonly { time: number }[],
   mounted: readonly MountedIndicator[],
   runResults: Record<string, IndicatorRunResult>,
+  interval: ChartInterval,
 ): { mainOverlays: ChartOverlay[]; subPanes: ChartSubPane[] } {
   const mainOverlays: ChartOverlay[] = [];
   const subPanes: ChartSubPane[] = [];
   for (const m of mounted) {
     const result = runResults[m.instanceId];
-    if (!result || !result.meta) continue;
+    if (!result || !result.meta || !isShownOn(result, interval)) continue;
     const paneOverlays: ChartOverlay[] = [];
     for (const plot of result.meta.plots) {
       if (plot.kind !== "line" && plot.kind !== "histogram") continue;
@@ -245,7 +282,7 @@ function computeOverlays(
         indicatorName: indicatorLabel(m),
         color: plot.color ?? INDICATOR_COLORS[m.indicatorId] ?? FALLBACK_COLOR,
         ownerId: m.instanceId,
-        isHidden: m.isHidden,
+        isHidden: m.isHidden === true || plot.isHidden === true,
         isLevel: isConstant(data),
         data,
       });

@@ -33,7 +33,7 @@ export function ScriptMenu({ scripts, onSaved, onOpenScripts }: {
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button type="button" className="flex min-w-0 items-center gap-1.5 rounded px-2 py-1 text-sm font-semibold hover:bg-muted">
+          <button type="button" className="flex min-w-[96px] items-center gap-1.5 rounded px-2 py-1 text-sm font-semibold hover:bg-muted">
             <span className="truncate">{active?.name ?? "Untitled script"}</span>
             {isDirty && <span className="text-muted-foreground" title="Unsaved changes">•</span>}
             <ChevronDown className="h-4 w-4 shrink-0" />

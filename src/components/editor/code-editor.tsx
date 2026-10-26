@@ -3,10 +3,13 @@
 import { useEffect, useMemo, useRef } from "react";
 import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
 import { javascript } from "@codemirror/lang-javascript";
+import { autocompletion } from "@codemirror/autocomplete";
 import { lintGutter, setDiagnostics } from "@codemirror/lint";
 import { EditorView } from "@codemirror/view";
 import { HighlightStyle, syntaxHighlighting } from "@codemirror/language";
 import { tags } from "@lezer/highlight";
+import { pineCompletions } from "@/components/editor/pine-completions";
+import { createGhostTextExtension } from "@/components/editor/inline-ghost-text";
 
 /** A compile/runtime error to underline; line and column are 1-based. */
 export interface CodeError {
@@ -19,6 +22,7 @@ export interface CodeEditorProps {
   readonly value: string;
   readonly onChange: (value: string) => void;
   readonly error: CodeError | null;
+  readonly aiGhostText?: boolean;
 }
 
 // Colours follow TradingView's dark Pine Editor.
@@ -45,15 +49,16 @@ const highlightStyle = HighlightStyle.define([
 ]);
 
 /** TradingView-styled TypeScript editor: line numbers, highlighting, error underline. */
-export function CodeEditor({ value, onChange, error }: CodeEditorProps) {
+export function CodeEditor({ value, onChange, error, aiGhostText = true }: CodeEditorProps) {
   const editorRef = useRef<ReactCodeMirrorRef>(null);
-  // Built once: a changing extension list would reconfigure the editor on every render.
   const extensions = useMemo(() => [
     javascript({ typescript: true }),
     syntaxHighlighting(highlightStyle),
     editorTheme,
     lintGutter(),
-  ], []);
+    autocompletion({ override: [pineCompletions] }),
+    ...createGhostTextExtension(aiGhostText),
+  ], [aiGhostText]);
 
   useEffect(() => {
     const view = editorRef.current?.view;
@@ -70,7 +75,7 @@ export function CodeEditor({ value, onChange, error }: CodeEditorProps) {
       height="100%"
       className="h-full"
       extensions={extensions}
-      basicSetup={{ foldGutter: true, highlightActiveLine: true, autocompletion: true }}
+      basicSetup={{ foldGutter: true, highlightActiveLine: true, autocompletion: false }}
     />
   );
 }

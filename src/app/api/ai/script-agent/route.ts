@@ -4,6 +4,7 @@ import type { Bar } from "@nemesis-oss/pine-ts";
 import { runIndicatorCode } from "@/lib/indicator-runner";
 import { runBacktest } from "@/lib/strategy-runner";
 import { describeCode } from "@/lib/script-library";
+import { injectSkillsIntoMessages } from "@/lib/skills-loader";
 
 const DEFAULT_MODEL = "minicpm5-toolagent:latest";
 
@@ -135,12 +136,15 @@ export async function POST(req: Request) {
     const tools = new ToolRegistry([createValidationTool()]);
     const agent = new Agent(client, { tools, maxIterations: 5 });
 
+    const baseMessages = [
+      { role: "system" as const, content: SYSTEM_PROMPT },
+      { role: "user" as const, content: buildUserMessage(body.prompt, body.currentCode, body.error) },
+    ];
+    const messages = await injectSkillsIntoMessages(baseMessages, body.prompt);
+
     const result = await agent.run({
       model: body.model || DEFAULT_MODEL,
-      messages: [
-        { role: "system", content: SYSTEM_PROMPT },
-        { role: "user", content: buildUserMessage(body.prompt, body.currentCode, body.error) },
-      ],
+      messages,
     });
 
     const validatedCode = findValidatedCode(result.turns);

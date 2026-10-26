@@ -2,6 +2,7 @@ import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
   output: "standalone",
+  serverExternalPackages: ["@nemesis-oss/ollama-sdk"],
   // Pin the workspace root: a lockfile in the parent home directory otherwise
   // makes Turbopack infer the wrong root and warn on every start.
   turbopack: {

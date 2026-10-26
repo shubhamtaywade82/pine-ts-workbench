@@ -127,8 +127,8 @@ export function PineEditor({ bars, onResults, onStrategyCode, onAddToChart, onCl
           <button type="button" title="Settings" onClick={onOpenSettings} className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground">
             <Settings className="h-4 w-4" />
           </button>
-          <Switch id="auto-run" checked={autoRun} onCheckedChange={setAutoRun} />
-          <Label htmlFor="auto-run" className="text-xs text-muted-foreground">Auto-update</Label>
+          <Switch id="auto-run" title="Auto-update" checked={autoRun} onCheckedChange={setAutoRun} />
+          <Label htmlFor="auto-run" className="sr-only">Auto-update</Label>
           <Button size="sm" variant="outline" className="h-7 text-xs" onClick={addToChart} title="Add to chart (Ctrl+Enter)">
             <Plus className="mr-1 h-3.5 w-3.5" /> Add to chart
           </Button>
