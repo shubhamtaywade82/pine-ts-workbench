@@ -4,6 +4,8 @@
 node_modules
 # local pine-ts checkout (see README setup)
 /pine-ts
+# local ollama-sdk checkout (symlink to sdks-and-clients/ollama/ollama-sdk)
+/ollama-sdk
 /.pnp
 .pnp.*
 .yarn/*
