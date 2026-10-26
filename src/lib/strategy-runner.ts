@@ -127,11 +127,6 @@ export const loadStrategyCode = (): string => {
   } catch { return DEFAULT_STRATEGY; }
 };
 
-export const saveStrategyCode = (code: string): void => {
-  if (typeof window === "undefined") return;
-  try { window.localStorage.setItem(STORAGE_KEY, code); } catch { /* ignore */ }
-};
-
 type LegacyStrategyFn = (args: {
   ta: typeof ta;
   ctx: PineContext;

@@ -228,10 +228,11 @@ export default function Home() {
                     setEditorDrawings(toChartDrawings(drawings, editorBars));
                   }}
                   onStrategyCode={(code) => {
+                    // Open the tester for the first strategy only, so closing it sticks.
+                    if (strategyCode === null) setIsTesterOpen(true);
                     setStrategyCode(code);
                     setEditorOverlays([]);
                     setEditorDrawings([]);
-                    setIsTesterOpen(true);
                   }}
                   onAddToChart={() => setIsEditorScriptOnChart(true)}
                   onClose={() => setIsEditorOpen(false)}

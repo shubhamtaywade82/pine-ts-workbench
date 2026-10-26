@@ -53,7 +53,6 @@ export function useScriptLibrary(templates: ScriptTemplates, seed: () => readonl
     setActiveId(latest?.id);
     setDraft(latest === undefined ? templates.indicator : currentCode(latest));
     // Load once on mount; templates and seed are static.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const active = library.find((s) => s.id === activeId);
