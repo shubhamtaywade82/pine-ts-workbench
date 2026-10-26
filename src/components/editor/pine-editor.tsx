@@ -1,43 +1,39 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { Plus, X } from "lucide-react";
+import type { Bar, ScriptDrawings } from "@nemesis-oss/pine-ts";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
-import { Plus, Save } from "lucide-react";
-import type { Bar, IndicatorScript, PineContext, ScriptDrawings } from "@nemesis-oss/pine-ts";
-import { ta, PineRuntime } from "@nemesis-oss/pine-ts";
 import { CodeEditor, type CodeError } from "@/components/editor/code-editor";
-import { loadScript, ScriptCompileError } from "@/lib/script-loader";
+import { OpenScriptDialog, ScriptMenu } from "@/components/editor/script-menu";
+import { ScriptCompileError } from "@/lib/script-loader";
+import { runIndicatorCode, type PlotSpec } from "@/lib/indicator-runner";
+import { describeCode } from "@/lib/script-library";
+import { DEFAULT_STRATEGY, loadStrategyCode } from "@/lib/strategy-runner";
+import { useScriptLibrary, type ScriptTemplates } from "@/hooks/use-script-library";
 
 /**
- * Pine editor — a TradingView-style editor where users write custom
- * indicators in TypeScript against the pine-ts API, previewed live on the
- * active chart's bars.
- *
- * The user writes `indicator("Name", ({ close, input, plot, hline }) => ...)`
- * (legacy `calculate({ ta, ctx, inputs })` functions still run). The code is
- * transpiled with sucrase and evaluated bar-by-bar in PineRuntime.
- *
- * Uses CodeMirror (bundled locally) rather than Monaco, whose CDN loader was
- * incompatible with the Caddy proxy environment.
+ * TradingView-style Pine Editor panel. One editor for indicators and
+ * strategies: an indicator previews on the active chart, a strategy runs in
+ * the Strategy Tester. Scripts live in the "My scripts" library.
  */
 
 export interface PineEditorProps {
   readonly bars: readonly Bar[];
-  /** Plot values per bar (aligned with `bars`), plus how to draw each plot. */
-  readonly onResults: (
-    results: Record<string, Array<number | undefined>>,
-    plots: { id: string; color: string; kind: string }[],
-    drawings: ScriptDrawings,
-  ) => void;
+  /** Indicator plot values per bar (aligned with `bars`), plot specs and drawings. */
+  readonly onResults: (results: Record<string, Array<number | undefined>>, plots: PlotSpec[], drawings: ScriptDrawings) => void;
+  /** Strategy code to backtest (the Strategy Tester shows results and errors). */
+  readonly onStrategyCode: (code: string) => void;
   /** "Add to chart" / Ctrl+Enter: puts the script back on the chart if it was removed from the legend. */
   readonly onAddToChart?: () => void;
+  readonly onClose?: () => void;
 }
 
-const DEFAULT_CODE = `// Custom indicator — runs once per bar, like Pine Script.
+const DEFAULT_INDICATOR = `// Custom indicator — runs once per bar, like Pine Script.
 // In scope: close, open, high, low, volume, hl2, hlc3, ohlc4, input, plot,
-// hline, ta.*, math.*, and ctx (the full Pine context).
+// hline, draw, ta.*, math.*, smc.*, and ctx (the full Pine context).
 
 indicator("RSI", ({ close, input, plot, hline }) => {
   const length = input.int(14, "Length", { min: 1 });
@@ -47,229 +43,125 @@ indicator("RSI", ({ close, input, plot, hline }) => {
 });
 `;
 
-// The previous default template; saved copies identical to it are upgraded.
-const LEGACY_DEFAULT_CODE = `// Custom indicator — write TypeScript using the pine-ts API.
-// The calculate function receives { ta, ctx, inputs } and returns
-// a map of plotId -> value (number or undefined for na).
-//
-// Available: ta.* (all 67 pine-ts TA built-ins), ctx.* (bar context:
-// close, open, high, low, volume, hl2, hlc3, ohlc4, barstate, etc.)
+const TEMPLATES: ScriptTemplates = { indicator: DEFAULT_INDICATOR, strategy: DEFAULT_STRATEGY };
 
-export function calculate({ ta, ctx, inputs }: {
-  ta: typeof import("@nemesis-oss/pine-ts").ta,
-  ctx: import("@nemesis-oss/pine-ts").PineContext,
-  inputs: Record<string, unknown>,
-}): Record<string, number | undefined> {
-  const length = (inputs.length as number) ?? 14;
-  const rsi = ta.rsi(ctx.close, length).at(0);
-  return {
-    main: rsi,
-    upper: 70,
-    lower: 30,
-  };
-}
-`;
+// Where the editor kept its single indicator script before the library existed.
+const LEGACY_INDICATOR_KEY = "pine-ts-workbench-editor-code";
 
-const STORAGE_KEY = "pine-ts-workbench-editor-code";
-const AUTO_RUN_DEBOUNCE_MS = 500;
-const MAX_CONSOLE_LINES = 50;
-// TradingView's default plot colours, assigned in plot order.
-const PLOT_COLORS = ["#2962ff", "#ff9800", "#e040fb", "#089981", "#f23645", "#00bcd4"];
-const LEVEL_COLOR = "#787b86";
-
-type CalculateFn = (args: { ta: typeof ta; ctx: PineContext; inputs: Record<string, unknown> }) =>
-  Record<string, number | undefined>;
-
-type PlotSpec = { id: string; color: string; kind: string };
-type ScriptRun = {
-  results: Record<string, Array<number | undefined>>;
-  plots: PlotSpec[];
-  drawings: ScriptDrawings;
-  firstBarError: string | null;
+/** The pre-library scripts, so the first library load keeps the user's work. */
+const legacyScripts = (): string[] => {
+  let indicator: string | null = null;
+  try { indicator = window.localStorage.getItem(LEGACY_INDICATOR_KEY); } catch { /* storage blocked */ }
+  const isOldTemplate = indicator === null || indicator.includes("export function calculate({ ta, ctx, inputs }");
+  return [isOldTemplate ? DEFAULT_INDICATOR : indicator!, loadStrategyCode()];
 };
 
-const NO_DRAWINGS: ScriptDrawings = { lines: [], boxes: [] };
+const AUTO_RUN_DEBOUNCE_MS = 500;
+const MAX_CONSOLE_LINES = 50;
 
 interface ConsoleLine { readonly time: string; readonly text: string; readonly isError: boolean }
 
-/** Runs a concise `indicator()` script; plot metadata comes from its plot()/hline() calls. */
-const runIndicator = async (script: IndicatorScript, bars: readonly Bar[]): Promise<ScriptRun> => {
-  const output = await script.run(bars);
-  const results = Object.fromEntries(Object.entries(output.values).map(([id, values]) => [id, [...values]]));
-  const plots = output.plots.map((plot, i) => ({
-    id: plot.id,
-    kind: plot.kind,
-    color: plot.color ?? (plot.kind === "hline" ? LEVEL_COLOR : PLOT_COLORS[i % PLOT_COLORS.length]!),
-  }));
-  return { results, plots, drawings: output.drawings, firstBarError: null };
-};
-
-/** Runs a legacy `calculate` function on every bar; collects plot values and the first per-bar error. */
-const runLegacy = async (calculateFn: CalculateFn, bars: readonly Bar[]): Promise<ScriptRun> => {
-  const results: Record<string, Array<number | undefined>> = {};
-  let firstBarError: string | null = null;
-  const provider = {
-    getHistoricalBars: async () => bars,
-    streamBars: () => ({ [Symbol.asyncIterator]: async function* () { yield* []; } }),
-    getSymbolInfo: async () => ({ ticker: "EDITOR", timezone: "UTC", type: "crypto" as const }),
-  };
-  const runtime = new PineRuntime({ provider, symbol: "EDITOR", timeframe: "1" });
-  let barIndex = 0;
-  await runtime.run((ctx: PineContext) => {
-    try {
-      for (const [plotId, value] of Object.entries(calculateFn({ ta, ctx, inputs: { length: 14 } }))) {
-        (results[plotId] ??= [])[barIndex] = value;
-      }
-    } catch (err) {
-      firstBarError ??= `Bar ${barIndex}: ${err instanceof Error ? err.message : String(err)}`;
-    }
-    barIndex++;
-  }, bars as never);
-  return { results, plots: derivePlots(results), drawings: NO_DRAWINGS, firstBarError };
-};
-
-/** One plot per returned key; a key that is the same number on every bar is a level (hline). */
-const derivePlots = (results: Record<string, Array<number | undefined>>): PlotSpec[] =>
-  Object.entries(results).map(([id, values], i) => {
-    const defined = values.filter((v): v is number => v !== undefined && !Number.isNaN(v));
-    const isLevel = defined.length > 0 && defined.every((v) => v === defined[0]);
-    return { id, color: isLevel ? LEVEL_COLOR : PLOT_COLORS[i % PLOT_COLORS.length]!, kind: isLevel ? "hline" : "line" };
-  });
-
-const runScript = (userCode: string, bars: readonly Bar[]): Promise<ScriptRun> => {
-  const loaded = loadScript<CalculateFn>(userCode, "calculate");
-  if (loaded.kind === "indicator") return runIndicator(loaded.script, bars);
-  if (loaded.kind === "legacy") return runLegacy(loaded.fn, bars);
-  throw new ScriptCompileError("This is a strategy; open it in the Strategy tab.", null);
-};
-
-const loadSavedCode = (): string | null => {
-  try {
-    const saved = window.localStorage.getItem(STORAGE_KEY);
-    return saved === LEGACY_DEFAULT_CODE ? null : saved;
-  } catch {
-    return null; // Storage blocked (private mode) — fall back to the default script.
-  }
-};
-
-const saveCode = (code: string): boolean => {
-  try {
-    window.localStorage.setItem(STORAGE_KEY, code);
-    return true;
-  } catch {
-    return false;
-  }
-};
-
-export function PineEditor({ bars, onResults, onAddToChart }: PineEditorProps) {
-  const [code, setCode] = useState<string>(DEFAULT_CODE);
-  const [savedCode, setSavedCode] = useState<string>(DEFAULT_CODE);
-  const [autoRun, setAutoRun] = useState(true);
-  const [error, setError] = useState<CodeError | null>(null);
-  const [consoleLines, setConsoleLines] = useState<ConsoleLine[]>([]);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    const saved = loadSavedCode();
-    if (saved !== null) { setCode(saved); setSavedCode(saved); }
-  }, []);
-
+function useConsole() {
+  const [lines, setLines] = useState<ConsoleLine[]>([]);
   const log = useCallback((text: string, isError: boolean) => {
     const time = new Date().toLocaleTimeString("en-GB");
-    setConsoleLines((prev) => {
+    setLines((prev) => {
       // Stream ticks re-run the script constantly; repeat messages only refresh the timestamp.
-      const isRepeat = prev[prev.length - 1]?.text === text;
-      const next = isRepeat ? prev.slice(0, -1) : prev;
+      const next = prev.at(-1)?.text === text ? prev.slice(0, -1) : prev;
       return [...next, { time, text, isError }].slice(-MAX_CONSOLE_LINES);
     });
   }, []);
+  return { lines, log };
+}
 
-  const runCode = useCallback(async (userCode: string) => {
-    try {
-      const { results, plots, drawings, firstBarError } = await runScript(userCode, bars);
-      onResults(results, plots, drawings);
-      setError(null);
-      if (firstBarError !== null) log(firstBarError, true);
-      else log("Compiled successfully. Script added to chart.", false);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(err instanceof ScriptCompileError ? err.position : null);
-      log(message, true);
-    }
-  }, [bars, onResults, log]);
+export function PineEditor({ bars, onResults, onStrategyCode, onAddToChart, onClose }: PineEditorProps) {
+  const scripts = useScriptLibrary(TEMPLATES, legacyScripts);
+  const [autoRun, setAutoRun] = useState(true);
+  const [error, setError] = useState<CodeError | null>(null);
+  const [isOpenDialogOpen, setIsOpenDialogOpen] = useState(false);
+  const { lines, log } = useConsole();
+  const runCode = useScriptRunner({ bars, onResults, onStrategyCode, log, setError });
+  useAutoRun(scripts.draft, bars, autoRun, runCode);
 
-  // Typing is debounced; a new bar re-runs at once, or a debounce would starve the
-  // live update. Refs give the bars effect the latest code and callbacks without
-  // re-running whenever the parent passes new inline handlers.
-  const codeRef = useRef(code);
-  const runCodeRef = useRef(runCode);
-  useEffect(() => { codeRef.current = code; runCodeRef.current = runCode; }, [code, runCode]);
-
-  useEffect(() => {
-    if (!autoRun) return;
-    if (debounceRef.current !== null) clearTimeout(debounceRef.current);
-    // Via refs: this closure fires 500ms later, by when bars and callbacks may be newer.
-    debounceRef.current = setTimeout(() => { void runCodeRef.current(codeRef.current); }, AUTO_RUN_DEBOUNCE_MS);
-    return () => { if (debounceRef.current !== null) clearTimeout(debounceRef.current); };
-  }, [code, autoRun]);
-
-  useEffect(() => {
-    void runCodeRef.current(codeRef.current);
-  }, [bars]);
-
-  const onSave = () => {
-    if (saveCode(code)) { setSavedCode(code); log("Script saved.", false); }
-    else log("Could not save: browser storage is unavailable.", true);
-  };
-
+  const onSaved = (ok: boolean) => log(ok ? "Script saved." : "Could not save: browser storage is unavailable.", !ok);
+  const addToChart = () => { onAddToChart?.(); void runCode(scripts.draft); };
   return (
     <div className="flex h-full flex-col bg-[#131722]">
-      <EditorToolbar
-        isDirty={code !== savedCode} autoRun={autoRun} onAutoRunChange={setAutoRun}
-        onSave={onSave} onAddToChart={() => { onAddToChart?.(); void runCode(code); }}
-      />
+      <div className="flex h-9 shrink-0 items-center justify-between px-3 text-sm text-[#d1d4dc]">
+        <span>Pine Editor</span>
+        {onClose !== undefined && <button type="button" title="Close" onClick={onClose}><X className="h-4 w-4" /></button>}
+      </div>
+      <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border px-2">
+        <ScriptMenu scripts={scripts} onSaved={onSaved} onOpenScripts={() => setIsOpenDialogOpen(true)} />
+        <div className="flex shrink-0 items-center gap-2">
+          <Switch id="auto-run" checked={autoRun} onCheckedChange={setAutoRun} />
+          <Label htmlFor="auto-run" className="text-xs text-muted-foreground">Auto-update</Label>
+          <Button size="sm" variant="outline" className="h-7 text-xs" onClick={addToChart} title="Add to chart (Ctrl+Enter)">
+            <Plus className="mr-1 h-3.5 w-3.5" /> Add to chart
+          </Button>
+        </div>
+      </div>
       <div
         className="min-h-0 flex-1 overflow-hidden"
         // Capture phase: CodeMirror binds Mod-Enter to "insert blank line" otherwise.
         onKeyDownCapture={(e) => {
           if (!(e.ctrlKey || e.metaKey)) return;
-          if (e.key === "s") { e.preventDefault(); onSave(); }
-          if (e.key === "Enter") { e.preventDefault(); e.stopPropagation(); onAddToChart?.(); void runCode(code); }
+          if (e.key === "s") { e.preventDefault(); onSaved(scripts.save()); }
+          if (e.key === "o") { e.preventDefault(); setIsOpenDialogOpen(true); }
+          if (e.key === "Enter") { e.preventDefault(); e.stopPropagation(); addToChart(); }
         }}
       >
-        <CodeEditor value={code} onChange={setCode} error={error} />
+        <CodeEditor value={scripts.draft} onChange={scripts.setDraft} error={error} />
       </div>
-      <EditorConsole lines={consoleLines} barCount={bars.length} />
+      <EditorConsole lines={lines} barCount={bars.length} />
+      <OpenScriptDialog open={isOpenDialogOpen} onClose={() => setIsOpenDialogOpen(false)} scripts={scripts} />
     </div>
   );
 }
 
-function EditorToolbar({ isDirty, autoRun, onAutoRunChange, onSave, onAddToChart }: {
-  isDirty: boolean;
-  autoRun: boolean;
-  onAutoRunChange: (value: boolean) => void;
-  onSave: () => void;
-  onAddToChart: () => void;
+/** Runs the code by kind: indicators on the bars here, strategies handed to the Strategy Tester. */
+function useScriptRunner({ bars, onResults, onStrategyCode, log, setError }: {
+  bars: readonly Bar[];
+  onResults: PineEditorProps["onResults"];
+  onStrategyCode: PineEditorProps["onStrategyCode"];
+  log: (text: string, isError: boolean) => void;
+  setError: (error: CodeError | null) => void;
 }) {
-  return (
-    <div className="flex h-9 shrink-0 items-center justify-between border-b border-border px-3">
-      <span className="text-xs font-semibold text-[#d1d4dc]">
-        Custom indicator{isDirty && <span className="ml-1 text-[#787b86]" title="Unsaved changes">•</span>}
-      </span>
-      <div className="flex items-center gap-2">
-        <div className="flex items-center gap-1.5">
-          <Switch id="auto-run" checked={autoRun} onCheckedChange={onAutoRunChange} />
-          <Label htmlFor="auto-run" className="text-xs text-muted-foreground">Auto-update</Label>
-        </div>
-        <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={onSave} title="Save (Ctrl+S)">
-          <Save className="mr-1 h-3.5 w-3.5" /> Save
-        </Button>
-        <Button size="sm" className="h-7 text-xs" onClick={onAddToChart} title="Add to chart (Ctrl+Enter)">
-          <Plus className="mr-1 h-3.5 w-3.5" /> Add to chart
-        </Button>
-      </div>
-    </div>
-  );
+  return useCallback(async (code: string) => {
+    if (describeCode(code).kind === "strategy") {
+      onStrategyCode(code);
+      setError(null);
+      log("Strategy sent to the Strategy Tester.", false);
+      return;
+    }
+    try {
+      const { results, plots, drawings, firstBarError } = await runIndicatorCode(code, bars);
+      onResults(results, plots, drawings);
+      setError(null);
+      log(firstBarError ?? "Compiled successfully. Script added to chart.", firstBarError !== null);
+    } catch (err) {
+      setError(err instanceof ScriptCompileError ? err.position : null);
+      log(err instanceof Error ? err.message : String(err), true);
+    }
+  }, [bars, onResults, onStrategyCode, log, setError]);
+}
+
+/**
+ * Typing is debounced; a new bar re-runs at once, or a debounce would starve
+ * the live update. Refs give both effects the latest code and runner.
+ */
+function useAutoRun(code: string, bars: readonly Bar[], autoRun: boolean, runCode: (code: string) => Promise<void>) {
+  const codeRef = useRef(code);
+  const runRef = useRef(runCode);
+  useEffect(() => { codeRef.current = code; runRef.current = runCode; }, [code, runCode]);
+  useEffect(() => {
+    if (!autoRun || code === "") return;
+    const timer = setTimeout(() => { void runRef.current(codeRef.current); }, AUTO_RUN_DEBOUNCE_MS);
+    return () => clearTimeout(timer);
+  }, [code, autoRun]);
+  useEffect(() => {
+    if (codeRef.current !== "") void runRef.current(codeRef.current);
+  }, [bars]);
 }
 
 function EditorConsole({ lines, barCount }: { lines: readonly ConsoleLine[]; barCount: number }) {

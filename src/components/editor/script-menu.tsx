@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { recentlyUsed, type SavedScript } from "@/lib/script-library";
 import type { ScriptLibraryState } from "@/hooks/use-script-library";
 
-type Modal = "open" | "rename" | "copy" | "history" | null;
+type Modal = "rename" | "copy" | "history" | null;
 
 const formatSavedAt = (time: number) =>
   new Date(time).toLocaleString("en-GB", { day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" });
@@ -21,7 +21,11 @@ const KindIcon = ({ script }: { script: SavedScript }) =>
   script.kind === "strategy" ? <FlaskConical className="h-3.5 w-3.5 text-muted-foreground" /> : <ChartLine className="h-3.5 w-3.5 text-muted-foreground" />;
 
 /** TradingView's script-name dropdown: save, copy, rename, history, create, recent, open. */
-export function ScriptMenu({ scripts, onSaved }: { scripts: ScriptLibraryState; onSaved: (ok: boolean) => void }) {
+export function ScriptMenu({ scripts, onSaved, onOpenScripts }: {
+  scripts: ScriptLibraryState;
+  onSaved: (ok: boolean) => void;
+  onOpenScripts: () => void;
+}) {
   const [modal, setModal] = useState<Modal>(null);
   const { active, isDirty } = scripts;
   const close = () => setModal(null);
@@ -58,12 +62,11 @@ export function ScriptMenu({ scripts, onSaved }: { scripts: ScriptLibraryState; 
             </DropdownMenuItem>
           ))}
           <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={() => setModal("open")}>
+          <DropdownMenuItem onSelect={onOpenScripts}>
             <FolderOpen className="h-4 w-4" /> Open script… <DropdownMenuShortcut>Ctrl+O</DropdownMenuShortcut>
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
-      <OpenScriptDialog open={modal === "open"} onClose={close} scripts={scripts} />
       <NameDialog
         open={modal === "rename" || modal === "copy"} onClose={close}
         title={modal === "copy" ? "Make a copy" : "Rename script"}

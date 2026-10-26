@@ -11,8 +11,7 @@ import { useChartGrid, newCell } from "@/hooks/use-chart-grid";
 import { ChartSettingsDialog } from "@/components/chart/chart-settings-dialog";
 import { DEFAULT_CHART_SETTINGS, loadChartSettings, saveChartSettings, type ChartSettings } from "@/lib/chart-settings";
 import { PineEditor } from "@/components/editor/pine-editor";
-import { useBacktest, StrategyCodeTab, StrategyTester } from "@/components/strategy/strategy-panel";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { useBacktest, StrategyTester } from "@/components/strategy/strategy-panel";
 import type { TradeMarker } from "@/components/chart/chart-workbench";
 import type { BacktestTrade } from "@/lib/strategy-runner";
 import { loadSettings, type BinanceSettings, DEFAULT_SETTINGS } from "@/components/trading/settings-dialog";
@@ -63,7 +62,6 @@ export default function Home() {
   }, []);
   const openChartSettings = useCallback(() => setIsChartSettingsOpen(true), []);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
-  const [editorTab, setEditorTab] = useState<Workspace["editorTab"]>("indicator");
   const [isTesterOpen, setIsTesterOpen] = useState(false);
   // Cells render only after the saved workspace is applied, so a reload doesn't
   // load BTC 1m first and then jump to the saved symbol.
@@ -90,7 +88,9 @@ export default function Home() {
   const [backtestTrades, setBacktestTrades] = useState<BacktestTrade[]>([]);
   // The active cell's bars (for the editor and the backtest).
   const [editorBars, setEditorBars] = useState<readonly Bar[]>([]);
-  const backtest = useBacktest(editorBars, setBacktestTrades);
+  // Strategy code from the Pine Editor; null until the editor opens a strategy.
+  const [strategyCode, setStrategyCode] = useState<string | null>(null);
+  const backtest = useBacktest(editorBars, strategyCode, setBacktestTrades);
 
   // Convert backtest trades → trade markers for the active chart cell. Wave 21.
   const tradeMarkers = useMemo<TradeMarker[]>(() => {
@@ -107,7 +107,6 @@ export default function Home() {
       const restored = workspace.cells.map((c) => ({ ...newCell(findSymbol(c.symbolProduct), c.interval), indicators: c.indicators }));
       replaceGrid(workspace.layout as GridLayout, restored, workspace.activeCellIndex);
       setIsEditorOpen(workspace.isEditorOpen);
-      setEditorTab(workspace.editorTab);
       setIsTesterOpen(workspace.isTesterOpen);
       setTheme(workspace.theme);
       document.documentElement.classList.toggle("dark", workspace.theme === "dark");
@@ -121,9 +120,9 @@ export default function Home() {
       layout,
       cells: cells.map((c) => ({ symbolProduct: c.symbol.binanceSymbol, interval: c.interval, indicators: c.indicators })),
       activeCellIndex: Math.max(0, cells.findIndex((c) => c.id === activeCellId)),
-      isEditorOpen, editorTab, isTesterOpen, theme,
+      isEditorOpen, isTesterOpen, theme,
     });
-  }, [isRestored, layout, cells, activeCellId, isEditorOpen, editorTab, isTesterOpen, theme]);
+  }, [isRestored, layout, cells, activeCellId, isEditorOpen, isTesterOpen, theme]);
 
   // Before restore, syncing (and the panels' own collapse callbacks) would overwrite the saved open state.
   useEffect(() => { if (isRestored) syncPanel(editorPanelRef.current, isEditorOpen); }, [isRestored, isEditorOpen]);
@@ -132,7 +131,7 @@ export default function Home() {
   const onEditorScriptAction = useCallback((action: IndicatorAction) => {
     if (action === "toggle-visibility") setIsEditorScriptHidden((hidden) => !hidden);
     else if (action === "remove") setIsEditorScriptOnChart(false);
-    else { setIsEditorOpen(true); setEditorTab("indicator"); }
+    else setIsEditorOpen(true);
   }, []);
 
   // Grid CSS — responsive: 1 column on mobile, layout-based on desktop.
@@ -221,25 +220,23 @@ export default function Home() {
               ref={editorPanelRef} order={2} defaultSize={30} minSize={20} collapsible collapsedSize={0}
               onCollapse={() => isRestored && setIsEditorOpen(false)} onExpand={() => isRestored && setIsEditorOpen(true)}
             >
-              <Tabs value={editorTab} onValueChange={(v) => setEditorTab(v as Workspace["editorTab"])} className="flex h-full flex-col gap-0 border-l border-border">
-                <TabsList className="h-8 w-full justify-start rounded-none border-b border-border bg-transparent p-0">
-                  <TabsTrigger value="indicator" className="text-xs">Indicator</TabsTrigger>
-                  <TabsTrigger value="strategy" className="text-xs">Strategy</TabsTrigger>
-                </TabsList>
-                <TabsContent value="indicator" forceMount className="m-0 min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden">
-                  <PineEditor
-                    bars={editorBars}
-                    onResults={(results, plots, drawings) => {
-                      setEditorOverlays(toEditorOverlays(results, plots, editorBars));
-                      setEditorDrawings(toChartDrawings(drawings, editorBars));
-                    }}
-                    onAddToChart={() => setIsEditorScriptOnChart(true)}
-                  />
-                </TabsContent>
-                <TabsContent value="strategy" forceMount className="m-0 min-h-0 flex-1 overflow-hidden data-[state=inactive]:hidden">
-                  <StrategyCodeTab backtest={backtest} />
-                </TabsContent>
-              </Tabs>
+              <div className="h-full border-l border-border">
+                <PineEditor
+                  bars={editorBars}
+                  onResults={(results, plots, drawings) => {
+                    setEditorOverlays(toEditorOverlays(results, plots, editorBars));
+                    setEditorDrawings(toChartDrawings(drawings, editorBars));
+                  }}
+                  onStrategyCode={(code) => {
+                    setStrategyCode(code);
+                    setEditorOverlays([]);
+                    setEditorDrawings([]);
+                    setIsTesterOpen(true);
+                  }}
+                  onAddToChart={() => setIsEditorScriptOnChart(true)}
+                  onClose={() => setIsEditorOpen(false)}
+                />
+              </div>
             </ResizablePanel>
           </ResizablePanelGroup>
         </ResizablePanel>
