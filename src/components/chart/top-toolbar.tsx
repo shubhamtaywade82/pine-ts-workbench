@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import { INTERVAL_LABELS, SUPPORTED_INTERVALS, SUPPORTED_SYMBOLS } from "@/lib/public-binance-feed";
 import type { CellSettings } from "@/components/chart/chart-cell";
-import { IndicatorsDialog } from "@/components/chart/indicator-dialogs";
+import { IndicatorsDialog } from "@/components/chart/indicators-dialog";
+import type { ScriptLibraryState } from "@/hooks/use-script-library";
 import { SettingsDialog, type BinanceSettings } from "@/components/trading/settings-dialog";
 import { AlertSettingsDialog } from "@/components/alerts/alert-settings-dialog";
 import type { AlertSettings } from "@/lib/alert-sinks";
@@ -26,6 +27,9 @@ export interface TopToolbarProps {
   readonly activeCell: Pick<CellSettings, "symbol" | "interval">;
   readonly onActiveCellChange: (patch: Partial<CellSettings>) => void;
   readonly onAddIndicator: (indicatorId: string) => void;
+  readonly scripts: ScriptLibraryState;
+  readonly onAddScript: (scriptId: string) => void;
+  readonly onOpenScript: (scriptId: string) => void;
   readonly layout: GridLayout;
   readonly onLayoutChange: (layout: GridLayout) => void;
   readonly canAddCell: boolean;
@@ -107,7 +111,10 @@ export function TopToolbar(props: TopToolbarProps) {
           <Maximize className="h-4 w-4" />
         </Button>
       </div>
-      <IndicatorsDialog open={isIndicatorsDialogOpen} onOpenChange={setIsIndicatorsDialogOpen} onAdd={props.onAddIndicator} />
+      <IndicatorsDialog
+        open={isIndicatorsDialogOpen} onOpenChange={setIsIndicatorsDialogOpen} scripts={props.scripts}
+        onAddBuiltin={props.onAddIndicator} onAddScript={props.onAddScript} onOpenScript={props.onOpenScript}
+      />
     </header>
   );
 }

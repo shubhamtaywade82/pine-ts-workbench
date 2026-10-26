@@ -47,6 +47,10 @@ export function PriceScaleMenu({ settings, onChange, onMoreSettings }: {
           Last price line
         </DropdownMenuCheckboxItem>
         <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => setScales({ placement: scales.placement === "right" ? "left" : "right" })}>
+          Move scale to {scales.placement === "right" ? "left" : "right"}
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={onMoreSettings}>
           <Settings className="h-4 w-4" /> More settings…
         </DropdownMenuItem>

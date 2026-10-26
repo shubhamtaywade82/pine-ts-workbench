@@ -1,12 +1,15 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ChartLine, List } from "lucide-react";
+import { ChartLine, List, Settings, Sparkles } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { AiAuditDialog } from "@/components/strategy/ai-audit-dialog";
+import type { BacktestSummary } from "@/lib/strategy-runner";
 import {
   buyHoldEquity, cagr, drawdownPeriods, isLong, maxDrawdown, periodPnl, profitFactor, riskRatios,
   type EquityPoint, type Period, type ReportTrade,
 } from "@/lib/backtest-report";
-import { PerformanceChart, PeriodBars, type PerformancePoint } from "@/components/strategy/report-charts";
+import { MarginChart, PerformanceChart, PeriodBars, type PerformancePoint } from "@/components/strategy/report-charts";
 import { TradeList } from "@/components/strategy/trade-list";
 import { TradesAnalysis } from "@/components/strategy/trades-analysis";
 import { formatDate, formatDuration, formatMoney, formatPercent, formatRatio, pnlClass } from "@/components/strategy/report-format";
@@ -19,33 +22,90 @@ export interface ReportData {
   readonly currency: string;
 }
 
+export interface StrategyReportProps extends ReportData {
+  /** The strategy's settings dialog (Inputs, Properties, ...), as TradingView's tester gear. */
+  readonly onOpenSettings: () => void;
+  readonly strategyCode?: string | null;
+  readonly onApplyCode?: (code: string) => void;
+}
+
 /** TradingView-style Strategy Tester: the metrics report or the list of trades. */
-export function StrategyReport(data: ReportData) {
+export function StrategyReport({ onOpenSettings, strategyCode, onApplyCode, ...data }: StrategyReportProps) {
   const [view, setView] = useState<"metrics" | "trades">("metrics");
+  const [isAuditOpen, setIsAuditOpen] = useState(false);
+
+  const summary = useMemo((): BacktestSummary => {
+    const netPnl = data.trades.reduce((total, t) => total + t.profit, 0);
+    const grossProfit = data.trades.filter((t) => t.profit > 0).reduce((tot, t) => tot + t.profit, 0);
+    const grossLoss = Math.abs(data.trades.filter((t) => t.profit < 0).reduce((tot, t) => tot + t.profit, 0));
+    const drawdown = maxDrawdown(data.equity);
+    const winners = data.trades.filter((t) => t.profit > 0).length;
+    return {
+      initialCapital: data.initialCapital,
+      netProfit: netPnl,
+      grossProfit,
+      grossLoss,
+      maxDrawdown: drawdown.amount,
+      finalEquity: data.initialCapital + netPnl,
+      winTrades: winners,
+      lossTrades: data.trades.length - winners,
+      profitFactor: profitFactor(data.trades),
+      winRate: data.trades.length === 0 ? 0 : winners / data.trades.length,
+      totalTrades: data.trades.length,
+    };
+  }, [data.trades, data.equity, data.initialCapital]);
+
   return (
     <div className="flex h-full flex-col bg-background">
       <div className="flex shrink-0 items-center gap-1 border-b border-border px-3 py-1.5">
         <IconToggle isActive={view === "metrics"} onClick={() => setView("metrics")} title="Metrics"><ChartLine className="h-4 w-4" /></IconToggle>
         <IconToggle isActive={view === "trades"} onClick={() => setView("trades")} title="List of trades"><List className="h-4 w-4" /></IconToggle>
+        <span className="mx-1 h-4 w-px bg-border" />
+        <IconToggle isActive={false} onClick={onOpenSettings} title="Strategy settings"><Settings className="h-4 w-4" /></IconToggle>
+        {strategyCode && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-6 text-xs gap-1 border-indigo-500/40 text-indigo-300 hover:bg-indigo-950/40 ml-auto"
+            onClick={() => setIsAuditOpen(true)}
+            title="AI Quant Strategy Auditor & Autonomous Optimizer"
+          >
+            <Sparkles className="h-3 w-3 text-indigo-400" /> AI Audit & Optimize
+          </Button>
+        )}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
         {view === "trades" ? <TradeList trades={data.trades} quoteCurrency={data.currency} /> : <Metrics {...data} />}
       </div>
+      <AiAuditDialog
+        isOpen={isAuditOpen}
+        onClose={() => setIsAuditOpen(false)}
+        strategyCode={strategyCode ?? null}
+        summary={summary}
+        trades={data.trades}
+        onApplyOptimizedCode={(code) => onApplyCode?.(code)}
+      />
     </div>
   );
 }
 
 function Metrics(data: ReportData) {
   const [showBuyHold, setShowBuyHold] = useState(false);
+  const [showExcursions, setShowExcursions] = useState(true);
   const points = useMemo(() => performancePoints(data), [data]);
   return (
     <div className="flex flex-col gap-8 px-5 py-4">
       <Section title="Key stats"><KeyStats {...data} /></Section>
       <Section
         title="Performance"
-        action={<IconToggle isActive={showBuyHold} onClick={() => setShowBuyHold(!showBuyHold)} title="Buy and hold">Buy and hold</IconToggle>}
+        action={
+          <span className="flex gap-1">
+            <IconToggle isActive={showExcursions} onClick={() => setShowExcursions(!showExcursions)} title="Trades excursions">Trades excursions</IconToggle>
+            <IconToggle isActive={showBuyHold} onClick={() => setShowBuyHold(!showBuyHold)} title="Buy and hold">Buy and hold</IconToggle>
+          </span>
+        }
       >
-        {points.length === 0 ? <Empty /> : <PerformanceChart points={points} showBuyHold={showBuyHold} />}
+        {points.length === 0 ? <Empty /> : <PerformanceChart points={points} showBuyHold={showBuyHold} showExcursions={showExcursions} />}
       </Section>
       <Section title="Performance analysis"><PerformanceAnalysis {...data} /></Section>
       <Section title="Trades analysis"><TradesAnalysis trades={data.trades} currency={data.currency} /></Section>
@@ -68,7 +128,7 @@ function KeyStats({ trades, equity, initialCapital, currency }: ReportData) {
   );
 }
 
-const TABS = ["Breakdown", "Periodical", "Benchmarking", "Growth and decline"] as const;
+const TABS = ["Breakdown", "Periodical", "Benchmarking", "Margin usage", "Growth and decline"] as const;
 
 function PerformanceAnalysis(data: ReportData) {
   const [tab, setTab] = useState<(typeof TABS)[number]>("Breakdown");
@@ -78,6 +138,7 @@ function PerformanceAnalysis(data: ReportData) {
       {tab === "Breakdown" && <Breakdown {...data} />}
       {tab === "Periodical" && <Periodical {...data} />}
       {tab === "Benchmarking" && <Benchmarking {...data} />}
+      {tab === "Margin usage" && <MarginUsage {...data} />}
       {tab === "Growth and decline" && <GrowthAndDecline {...data} />}
     </div>
   );
@@ -163,6 +224,25 @@ function Benchmarking(data: ReportData) {
   );
 }
 
+/** Margin held by open positions: averages over bars in a position, and its share of equity over time. */
+function MarginUsage({ equity, currency }: ReportData) {
+  const held = equity.filter((point) => (point.margin ?? 0) > 0);
+  const average = held.length === 0 ? 0 : held.reduce((sum, p) => sum + (p.margin ?? 0), 0) / held.length;
+  const utilization = equity.map((point) => ({ time: point.time, percent: point.equity > 0 ? ((point.margin ?? 0) / point.equity) * 100 : 0 }));
+  const peak = Math.max(0, ...utilization.map((u) => u.percent));
+  return (
+    <>
+      <StatGrid>
+        <Stat label="Average margin used" value={formatMoney(average, currency)} />
+        <Stat label="Max margin used" value={formatMoney(Math.max(0, ...equity.map((p) => p.margin ?? 0)), currency)} />
+        <Stat label="Peak margin utilization" value={formatPercent(peak)} />
+        <Stat label="Bars in a position" value={`${held.length}/${equity.length}`} />
+      </StatGrid>
+      <SubSection title="Margin utilization">{equity.length === 0 ? <Empty /> : <MarginChart points={utilization} />}</SubSection>
+    </>
+  );
+}
+
 function GrowthAndDecline({ equity, initialCapital, currency }: ReportData) {
   const durations = drawdownPeriods(equity);
   const drawdown = maxDrawdown(equity);
@@ -182,6 +262,11 @@ const performancePoints = ({ trades, equity, initialCapital }: ReportData): Perf
   return trades.map((trade) => {
     cumulative += trade.profit;
     const barIndex = equity.findIndex((point) => point.time >= trade.exitTime);
-    return { label: formatDate(trade.exitTime), cumulative, trade: trade.profit, buyHold: (hold[barIndex] ?? initialCapital) - initialCapital };
+    return {
+      label: formatDate(trade.exitTime), cumulative, trade: trade.profit,
+      buyHold: (hold[barIndex] ?? initialCapital) - initialCapital,
+      runUp: trade.runUp ?? 0,
+      drawDown: -(trade.drawDown ?? 0),
+    };
   });
 };

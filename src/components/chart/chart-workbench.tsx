@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   createChart,
-  LineSeries,
   createSeriesMarkers,
   type IChartApi,
   type ISeriesApi,
@@ -16,6 +15,7 @@ import { useCandleSeries, type CandleFrame } from "@/hooks/use-candle-series";
 import { INTERVAL_MS, type ChartInterval } from "@/lib/public-binance-feed";
 import { ScriptDrawingsPrimitive, type ChartDrawing } from "@/components/chart/script-drawings-primitive";
 import { PriceScaleMenu } from "@/components/chart/price-scale-menu";
+import { useOverlaySeries } from "@/hooks/use-overlay-series";
 import { DEFAULT_CHART_SETTINGS, toCandleOptions, toChartOptions, type ChartSettings } from "@/lib/chart-settings";
 
 /**
@@ -28,7 +28,7 @@ export interface ChartOverlay {
   readonly indicatorId: string;
   readonly indicatorName: string;
   readonly color: string;
-  readonly data: readonly { time: number; value: number }[];
+  readonly data: readonly { time: number; value?: number }[];
   /** Horizontal level (e.g. RSI 70/30) — drawn thin and dashed, no price label. */
   readonly isLevel?: boolean;
   /** The indicator this plot belongs to (one legend row per owner); defaults to `instanceId`. */
@@ -54,17 +54,6 @@ const TV = {
 };
 
 const LOAD_OLDER_THRESHOLD_BARS = 30;
-
-/** `hasValueLabel`: price-axis label for sub-pane plots; levels never get one (TradingView shows only the scale). */
-const lineOptions = (overlay: ChartOverlay, hasValueLabel = false) => ({
-  color: overlay.color,
-  lineWidth: 1 as const,
-  lineStyle: overlay.isLevel ? 2 : 0, // 2 = Dashed
-  priceLineVisible: false,
-  crosshairMarkerVisible: !overlay.isLevel,
-  visible: !overlay.isHidden,
-  lastValueVisible: hasValueLabel && !overlay.isLevel,
-});
 
 /**
  * A pane (sub-chart) below the main price pane. Used for oscillators like
@@ -134,8 +123,11 @@ export function ChartWorkbench({
   const subPaneSeriesRef = useRef<Map<string, ISeriesApi<"Line">>>(new Map());
   // LWC v5 markers plugin, bound to the candle series it was created on.
   const markersRef = useRef<{ series: ISeriesApi<"Candlestick">; plugin: ISeriesMarkersPluginApi<Time> } | null>(null);
+  const drawingsRef = useRef<{ series: ISeriesApi<"Candlestick">; primitive: ScriptDrawingsPrimitive } | null>(null);
   const [hoverTime, setHoverTime] = useState<number | null>(null);
   const [paneHeights, setPaneHeights] = useState<number[]>([]);
+  // With the price scale on the left, the legend starts after it instead of under it.
+  const [leftScaleWidth, setLeftScaleWidth] = useState(0);
 
   // Initialize the chart once.
   useEffect(() => {
@@ -192,6 +184,9 @@ export function ChartWorkbench({
 
     return () => {
       observer.disconnect();
+      // A primitive left attached would request redraws of the removed chart ("Object is disposed").
+      drawingsRef.current?.series.detachPrimitive(drawingsRef.current.primitive);
+      drawingsRef.current = null;
       chart.remove();
       chartRef.current = null;
       markersRef.current = null;
@@ -229,7 +224,8 @@ export function ChartWorkbench({
       markersRef.current = { series: candle, plugin: createSeriesMarkers(candle, []) };
     }
     const markersPlugin = markersRef.current.plugin;
-    if (tradeMarkers === undefined || tradeMarkers.length === 0) {
+    const { showExecutionMarks, showExecutionLabels } = settings.trading;
+    if (tradeMarkers === undefined || tradeMarkers.length === 0 || !showExecutionMarks) {
       markersPlugin.setMarkers([]);
       return;
     }
@@ -242,22 +238,24 @@ export function ChartWorkbench({
         position: isBuy ? "belowBar" as const : "aboveBar" as const,
         color: m.type === "entry" ? (isLong ? TV.longEntry : TV.down) : TV.exit,
         shape: isBuy ? "arrowUp" as const : "arrowDown" as const,
-        text: m.type === "entry" ? (isLong ? "Long" : "Short") : "Close",
+        text: !showExecutionLabels ? "" : m.type === "entry" ? (isLong ? "Long" : "Short") : "Close",
         size: 0.5,
       };
     });
     // LWC requires markers sorted by time ascending.
     markerData.sort((a, b) => (a.time as number) - (b.time as number));
     markersPlugin.setMarkers(markerData);
-  }, [tradeMarkers]);
+  }, [tradeMarkers, settings.trading]);
 
   useEffect(() => {
-    chartRef.current?.applyOptions(toChartOptions(settings));
+    const chart = chartRef.current;
+    chart?.applyOptions(toChartOptions(settings));
     candlestickRef.current?.applyOptions(toCandleOptions(settings));
+    // Scale widths settle on LWC's next paint.
+    requestAnimationFrame(() => setLeftScaleWidth(settings.scales.placement === "left" ? (chart?.priceScale("left").width() ?? 0) : 0));
   }, [settings, candlestickRef, bars.length === 0]);
 
   // The primitive is bound to the candle series, which is recreated with the chart.
-  const drawingsRef = useRef<{ series: ISeriesApi<"Candlestick">; primitive: ScriptDrawingsPrimitive } | null>(null);
   useEffect(() => {
     const candle = candlestickRef.current;
     if (candle === null) return;
@@ -269,69 +267,11 @@ export function ChartWorkbench({
     drawingsRef.current.primitive.setDrawings(drawings ?? []);
   }, [drawings, candlestickRef]);
 
-  // Update the main-pane overlays.
-  useEffect(() => {
-    const chart = chartRef.current;
-    if (chart === null) return;
-    const known = new Set<string>();
-    for (const overlay of mainOverlays) {
-      known.add(overlay.instanceId);
-      let series = overlaySeriesRef.current.get(overlay.instanceId);
-      if (series === undefined) {
-        series = chart.addSeries(LineSeries, lineOptions(overlay));
-        overlaySeriesRef.current.set(overlay.instanceId, series);
-      } else {
-        series.applyOptions(lineOptions(overlay));
-      }
-      series.setData(
-        overlay.data.map((d) => ({
-          time: Math.floor(d.time / 1000) as Time,
-          value: d.value,
-        })),
-      );
-    }
-    // Remove series that are no longer present.
-    for (const [id, series] of overlaySeriesRef.current.entries()) {
-      if (!known.has(id)) {
-        chart.removeSeries(series);
-        overlaySeriesRef.current.delete(id);
-      }
-    }
-  }, [mainOverlays]);
-
-  // Update the sub-pane overlays.
-  useEffect(() => {
-    const chart = chartRef.current;
-    if (chart === null) return;
-    const known = new Set(subPanes.flatMap((pane) => pane.overlays.map((o) => `${pane.paneId}:${o.instanceId}`)));
-    // Remove first: LWC drops emptied panes and renumbers the rest, which the moves below rely on.
-    for (const [key, series] of subPaneSeriesRef.current.entries()) {
-      if (!known.has(key)) {
-        chart.removeSeries(series);
-        subPaneSeriesRef.current.delete(key);
-      }
-    }
-    subPanes.forEach((pane, i) => {
-      const paneIndex = i + 1;
-      for (const overlay of pane.overlays) {
-        const key = `${pane.paneId}:${overlay.instanceId}`;
-        let series = subPaneSeriesRef.current.get(key);
-        if (series === undefined) {
-          series = chart.addSeries(LineSeries, lineOptions(overlay, true), paneIndex);
-          subPaneSeriesRef.current.set(key, series);
-        } else {
-          series.applyOptions(lineOptions(overlay, true));
-          // A pane added or removed before this one shifts its index; series don't follow on their own.
-          if (series.getPane().paneIndex() !== paneIndex) series.moveToPane(paneIndex);
-        }
-        series.setData(overlay.data.map((d) => ({ time: Math.floor(d.time / 1000) as Time, value: d.value })));
-      }
-    });
-    // TradingView gives price ~75% of the height; LWC defaults to equal panes.
-    chart.panes().forEach((pane, i) => pane.setStretchFactor(i === 0 ? 3 : 1));
-    // Pane heights settle on LWC's next paint, not synchronously.
-    requestAnimationFrame(() => setPaneHeights(chart.panes().map((pane) => pane.getHeight())));
-  }, [subPanes]);
+  useOverlaySeries(
+    chartRef,
+    { mainOverlays, subPanes, overlaySeriesRef, subPaneSeriesRef, placement: settings.scales.placement },
+    setPaneHeights,
+  );
 
   return (
     <div className="relative h-full w-full">
@@ -341,12 +281,14 @@ export function ChartWorkbench({
           <PriceScaleMenu settings={settings} onChange={onSettingsChange} onMoreSettings={() => onOpenSettings?.()} />
         </div>
       )}
+      <div className="pointer-events-none absolute inset-y-0 right-0" style={{ left: leftScaleWidth }}>
       <ChartLegend
         statusLine={settings.statusLine}
         title={title} bars={bars} mainOverlays={mainOverlays} subPanes={subPanes}
         hoverTime={hoverTime} paneHeights={paneHeights} liveOhlcRef={liveOhlcRef}
         onIndicatorAction={onIndicatorAction}
       />
+      </div>
     </div>
   );
 }

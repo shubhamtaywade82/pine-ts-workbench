@@ -39,6 +39,7 @@
   "exclude": [
     "node_modules",
     "pine-ts",
+    "ollama-sdk",
     "examples",
     "mini-services"
   ]

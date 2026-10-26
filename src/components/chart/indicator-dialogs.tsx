@@ -1,11 +1,10 @@
 "use client";
 
-import { useMemo, useState } from "react";
+
 import { registry, type InputsBag } from "@nemesis-oss/pine-ts";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   Select,
@@ -33,6 +32,8 @@ export interface MountedIndicator {
   readonly pane: "main" | "sub";
   /** Hidden via the legend's eye icon: kept on the chart (and in the legend), not drawn. */
   readonly isHidden?: boolean;
+  /** Set for a "My scripts" indicator: it runs that saved script instead of a registry indicator. */
+  readonly scriptId?: string;
 }
 
 /** Unique instance id per mounted indicator. */
@@ -61,43 +62,21 @@ export const createMountedIndicator = (indicatorId: string): MountedIndicator | 
   };
 };
 
-/** TradingView-style legend label: short id then input values, e.g. "SMA close 20". */
-export const indicatorLabel = (indicator: MountedIndicator): string =>
-  [indicator.indicatorId.toUpperCase(), ...Object.values(indicator.inputs).map(String)].join(" ");
+/** A saved indicator script on the chart; it runs with its declared input defaults. */
+export const createScriptIndicator = (script: { id: string; name: string }, isOverlay: boolean): MountedIndicator => ({
+  instanceId: nextInstanceId("script"),
+  indicatorId: "script",
+  indicatorName: script.name,
+  inputs: {},
+  pane: isOverlay ? "main" : "sub",
+  scriptId: script.id,
+});
 
-/** TradingView's "Indicators" dialog: searchable catalog, click to add. */
-export function IndicatorsDialog({ open, onOpenChange, onAdd }: {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onAdd: (indicatorId: string) => void;
-}) {
-  const [query, setQuery] = useState("");
-  const catalog = useMemo(() => registry.list(), []);
-  const needle = query.trim().toLowerCase();
-  const matches = catalog.filter((m) => `${m.id} ${m.name} ${m.category}`.toLowerCase().includes(needle));
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md gap-3">
-        <DialogHeader><DialogTitle>Indicators</DialogTitle></DialogHeader>
-        <Input autoFocus placeholder="Search" value={query} onChange={(e) => setQuery(e.target.value)} className="h-8 text-xs" />
-        <div className="flex max-h-80 flex-col overflow-y-auto">
-          {matches.map((meta) => (
-            <button
-              key={meta.id}
-              type="button"
-              className="flex items-center justify-between rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
-              onClick={() => { onAdd(meta.id); onOpenChange(false); }}
-            >
-              <span>{meta.name}</span>
-              <Badge variant="outline" className="text-[10px]">{meta.overlay ? "on chart" : meta.category}</Badge>
-            </button>
-          ))}
-          {matches.length === 0 && <p className="px-2 py-4 text-xs text-muted-foreground">No indicators match “{query}”.</p>}
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
+/** TradingView-style legend label: short id then input values, e.g. "SMA close 20"; scripts show their name. */
+export const indicatorLabel = (indicator: MountedIndicator): string =>
+  indicator.scriptId !== undefined
+    ? indicator.indicatorName
+    : [indicator.indicatorId.toUpperCase(), ...Object.values(indicator.inputs).map(String)].join(" ");
 
 /** An indicator's "Settings" dialog; edits apply live, like TradingView's inputs tab. */
 export function IndicatorSettingsDialog({ indicator, onClose, onInputChange }: {

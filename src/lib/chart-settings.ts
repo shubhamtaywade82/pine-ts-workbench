@@ -7,6 +7,7 @@ import type { DeepPartial, ChartOptions, CandlestickSeriesOptions, PriceScaleOpt
  */
 
 export type ScaleMode = "regular" | "percent" | "indexed" | "logarithmic";
+export type ScalePlacement = "left" | "right";
 
 export interface ChartSettings {
   readonly candles: {
@@ -27,6 +28,14 @@ export interface ChartSettings {
     readonly autoScale: boolean;
     readonly invert: boolean;
     readonly showLastPriceLine: boolean;
+    /** Which side the price scales sit on ("Move scale to left"). */
+    readonly placement: ScalePlacement;
+  };
+  readonly trading: {
+    /** Strategy entry/exit arrows on the chart ("Execution marks"). */
+    readonly showExecutionMarks: boolean;
+    /** "Long" / "Short" / "Close" text on those arrows ("Execution labels"). */
+    readonly showExecutionLabels: boolean;
   };
   readonly canvas: {
     readonly background: string;
@@ -46,7 +55,8 @@ export interface ChartSettings {
 export const DEFAULT_CHART_SETTINGS: ChartSettings = {
   candles: { upColor: "#089981", downColor: "#f23645", showBody: true, showBorders: true, showWick: true },
   statusLine: { showTitle: true, showOhlc: true, showIndicatorTitles: true, showIndicatorValues: true },
-  scales: { mode: "regular", autoScale: true, invert: false, showLastPriceLine: true },
+  scales: { mode: "regular", autoScale: true, invert: false, showLastPriceLine: true, placement: "right" },
+  trading: { showExecutionMarks: true, showExecutionLabels: true },
   canvas: {
     background: "#131722", showVertGrid: true, showHorzGrid: true, gridColor: "#1e222d", crosshairColor: "#9598a1",
     textColor: "#b2b5be", fontSize: 11, marginTopPercent: 10, marginBottomPercent: 10, rightOffsetBars: 10,
@@ -65,6 +75,7 @@ export const loadChartSettings = (): ChartSettings => {
       candles: { ...DEFAULT_CHART_SETTINGS.candles, ...stored.candles },
       statusLine: { ...DEFAULT_CHART_SETTINGS.statusLine, ...stored.statusLine },
       scales: { ...DEFAULT_CHART_SETTINGS.scales, ...stored.scales },
+      trading: { ...DEFAULT_CHART_SETTINGS.trading, ...stored.trading },
       canvas: { ...DEFAULT_CHART_SETTINGS.canvas, ...stored.canvas },
     };
   } catch {
@@ -100,7 +111,9 @@ export const toChartOptions = (settings: ChartSettings): DeepPartial<ChartOption
     },
     crosshair: { vertLine: { color: canvas.crosshairColor }, horzLine: { color: canvas.crosshairColor } },
     timeScale: { rightOffset: canvas.rightOffsetBars },
-    rightPriceScale: toPriceScaleOptions(settings),
+    // One scale shows; every main- and sub-pane series is put on that side.
+    rightPriceScale: { ...toPriceScaleOptions(settings), visible: settings.scales.placement === "right" },
+    leftPriceScale: { ...toPriceScaleOptions(settings), visible: settings.scales.placement === "left" },
   };
 };
 
@@ -116,4 +129,5 @@ export const toCandleOptions = ({ candles, scales }: ChartSettings): DeepPartial
   wickUpColor: candles.upColor,
   wickDownColor: candles.downColor,
   priceLineVisible: scales.showLastPriceLine,
+  priceScaleId: scales.placement,
 });

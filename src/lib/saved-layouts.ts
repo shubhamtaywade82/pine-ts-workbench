@@ -128,7 +128,6 @@ export interface Workspace {
   readonly cells: readonly WorkspaceCell[];
   readonly activeCellIndex: number;
   readonly isEditorOpen: boolean;
-  readonly editorTab: "indicator" | "strategy";
   readonly isTesterOpen: boolean;
   readonly theme: "dark" | "light";
 }

@@ -17,12 +17,17 @@ export interface ReportTrade {
   readonly entryPrice: number;
   readonly exitPrice: number;
   readonly profit: number;
+  /** Largest open profit / open loss during the trade (≥ 0); absent for older results. */
+  readonly runUp?: number;
+  readonly drawDown?: number;
 }
 
 export interface EquityPoint {
   readonly time: number;
   readonly equity: number;
   readonly close: number;
+  /** Margin held by open positions after the bar; absent for older results. */
+  readonly margin?: number;
 }
 
 export type Period = "day" | "week" | "quarter" | "year";

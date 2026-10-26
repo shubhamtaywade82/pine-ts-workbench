@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { registry, type Bar } from "@nemesis-oss/pine-ts";
+import { registry, type Bar, type ScriptDrawings } from "@nemesis-oss/pine-ts";
 import {
   type ChartInterval,
   type SymbolOption,
@@ -15,6 +15,9 @@ import {
 import type { ChartDrawing } from "@/components/chart/script-drawings-primitive";
 import type { ChartSettings } from "@/lib/chart-settings";
 import { Button } from "@/components/ui/button";
+import { loadLibrary, currentCode, EMPTY_SETTINGS } from "@/lib/script-library";
+import { toChartDrawings } from "@/lib/editor-output";
+import { runIndicatorCode } from "@/lib/indicator-runner";
 import { X } from "lucide-react";
 import { useLiveBars, type LiveStatus } from "@/hooks/use-live-bars";
 
@@ -27,15 +30,52 @@ import { useLiveBars, type LiveStatus } from "@/hooks/use-live-bars";
  */
 
 const INDICATOR_COLORS: Record<string, string> = {
-  sma: "#1e88e5", ema: "#ff6d00", rsi: "#7e57c2",
-  macd: "#1e88e5", bb: "#7e57c2", obv: "#26a69a",
+  sma: "#1e88e5", ema: "#ff6d00", rsi: "#7e57c2", macd: "#1e88e5",
+  bb: "#7e57c2", obv: "#26a69a", vwap: "#eab308", supertrend: "#22c55e",
+  stoch: "#2196f3", atr: "#b388ff", kc: "#2196f3", sar: "#2962ff",
+  mfi: "#26a69a", wma: "#9c27b0", hma: "#00bcd4", cci: "#e91e63",
+  wpr: "#009688", dmi: "#ff007f",
 };
 const FALLBACK_COLOR = "#1e88e5";
 
 interface IndicatorRunResult {
   readonly plots: Record<string, Array<number | undefined>>;
-  readonly meta: ReturnType<typeof registry.metadata>;
+  readonly meta: { readonly plots: readonly { id: string; kind: string; color?: string; isHidden?: boolean; display?: string }[] } | undefined;
+  /** SMC drawings of a saved script (built-ins draw none). */
+  readonly drawings?: ScriptDrawings;
+  /** Intervals a saved script shows on (its Visibility tab); undefined = all. */
+  readonly visibleIntervals?: readonly ChartInterval[];
 }
+
+/** A saved "My scripts" indicator, run with the inputs, plot styles and visibility saved in its settings. */
+const runSavedScript = async (scriptId: string, bars: readonly Bar[]): Promise<IndicatorRunResult | undefined> => {
+  const script = loadLibrary().find((s) => s.id === scriptId);
+  if (script === undefined) return undefined;
+  const { inputs, plotStyles, visibleIntervals } = script.settings ?? EMPTY_SETTINGS;
+  const run = await runIndicatorCode(currentCode(script), bars, inputs);
+  const plots = run.plots.map((p) => ({
+    ...p,
+    kind: p.kind === "hline" ? "line" : p.kind,
+    color: plotStyles[p.id]?.color ?? p.color,
+    isHidden: plotStyles[p.id]?.isHidden === true,
+  }));
+  return { plots: run.results, meta: { plots }, drawings: run.drawings, visibleIntervals };
+};
+
+/** Runs one mounted indicator over `bars`: a registry built-in, or a saved "My scripts" indicator. */
+const runMounted = async (m: MountedIndicator, bars: readonly Bar[]): Promise<IndicatorRunResult | undefined> => {
+  if (m.scriptId !== undefined) return runSavedScript(m.scriptId, bars);
+  const meta = registry.metadata(m.indicatorId);
+  const instance = registry.instantiate(m.indicatorId, m.inputs);
+  if (!instance || !meta) return undefined;
+  const perPlot: Record<string, Array<number | undefined>> = {};
+  let barIndex = 0;
+  for await (const r of instance.run(bars as never)) {
+    for (const [plotId, value] of Object.entries(r)) (perPlot[plotId] ??= [])[barIndex] = value;
+    barIndex++;
+  }
+  return { plots: perPlot, meta };
+};
 
 /** What the page stores (and persists) per chart cell. */
 export interface CellSettings {
@@ -98,19 +138,12 @@ export function ChartCell({
     (async () => {
       const out: Record<string, IndicatorRunResult> = {};
       for (const m of mounted) {
-        const meta = registry.metadata(m.indicatorId);
-        const instance = registry.instantiate(m.indicatorId, m.inputs);
-        if (!instance || !meta) continue;
-        const perPlot: Record<string, Array<number | undefined>> = {};
-        let barIndex = 0;
-        for await (const r of instance.run(bars as never)) {
-          for (const [plotId, value] of Object.entries(r)) {
-            if (perPlot[plotId] === undefined) perPlot[plotId] = [];
-            perPlot[plotId]![barIndex] = value;
-          }
-          barIndex++;
+        try {
+          const result = await runMounted(m, bars);
+          if (result !== undefined) out[m.instanceId] = result;
+        } catch {
+          // A saved script that no longer compiles draws nothing; the Pine Editor reports the error.
         }
-        out[m.instanceId] = { plots: perPlot, meta };
       }
       if (!cancelled) setRunResults(out);
     })();
@@ -118,12 +151,16 @@ export function ChartCell({
   }, [bars, mounted]);
 
   const { mainOverlays, subPanes } = useMemo(() => {
-    return computeOverlays(bars, mounted, runResults);
-  }, [bars, mounted, runResults]);
+    return computeOverlays(bars, mounted, runResults, interval);
+  }, [bars, mounted, runResults, interval]);
+  const drawings = useMemo(
+    () => [...(editorDrawings ?? []), ...scriptDrawings(bars, mounted, runResults, interval)],
+    [editorDrawings, bars, mounted, runResults, interval],
+  );
 
-  // The page runs the editor + backtest on these bars. Hand them over only when
-  // the series structurally changes (new bar, older page, switch), not on every
-  // stream tick — a tick snapshot would re-render the whole workspace each time.
+  // The page runs the editor + backtest on these bars. Hand them over when the
+  // series changes (new bar, older page, switch, forming close) at the 1/s
+  // snapshot rate, never per stream tick — that would re-render the whole workspace.
   const notifiedRef = useRef<string | null>(null);
   const wasActiveRef = useRef(false);
   useEffect(() => {
@@ -131,7 +168,8 @@ export function ChartCell({
     const first = bars[0];
     const last = bars[bars.length - 1];
     if (first === undefined || last === undefined) { notifiedRef.current = null; return; }
-    const signature = `${symbol.binanceSymbol}:${interval}:${first.time}:${last.time}:${bars.length}`;
+    // The forming bar's close too: the editor's indicator then follows live ticks (at the 1/s snapshot rate).
+    const signature = `${symbol.binanceSymbol}:${interval}:${first.time}:${last.time}:${bars.length}:${last.close}`;
     if (wasActiveRef.current && signature === notifiedRef.current) return;
     wasActiveRef.current = true;
     notifiedRef.current = signature;
@@ -168,7 +206,7 @@ export function ChartCell({
             {error ?? `Loading ${symbol.displayName} from Binance…`}
           </div>
         ) : (
-          <ChartWorkbench title={`${symbol.displayName} · ${interval} · Binance`} interval={interval} bars={bars} subscribeBars={subscribe} onNeedOlderBars={loadOlder} onIndicatorAction={onIndicatorAction} mainOverlays={mainOverlays} subPanes={allSubPanes} tradeMarkers={tradeMarkers} drawings={editorDrawings} settings={chartSettings} onSettingsChange={onChartSettingsChange} onOpenSettings={onOpenChartSettings} />
+          <ChartWorkbench title={`${symbol.displayName} · ${interval} · Binance`} interval={interval} bars={bars} subscribeBars={subscribe} onNeedOlderBars={loadOlder} onIndicatorAction={onIndicatorAction} mainOverlays={mainOverlays} subPanes={allSubPanes} tradeMarkers={tradeMarkers} drawings={drawings} settings={chartSettings} onSettingsChange={onChartSettingsChange} onOpenSettings={onOpenChartSettings} />
         )}
       </div>
       <IndicatorSettingsDialog
@@ -200,28 +238,52 @@ function LiveBadge({ status }: { status: LiveStatus }) {
 }
 
 /** A plot with the same value on every bar (RSI's 70/30 bands) is drawn as a dashed level, as on TradingView. */
-const isConstant = (data: readonly { value: number }[]): boolean =>
-  data.length > 1 && data.every((d) => d.value === data[0]!.value);
+const isConstant = (data: readonly { value?: number }[]): boolean => {
+  const withVal = data.filter((d): d is { value: number } => d.value !== undefined);
+  return withVal.length > 1 && withVal.every((d) => d.value === withVal[0]!.value);
+};
+
+const isShownOn = (result: IndicatorRunResult, interval: ChartInterval): boolean =>
+  result.visibleIntervals?.includes(interval) ?? true;
+
+/** Saved scripts' drawings in chart time, for the scripts shown and not hidden in the legend. */
+function scriptDrawings(
+  bars: readonly Bar[],
+  mounted: readonly MountedIndicator[],
+  runResults: Record<string, IndicatorRunResult>,
+  interval: ChartInterval,
+): ChartDrawing[] {
+  return mounted.flatMap((m) => {
+    const result = runResults[m.instanceId];
+    if (result?.drawings === undefined || m.isHidden === true || !isShownOn(result, interval)) return [];
+    return toChartDrawings(result.drawings, bars);
+  });
+}
 
 function computeOverlays(
   bars: readonly { time: number }[],
   mounted: readonly MountedIndicator[],
   runResults: Record<string, IndicatorRunResult>,
+  interval: ChartInterval,
 ): { mainOverlays: ChartOverlay[]; subPanes: ChartSubPane[] } {
   const mainOverlays: ChartOverlay[] = [];
   const subPanes: ChartSubPane[] = [];
   for (const m of mounted) {
     const result = runResults[m.instanceId];
-    if (!result || !result.meta) continue;
+    if (!result || !result.meta || !isShownOn(result, interval)) continue;
     const paneOverlays: ChartOverlay[] = [];
     for (const plot of result.meta.plots) {
       if (plot.kind !== "line" && plot.kind !== "histogram") continue;
+      if (plot.display === "none") continue;
       const seriesValues = result.plots[plot.id] ?? [];
-      const data: { time: number; value: number }[] = [];
+      const data: { time: number; value?: number }[] = [];
       for (let i = 0; i < bars.length; i++) {
         const v = seriesValues[i];
-        if (v === undefined || Number.isNaN(v)) continue;
-        data.push({ time: bars[i]!.time, value: v });
+        if (v === undefined || Number.isNaN(v)) {
+          data.push({ time: bars[i]!.time });
+        } else {
+          data.push({ time: bars[i]!.time, value: v });
+        }
       }
       paneOverlays.push({
         instanceId: `${m.instanceId}:${plot.id}`,
@@ -229,7 +291,7 @@ function computeOverlays(
         indicatorName: indicatorLabel(m),
         color: plot.color ?? INDICATOR_COLORS[m.indicatorId] ?? FALLBACK_COLOR,
         ownerId: m.instanceId,
-        isHidden: m.isHidden,
+        isHidden: m.isHidden === true || plot.isHidden === true,
         isLevel: isConstant(data),
         data,
       });
