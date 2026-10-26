@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  Bar, BarChart, CartesianGrid, Cell, ComposedChart, Line, Pie, PieChart, ReferenceLine,
+  Bar, BarChart, CartesianGrid, Cell, ComposedChart, Line, LineChart, Pie, PieChart, ReferenceLine,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import type { PeriodPnl } from "@/lib/backtest-report";
@@ -24,10 +24,20 @@ export interface PerformancePoint {
   readonly cumulative: number;
   readonly trade: number;
   readonly buyHold?: number;
+  /** Favorable excursion (≥ 0) and adverse excursion (≤ 0) of the trade. */
+  readonly runUp?: number;
+  readonly drawDown?: number;
 }
 
-/** Cumulative P&L line over per-trade P&L bars, plus optional buy & hold, per closed trade. */
-export function PerformanceChart({ points, showBuyHold }: { points: readonly PerformancePoint[]; showBuyHold: boolean }) {
+/**
+ * Cumulative P&L line per closed trade, over either per-trade P&L bars or (as
+ * TradingView's "Trades excursions") each trade's run-up and drawdown bars.
+ */
+export function PerformanceChart({ points, showBuyHold, showExcursions }: {
+  points: readonly PerformancePoint[];
+  showBuyHold: boolean;
+  showExcursions: boolean;
+}) {
   return (
     <ResponsiveContainer width="100%" height={260}>
       <ComposedChart data={[...points]} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
@@ -36,9 +46,14 @@ export function PerformanceChart({ points, showBuyHold }: { points: readonly Per
         <YAxis orientation="right" tick={AXIS} stroke={GRID} width={64} />
         <Tooltip {...TOOLTIP} />
         <ReferenceLine y={0} stroke={GRID} />
-        <Bar dataKey="trade" name="Trade PnL" isAnimationActive={false}>
-          {points.map((p, i) => <Cell key={i} fill={p.trade >= 0 ? UP : DOWN} fillOpacity={0.45} />)}
-        </Bar>
+        {showExcursions ? [
+          <Bar key="up" dataKey="runUp" name="Favorable excursion" stackId="x" fill={UP} fillOpacity={0.45} isAnimationActive={false} />,
+          <Bar key="down" dataKey="drawDown" name="Adverse excursion" stackId="x" fill={DOWN} fillOpacity={0.45} isAnimationActive={false} />,
+        ] : (
+          <Bar dataKey="trade" name="Trade PnL" isAnimationActive={false}>
+            {points.map((p, i) => <Cell key={i} fill={p.trade >= 0 ? UP : DOWN} fillOpacity={0.45} />)}
+          </Bar>
+        )}
         <Line dataKey="cumulative" name="Cumulative PnL" stroke={(points.at(-1)?.cumulative ?? 0) >= 0 ? UP : DOWN} dot={{ r: 2 }} isAnimationActive={false} />
         {showBuyHold && <Line dataKey="buyHold" name="Buy & hold PnL" stroke={HOLD} dot={false} isAnimationActive={false} />}
       </ComposedChart>
@@ -139,6 +154,22 @@ export function PatternBars({ data }: { data: readonly { label: string; pnl: num
           {data.map((d, i) => <Cell key={i} fill={d.pnl >= 0 ? UP : DOWN} />)}
         </Bar>
       </BarChart>
+    </ResponsiveContainer>
+  );
+}
+
+/** Margin as a percent of equity per bar, as TradingView's "Margin utilization". */
+export function MarginChart({ points }: { points: readonly { time: number; percent: number }[] }) {
+  const data = points.map((p) => ({ label: formatDate(p.time), percent: p.percent }));
+  return (
+    <ResponsiveContainer width="100%" height={200}>
+      <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+        <CartesianGrid stroke={GRID} vertical={false} />
+        <XAxis dataKey="label" tick={AXIS} stroke={GRID} minTickGap={40} />
+        <YAxis orientation="right" tick={AXIS} stroke={GRID} width={56} unit="%" domain={[0, "auto"]} />
+        <Tooltip {...TOOLTIP} />
+        <Line dataKey="percent" name="Margin utilization %" stroke="#2962ff" dot={false} isAnimationActive={false} />
+      </LineChart>
     </ResponsiveContainer>
   );
 }

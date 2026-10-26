@@ -10,14 +10,15 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
-import type { BacktestSummary, BacktestTrade } from "@/lib/strategy-runner";
+import type { BacktestSummary } from "@/lib/strategy-runner";
+import type { ReportTrade } from "@/lib/backtest-report";
 
 export interface AiAuditDialogProps {
   readonly isOpen: boolean;
   readonly onClose: () => void;
   readonly strategyCode: string | null;
   readonly summary?: BacktestSummary;
-  readonly trades?: readonly BacktestTrade[];
+  readonly trades?: readonly ReportTrade[];
   readonly onApplyOptimizedCode: (code: string) => void;
 }
 
@@ -201,7 +202,7 @@ async function fetchModels(setModels: (models: string[]) => void, setModel: (mod
 async function callOptimizer(payload: {
   strategyCode: string;
   summary?: BacktestSummary;
-  trades?: readonly BacktestTrade[];
+  trades?: readonly ReportTrade[];
   model: string;
 }): Promise<OptimizerResponse> {
   const res = await fetch("/api/ai/strategy-optimizer", {

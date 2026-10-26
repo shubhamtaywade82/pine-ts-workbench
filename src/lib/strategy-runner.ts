@@ -57,6 +57,9 @@ export interface BacktestTrade {
   readonly entryPrice: number;
   readonly exitPrice: number;
   readonly profit: number;
+  /** Largest open profit and largest open loss during the trade (both ≥ 0), in account currency. */
+  readonly runUp: number;
+  readonly drawDown: number;
 }
 
 const DEFAULT_STRATEGY = `// SMA Crossover Strategy — runs once per bar, like Pine Script.
@@ -184,7 +187,9 @@ const runConcise = async (
     engine: output.engine,
     declaredInputs: output.inputs,
     declaration: script.options,
-    equityCurve: output.equity.map((equity, i) => ({ time: confirmed[i]!.time, equity, close: confirmed[i]!.close })),
+    equityCurve: output.equity.map((equity, i) => ({
+      time: confirmed[i]!.time, equity, close: confirmed[i]!.close, margin: output.margin[i] ?? 0,
+    })),
   };
 };
 
@@ -232,7 +237,7 @@ const runLegacy = async (
     } catch {
       // Per-bar error — continue (the strategy might error on some bars).
     }
-    equityCurve.push({ time: ctx.bar.time, equity: engine.equity, close: ctx.bar.close });
+    equityCurve.push({ time: ctx.bar.time, equity: engine.equity, close: ctx.bar.close, margin: engine.margin_used });
   }, bars as never);
   return { engine, equityCurve };
 };
@@ -246,6 +251,8 @@ const summarize = ({ engine, equityCurve, declaredInputs, declaration }: EngineR
     entryPrice: t.entryPrice,
     exitPrice: t.exitPrice,
     profit: t.profit,
+    runUp: t.runUp,
+    drawDown: t.drawDown,
   }));
 
   const wins = trades.filter((t) => t.profit > 0);

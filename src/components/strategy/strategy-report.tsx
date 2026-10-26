@@ -9,7 +9,7 @@ import {
   buyHoldEquity, cagr, drawdownPeriods, isLong, maxDrawdown, periodPnl, profitFactor, riskRatios,
   type EquityPoint, type Period, type ReportTrade,
 } from "@/lib/backtest-report";
-import { PerformanceChart, PeriodBars, type PerformancePoint } from "@/components/strategy/report-charts";
+import { MarginChart, PerformanceChart, PeriodBars, type PerformancePoint } from "@/components/strategy/report-charts";
 import { TradeList } from "@/components/strategy/trade-list";
 import { TradesAnalysis } from "@/components/strategy/trades-analysis";
 import { formatDate, formatDuration, formatMoney, formatPercent, formatRatio, pnlClass } from "@/components/strategy/report-format";
@@ -91,15 +91,21 @@ export function StrategyReport({ onOpenSettings, strategyCode, onApplyCode, ...d
 
 function Metrics(data: ReportData) {
   const [showBuyHold, setShowBuyHold] = useState(false);
+  const [showExcursions, setShowExcursions] = useState(true);
   const points = useMemo(() => performancePoints(data), [data]);
   return (
     <div className="flex flex-col gap-8 px-5 py-4">
       <Section title="Key stats"><KeyStats {...data} /></Section>
       <Section
         title="Performance"
-        action={<IconToggle isActive={showBuyHold} onClick={() => setShowBuyHold(!showBuyHold)} title="Buy and hold">Buy and hold</IconToggle>}
+        action={
+          <span className="flex gap-1">
+            <IconToggle isActive={showExcursions} onClick={() => setShowExcursions(!showExcursions)} title="Trades excursions">Trades excursions</IconToggle>
+            <IconToggle isActive={showBuyHold} onClick={() => setShowBuyHold(!showBuyHold)} title="Buy and hold">Buy and hold</IconToggle>
+          </span>
+        }
       >
-        {points.length === 0 ? <Empty /> : <PerformanceChart points={points} showBuyHold={showBuyHold} />}
+        {points.length === 0 ? <Empty /> : <PerformanceChart points={points} showBuyHold={showBuyHold} showExcursions={showExcursions} />}
       </Section>
       <Section title="Performance analysis"><PerformanceAnalysis {...data} /></Section>
       <Section title="Trades analysis"><TradesAnalysis trades={data.trades} currency={data.currency} /></Section>
@@ -122,7 +128,7 @@ function KeyStats({ trades, equity, initialCapital, currency }: ReportData) {
   );
 }
 
-const TABS = ["Breakdown", "Periodical", "Benchmarking", "Growth and decline"] as const;
+const TABS = ["Breakdown", "Periodical", "Benchmarking", "Margin usage", "Growth and decline"] as const;
 
 function PerformanceAnalysis(data: ReportData) {
   const [tab, setTab] = useState<(typeof TABS)[number]>("Breakdown");
@@ -132,6 +138,7 @@ function PerformanceAnalysis(data: ReportData) {
       {tab === "Breakdown" && <Breakdown {...data} />}
       {tab === "Periodical" && <Periodical {...data} />}
       {tab === "Benchmarking" && <Benchmarking {...data} />}
+      {tab === "Margin usage" && <MarginUsage {...data} />}
       {tab === "Growth and decline" && <GrowthAndDecline {...data} />}
     </div>
   );
@@ -217,6 +224,25 @@ function Benchmarking(data: ReportData) {
   );
 }
 
+/** Margin held by open positions: averages over bars in a position, and its share of equity over time. */
+function MarginUsage({ equity, currency }: ReportData) {
+  const held = equity.filter((point) => (point.margin ?? 0) > 0);
+  const average = held.length === 0 ? 0 : held.reduce((sum, p) => sum + (p.margin ?? 0), 0) / held.length;
+  const utilization = equity.map((point) => ({ time: point.time, percent: point.equity > 0 ? ((point.margin ?? 0) / point.equity) * 100 : 0 }));
+  const peak = Math.max(0, ...utilization.map((u) => u.percent));
+  return (
+    <>
+      <StatGrid>
+        <Stat label="Average margin used" value={formatMoney(average, currency)} />
+        <Stat label="Max margin used" value={formatMoney(Math.max(0, ...equity.map((p) => p.margin ?? 0)), currency)} />
+        <Stat label="Peak margin utilization" value={formatPercent(peak)} />
+        <Stat label="Bars in a position" value={`${held.length}/${equity.length}`} />
+      </StatGrid>
+      <SubSection title="Margin utilization">{equity.length === 0 ? <Empty /> : <MarginChart points={utilization} />}</SubSection>
+    </>
+  );
+}
+
 function GrowthAndDecline({ equity, initialCapital, currency }: ReportData) {
   const durations = drawdownPeriods(equity);
   const drawdown = maxDrawdown(equity);
@@ -236,6 +262,11 @@ const performancePoints = ({ trades, equity, initialCapital }: ReportData): Perf
   return trades.map((trade) => {
     cumulative += trade.profit;
     const barIndex = equity.findIndex((point) => point.time >= trade.exitTime);
-    return { label: formatDate(trade.exitTime), cumulative, trade: trade.profit, buyHold: (hold[barIndex] ?? initialCapital) - initialCapital };
+    return {
+      label: formatDate(trade.exitTime), cumulative, trade: trade.profit,
+      buyHold: (hold[barIndex] ?? initialCapital) - initialCapital,
+      runUp: trade.runUp ?? 0,
+      drawDown: -(trade.drawDown ?? 0),
+    };
   });
 };
