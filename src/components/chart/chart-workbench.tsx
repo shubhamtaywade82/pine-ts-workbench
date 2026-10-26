@@ -126,6 +126,8 @@ export function ChartWorkbench({
   const drawingsRef = useRef<{ series: ISeriesApi<"Candlestick">; primitive: ScriptDrawingsPrimitive } | null>(null);
   const [hoverTime, setHoverTime] = useState<number | null>(null);
   const [paneHeights, setPaneHeights] = useState<number[]>([]);
+  // With the price scale on the left, the legend starts after it instead of under it.
+  const [leftScaleWidth, setLeftScaleWidth] = useState(0);
 
   // Initialize the chart once.
   useEffect(() => {
@@ -222,7 +224,8 @@ export function ChartWorkbench({
       markersRef.current = { series: candle, plugin: createSeriesMarkers(candle, []) };
     }
     const markersPlugin = markersRef.current.plugin;
-    if (tradeMarkers === undefined || tradeMarkers.length === 0) {
+    const { showExecutionMarks, showExecutionLabels } = settings.trading;
+    if (tradeMarkers === undefined || tradeMarkers.length === 0 || !showExecutionMarks) {
       markersPlugin.setMarkers([]);
       return;
     }
@@ -235,18 +238,21 @@ export function ChartWorkbench({
         position: isBuy ? "belowBar" as const : "aboveBar" as const,
         color: m.type === "entry" ? (isLong ? TV.longEntry : TV.down) : TV.exit,
         shape: isBuy ? "arrowUp" as const : "arrowDown" as const,
-        text: m.type === "entry" ? (isLong ? "Long" : "Short") : "Close",
+        text: !showExecutionLabels ? "" : m.type === "entry" ? (isLong ? "Long" : "Short") : "Close",
         size: 0.5,
       };
     });
     // LWC requires markers sorted by time ascending.
     markerData.sort((a, b) => (a.time as number) - (b.time as number));
     markersPlugin.setMarkers(markerData);
-  }, [tradeMarkers]);
+  }, [tradeMarkers, settings.trading]);
 
   useEffect(() => {
-    chartRef.current?.applyOptions(toChartOptions(settings));
+    const chart = chartRef.current;
+    chart?.applyOptions(toChartOptions(settings));
     candlestickRef.current?.applyOptions(toCandleOptions(settings));
+    // Scale widths settle on LWC's next paint.
+    requestAnimationFrame(() => setLeftScaleWidth(settings.scales.placement === "left" ? (chart?.priceScale("left").width() ?? 0) : 0));
   }, [settings, candlestickRef, bars.length === 0]);
 
   // The primitive is bound to the candle series, which is recreated with the chart.
@@ -261,7 +267,11 @@ export function ChartWorkbench({
     drawingsRef.current.primitive.setDrawings(drawings ?? []);
   }, [drawings, candlestickRef]);
 
-  useOverlaySeries(chartRef, { mainOverlays, subPanes, overlaySeriesRef, subPaneSeriesRef }, setPaneHeights);
+  useOverlaySeries(
+    chartRef,
+    { mainOverlays, subPanes, overlaySeriesRef, subPaneSeriesRef, placement: settings.scales.placement },
+    setPaneHeights,
+  );
 
   return (
     <div className="relative h-full w-full">
@@ -271,12 +281,14 @@ export function ChartWorkbench({
           <PriceScaleMenu settings={settings} onChange={onSettingsChange} onMoreSettings={() => onOpenSettings?.()} />
         </div>
       )}
+      <div className="pointer-events-none absolute inset-y-0 right-0" style={{ left: leftScaleWidth }}>
       <ChartLegend
         statusLine={settings.statusLine}
         title={title} bars={bars} mainOverlays={mainOverlays} subPanes={subPanes}
         hoverTime={hoverTime} paneHeights={paneHeights} liveOhlcRef={liveOhlcRef}
         onIndicatorAction={onIndicatorAction}
       />
+      </div>
     </div>
   );
 }

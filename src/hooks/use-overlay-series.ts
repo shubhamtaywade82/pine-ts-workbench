@@ -4,9 +4,11 @@ import { useEffect, type MutableRefObject, type RefObject } from "react";
 import { LineSeries, type IChartApi, type ISeriesApi, type Time } from "lightweight-charts";
 import type { ChartOverlay, ChartSubPane } from "@/components/chart/chart-workbench";
 import { useLineSmoothing } from "@/hooks/use-line-smoothing";
+import type { ScalePlacement } from "@/lib/chart-settings";
 
 /** `hasValueLabel`: price-axis label for sub-pane plots; levels never get one (TradingView shows only the scale). */
-const lineOptions = (overlay: ChartOverlay, hasValueLabel = false) => ({
+const lineOptions = (overlay: ChartOverlay, placement: ScalePlacement, hasValueLabel = false) => ({
+  priceScaleId: placement,
   color: overlay.color,
   lineWidth: 1 as const,
   lineStyle: overlay.isLevel ? 2 : 0, // 2 = Dashed
@@ -22,12 +24,14 @@ interface OverlaySeries {
   /** Line series by overlay instance id (main pane) and by "pane:instance" key (sub-panes), owned by the chart. */
   readonly overlaySeriesRef: MutableRefObject<Map<string, ISeriesApi<"Line">>>;
   readonly subPaneSeriesRef: MutableRefObject<Map<string, ISeriesApi<"Line">>>;
+  /** Side of the price scale the series attach to. */
+  readonly placement: ScalePlacement;
 }
 
 /** Keeps one line series per indicator plot in sync with the overlays, adding, moving and removing panes. */
 export function useOverlaySeries(
   chartRef: RefObject<IChartApi | null>,
-  { mainOverlays, subPanes, overlaySeriesRef, subPaneSeriesRef }: OverlaySeries,
+  { mainOverlays, subPanes, overlaySeriesRef, subPaneSeriesRef, placement }: OverlaySeries,
   setPaneHeights: (heights: number[]) => void,
 ): void {
   const setLineData = useLineSmoothing();
@@ -41,10 +45,10 @@ export function useOverlaySeries(
       known.add(overlay.instanceId);
       let series = overlaySeriesRef.current.get(overlay.instanceId);
       if (series === undefined) {
-        series = chart.addSeries(LineSeries, lineOptions(overlay));
+        series = chart.addSeries(LineSeries, lineOptions(overlay, placement));
         overlaySeriesRef.current.set(overlay.instanceId, series);
       } else {
-        series.applyOptions(lineOptions(overlay));
+        series.applyOptions(lineOptions(overlay, placement));
       }
       setLineData(series, overlay.data.map((d) => ({ time: Math.floor(d.time / 1000) as Time, value: d.value })));
     }
@@ -55,7 +59,7 @@ export function useOverlaySeries(
         overlaySeriesRef.current.delete(id);
       }
     }
-  }, [mainOverlays, setLineData, chartRef, overlaySeriesRef]);
+  }, [mainOverlays, setLineData, chartRef, overlaySeriesRef, placement]);
 
   // Update the sub-pane overlays.
   useEffect(() => {
@@ -75,10 +79,10 @@ export function useOverlaySeries(
         const key = `${pane.paneId}:${overlay.instanceId}`;
         let series = subPaneSeriesRef.current.get(key);
         if (series === undefined) {
-          series = chart.addSeries(LineSeries, lineOptions(overlay, true), paneIndex);
+          series = chart.addSeries(LineSeries, lineOptions(overlay, placement, true), paneIndex);
           subPaneSeriesRef.current.set(key, series);
         } else {
-          series.applyOptions(lineOptions(overlay, true));
+          series.applyOptions(lineOptions(overlay, placement, true));
           // A pane added or removed before this one shifts its index; series don't follow on their own.
           if (series.getPane().paneIndex() !== paneIndex) series.moveToPane(paneIndex);
         }
@@ -89,5 +93,5 @@ export function useOverlaySeries(
     chart.panes().forEach((pane, i) => pane.setStretchFactor(i === 0 ? 3 : 1));
     // Pane heights settle on LWC's next paint, not synchronously.
     requestAnimationFrame(() => setPaneHeights(chart.panes().map((pane) => pane.getHeight())));
-  }, [subPanes, setLineData, chartRef, subPaneSeriesRef, setPaneHeights]);
+  }, [subPanes, setLineData, chartRef, subPaneSeriesRef, setPaneHeights, placement]);
 }

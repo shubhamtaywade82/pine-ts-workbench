@@ -23,6 +23,8 @@ export interface CodeEditorProps {
   readonly onChange: (value: string) => void;
   readonly error: CodeError | null;
   readonly aiGhostText?: boolean;
+  readonly fontSize?: number;
+  readonly wordWrap?: boolean;
 }
 
 // Colours follow TradingView's dark Pine Editor.
@@ -49,7 +51,7 @@ const highlightStyle = HighlightStyle.define([
 ]);
 
 /** TradingView-styled TypeScript editor: line numbers, highlighting, error underline. */
-export function CodeEditor({ value, onChange, error, aiGhostText = true }: CodeEditorProps) {
+export function CodeEditor({ value, onChange, error, aiGhostText = true, fontSize = 13, wordWrap = false }: CodeEditorProps) {
   const editorRef = useRef<ReactCodeMirrorRef>(null);
   const extensions = useMemo(() => [
     javascript({ typescript: true }),
@@ -58,7 +60,9 @@ export function CodeEditor({ value, onChange, error, aiGhostText = true }: CodeE
     lintGutter(),
     autocompletion({ override: [pineCompletions] }),
     ...createGhostTextExtension(aiGhostText),
-  ], [aiGhostText]);
+    EditorView.theme({ "&": { fontSize: `${fontSize}px` } }),
+    ...(wordWrap ? [EditorView.lineWrapping] : []),
+  ], [aiGhostText, fontSize, wordWrap]);
 
   useEffect(() => {
     const view = editorRef.current?.view;

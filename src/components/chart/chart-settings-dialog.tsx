@@ -1,19 +1,20 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { CandlestickChart, Rows3, MoveVertical, Paintbrush } from "lucide-react";
+import { CandlestickChart, Rows3, MoveVertical, Paintbrush, TrendingUp } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DEFAULT_CHART_SETTINGS, type ChartSettings, type ScaleMode } from "@/lib/chart-settings";
 
-type Tab = "symbol" | "statusLine" | "scales" | "canvas";
+type Tab = "symbol" | "statusLine" | "scales" | "canvas" | "trading";
 
 const TABS: readonly { id: Tab; label: string; icon: ReactNode }[] = [
   { id: "symbol", label: "Symbol", icon: <CandlestickChart className="h-4 w-4" /> },
   { id: "statusLine", label: "Status line", icon: <Rows3 className="h-4 w-4" /> },
   { id: "scales", label: "Scales and lines", icon: <MoveVertical className="h-4 w-4" /> },
   { id: "canvas", label: "Canvas", icon: <Paintbrush className="h-4 w-4" /> },
+  { id: "trading", label: "Trading", icon: <TrendingUp className="h-4 w-4" /> },
 ];
 
 /** TradingView's chart Settings dialog. Edits a draft; Ok applies it, Cancel discards it. */
@@ -44,6 +45,7 @@ export function ChartSettingsDialog({ open, settings, onOpenChange, onApply }: {
             {tab === "statusLine" && <StatusLineTab draft={draft} onChange={setDraft} />}
             {tab === "scales" && <ScalesTab draft={draft} onChange={setDraft} />}
             {tab === "canvas" && <CanvasTab draft={draft} onChange={setDraft} />}
+            {tab === "trading" && <TradingTab draft={draft} onChange={setDraft} />}
           </div>
         </div>
         <div className="flex items-center justify-between border-t border-border px-6 py-3">
@@ -114,6 +116,13 @@ function ScalesTab(props: TabProps) {
           {MODES.map(([mode, label]) => <option key={mode} value={mode}>{label}</option>)}
         </select>
       </Row>
+      <Row label="Scales placement">
+        <select className="h-8 rounded border border-border bg-background px-2 text-sm" value={scales.placement}
+          onChange={(e) => patch("scales", { placement: e.target.value as ChartSettings["scales"]["placement"] })}>
+          <option value="right">Right</option>
+          <option value="left">Left</option>
+        </select>
+      </Row>
       <Check label="Auto (fits data to screen)" checked={scales.autoScale} onChange={(autoScale) => patch("scales", { autoScale })} />
       <Check label="Invert scale" checked={scales.invert} onChange={(invert) => patch("scales", { invert })} />
       <Check label="Last price line" checked={scales.showLastPriceLine} onChange={(showLastPriceLine) => patch("scales", { showLastPriceLine })} />
@@ -145,6 +154,17 @@ function CanvasTab(props: TabProps) {
         <Row label="Right"><NumberInput value={canvas.rightOffsetBars} min={0} max={200} unit="bars" onChange={(rightOffsetBars) => patch("canvas", { rightOffsetBars })} /></Row>
       </Group>
     </>
+  );
+}
+
+function TradingTab(props: TabProps) {
+  const { trading } = props.draft;
+  const patch = patcher(props);
+  return (
+    <Group title="Appearance">
+      <Check label="Execution marks (strategy entries and exits)" checked={trading.showExecutionMarks} onChange={(showExecutionMarks) => patch("trading", { showExecutionMarks })} />
+      <Check label="Execution labels" checked={trading.showExecutionLabels} onChange={(showExecutionLabels) => patch("trading", { showExecutionLabels })} />
+    </Group>
   );
 }
 

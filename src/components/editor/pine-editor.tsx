@@ -4,8 +4,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Plus, Settings, Sparkles, X } from "lucide-react";
 import type { Bar, InputConfig, InputsBag, ScriptDrawings } from "@nemesis-oss/pine-ts";
 import { Button } from "@/components/ui/button";
-import { Switch } from "@/components/ui/switch";
-import { Label } from "@/components/ui/label";
 import { CodeEditor, type CodeError } from "@/components/editor/code-editor";
 import { OpenScriptDialog, ScriptMenu } from "@/components/editor/script-menu";
 import { AiScriptDialog } from "@/components/editor/ai-script-dialog";
@@ -14,6 +12,7 @@ import { runIndicatorCode, type PlotSpec } from "@/lib/indicator-runner";
 import { describeCode } from "@/lib/script-library";
 import { DEFAULT_STRATEGY, loadStrategyCode } from "@/lib/strategy-runner";
 import type { ScriptLibraryState, ScriptTemplates } from "@/hooks/use-script-library";
+import { EditorMoreMenu, useEditorPrefs } from "@/components/editor/editor-more-menu";
 
 /**
  * TradingView-style Pine Editor panel. One editor for indicators and
@@ -87,8 +86,8 @@ function useConsole() {
 }
 
 export function PineEditor({ bars, onResults, onStrategyCode, onAddToChart, onClose, scripts, onOpenSettings }: PineEditorProps) {
-  const [autoRun, setAutoRun] = useState(true);
-  const [aiGhostText, setAiGhostText] = useState(true);
+  const [prefs, setPrefs] = useEditorPrefs();
+  const { autoRun, aiGhostText } = prefs;
   const [error, setError] = useState<CodeError | null>(null);
   const [isOpenDialogOpen, setIsOpenDialogOpen] = useState(false);
   const [isAiDialogOpen, setIsAiDialogOpen] = useState(false);
@@ -128,15 +127,10 @@ export function PineEditor({ bars, onResults, onStrategyCode, onAddToChart, onCl
           <button type="button" title="Settings" onClick={onOpenSettings} className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground">
             <Settings className="h-4 w-4" />
           </button>
-          <Switch id="auto-run" title="Auto-update" checked={autoRun} onCheckedChange={setAutoRun} />
-          <Label htmlFor="auto-run" className="sr-only">Auto-update</Label>
-          <div className="flex items-center gap-1 border-l border-border pl-2">
-            <Switch id="ai-ghost" title="AI Inline Ghost Text (Tab to accept)" checked={aiGhostText} onCheckedChange={setAiGhostText} />
-            <Label htmlFor="ai-ghost" className="text-xs text-muted-foreground cursor-pointer">AI Tab</Label>
-          </div>
           <Button size="sm" variant="outline" className="h-7 text-xs" onClick={addToChart} title="Add to chart (Ctrl+Enter)">
             <Plus className="mr-1 h-3.5 w-3.5" /> Add to chart
           </Button>
+          <EditorMoreMenu prefs={prefs} onChange={setPrefs} />
         </div>
       </div>
       <div
@@ -149,9 +143,12 @@ export function PineEditor({ bars, onResults, onStrategyCode, onAddToChart, onCl
           if (e.key === "Enter") { e.preventDefault(); e.stopPropagation(); addToChart(); }
         }}
       >
-        <CodeEditor value={scripts.draft} onChange={scripts.setDraft} error={error} aiGhostText={aiGhostText} />
+        <CodeEditor
+          value={scripts.draft} onChange={scripts.setDraft} error={error}
+          aiGhostText={aiGhostText} fontSize={prefs.fontSize} wordWrap={prefs.wordWrap}
+        />
       </div>
-      <EditorConsole lines={lines} barCount={bars.length} onFixError={onFixWithAi} />
+      {prefs.showConsole && <EditorConsole lines={lines} barCount={bars.length} onFixError={onFixWithAi} />}
       <OpenScriptDialog open={isOpenDialogOpen} onClose={() => setIsOpenDialogOpen(false)} scripts={scripts} />
       <AiScriptDialog
         isOpen={isAiDialogOpen}
