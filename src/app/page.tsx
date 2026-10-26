@@ -2,7 +2,7 @@
 
 import { useCallback, useState, useEffect, useMemo, useRef } from "react";
 import type { ImperativePanelHandle } from "react-resizable-panels";
-import type { Bar, ScriptDrawings } from "@nemesis-oss/pine-ts";
+import type { Bar } from "@nemesis-oss/pine-ts";
 import type { ChartDrawing } from "@/components/chart/script-drawings-primitive";
 import { NO_DRAWINGS, toChartDrawings, toEditorOverlays } from "@/lib/editor-output";
 import { MemoizedChartCell } from "@/components/chart/chart-cell";
