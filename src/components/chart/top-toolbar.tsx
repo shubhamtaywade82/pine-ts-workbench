@@ -10,7 +10,7 @@ import type { AlertSettings } from "@/lib/alert-sinks";
 import { loadLayouts, type SavedLayout } from "@/lib/saved-layouts";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ChartLine, LayoutGrid, Maximize, Plus, Sun, Moon, Save } from "lucide-react";
+import { ChartLine, LayoutGrid, Maximize, Plus, Sun, Moon, Save, Settings } from "lucide-react";
 
 export type GridLayout = 1 | 2 | 4 | 6;
 
@@ -37,6 +37,7 @@ export interface TopToolbarProps {
   readonly onToggleTheme: () => void;
   readonly onAlertSettingsSaved: (settings: AlertSettings) => void;
   readonly onSettingsSaved: (settings: BinanceSettings) => void;
+  readonly onOpenChartSettings: () => void;
 }
 
 const toggleFullscreen = () => {
@@ -97,6 +98,9 @@ export function TopToolbar(props: TopToolbarProps) {
         <ToolbarSeparator />
         <Button variant="ghost" size="sm" className="h-8 w-8 p-0" title="Toggle theme" onClick={props.onToggleTheme}>
           {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+        </Button>
+        <Button variant="ghost" size="sm" className="h-8 w-8 p-0" title="Chart settings" onClick={props.onOpenChartSettings}>
+          <Settings className="h-4 w-4" />
         </Button>
         <SettingsDialog onSaved={props.onSettingsSaved} />
         <Button variant="ghost" size="sm" className="h-8 w-8 p-0" title="Fullscreen" onClick={toggleFullscreen}>

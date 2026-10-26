@@ -4,6 +4,7 @@ import type { ReactNode, RefObject } from "react";
 import type { Bar } from "@nemesis-oss/pine-ts";
 import { Eye, EyeOff, Settings, X } from "lucide-react";
 import type { ChartOverlay, ChartSubPane, IndicatorAction } from "@/components/chart/chart-workbench";
+import { DEFAULT_CHART_SETTINGS, type ChartSettings } from "@/lib/chart-settings";
 
 const UP_COLOR = "#089981";
 const DOWN_COLOR = "#f23645";
@@ -23,6 +24,8 @@ export interface ChartLegendProps {
   /** Attached to the OHLC values while showing the live bar, for {@link writeLiveOhlc}. */
   readonly liveOhlcRef: RefObject<HTMLSpanElement | null>;
   readonly onIndicatorAction?: (ownerId: string, action: IndicatorAction) => void;
+  /** What the status line shows (chart Settings → Status line). */
+  readonly statusLine?: ChartSettings["statusLine"];
 }
 
 interface LegendRow { readonly ownerId: string; readonly name: string; readonly overlays: readonly ChartOverlay[] }
@@ -88,6 +91,7 @@ export const writeLiveOhlc = (container: HTMLSpanElement, bar: OhlcvValues): voi
 /** TradingView-style top-left legend: symbol + OHLC, then one line per indicator in each pane. */
 export function ChartLegend({
   title, bars, mainOverlays, subPanes, hoverTime, paneHeights, liveOhlcRef, onIndicatorAction,
+  statusLine = DEFAULT_CHART_SETTINGS.statusLine,
 }: ChartLegendProps) {
   const bar = pointAt(bars, hoverTime);
   // Sub-pane i starts below the main pane and every sub-pane before it.
@@ -97,19 +101,19 @@ export function ChartLegend({
     <div className="pointer-events-none absolute inset-0 z-10 font-mono text-[11px]">
       <div className="absolute left-2 top-1 flex flex-col gap-0.5">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="font-sans text-xs font-semibold text-[#d1d4dc]">{title}</span>
+          {statusLine.showTitle && <span className="font-sans text-xs font-semibold text-[#d1d4dc]">{title}</span>}
           {/* Keyed by mode: switching hover ↔ live remounts, so no frame-written colour lingers. */}
-          {bar !== undefined && (
+          {statusLine.showOhlc && bar !== undefined && (
             <OhlcValues key={hoverTime === null ? "live" : "hover"} bar={bar} valuesRef={hoverTime === null ? liveOhlcRef : undefined} />
           )}
         </div>
         {groupByOwner(mainOverlays).map((row) => (
-          <OverlayLine key={row.ownerId} row={row} hoverTime={hoverTime} onAction={onIndicatorAction} />
+          <OverlayLine key={row.ownerId} row={row} hoverTime={hoverTime} onAction={onIndicatorAction} statusLine={statusLine} />
         ))}
       </div>
       {subPanes.map((pane, i) => (
         <div key={pane.paneId} className="absolute left-2" style={{ top: paneTops[i]! + 2 }}>
-          <OverlayLine row={{ ownerId: pane.paneId, name: pane.title, overlays: pane.overlays }} hoverTime={hoverTime} onAction={onIndicatorAction} />
+          <OverlayLine row={{ ownerId: pane.paneId, name: pane.title, overlays: pane.overlays }} hoverTime={hoverTime} onAction={onIndicatorAction} statusLine={statusLine} />
         </div>
       ))}
     </div>
@@ -139,19 +143,20 @@ const ROW_ACTIONS = [
   { action: "remove", label: "Remove", Icon: X },
 ] as const;
 
-function OverlayLine({ row, hoverTime, onAction }: {
+function OverlayLine({ row, hoverTime, onAction, statusLine }: {
   row: LegendRow;
   hoverTime: number | null;
   onAction?: (ownerId: string, action: IndicatorAction) => void;
+  statusLine: ChartSettings["statusLine"];
 }) {
   const isHidden = row.overlays.every((o) => o.isHidden);
   const VisibilityIcon = isHidden ? EyeOff : Eye;
   return (
     // pointer-events back on for the row only, so the rest of the legend never blocks chart dragging.
     <div className={`group pointer-events-auto flex w-fit items-center gap-2 rounded px-1 hover:bg-[#2a2e39]/80 ${isHidden ? "opacity-50" : ""}`}>
-      <span className="font-sans text-[#d1d4dc]">{row.name}</span>
+      {statusLine.showIndicatorTitles && <span className="font-sans text-[#d1d4dc]">{row.name}</span>}
       {/* Values stay (dimmed with the row) so the buttons don't jump under the cursor when hiding. */}
-      {row.overlays.filter((o) => !o.isLevel).map((overlay) => {
+      {statusLine.showIndicatorValues && row.overlays.filter((o) => !o.isLevel).map((overlay) => {
         const point = pointAt(overlay.data, hoverTime);
         return (
           <span key={overlay.instanceId} style={{ color: overlay.color }}>

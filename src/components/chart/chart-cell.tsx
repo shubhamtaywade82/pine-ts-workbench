@@ -13,6 +13,7 @@ import {
   IndicatorSettingsDialog, indicatorLabel, type MountedIndicator,
 } from "@/components/chart/indicator-dialogs";
 import type { ChartDrawing } from "@/components/chart/script-drawings-primitive";
+import type { ChartSettings } from "@/lib/chart-settings";
 import { Button } from "@/components/ui/button";
 import { X } from "lucide-react";
 import { useLiveBars, type LiveStatus } from "@/hooks/use-live-bars";
@@ -52,6 +53,9 @@ export interface ChartCellProps extends CellSettings {
   readonly canRemove: boolean;
   readonly editorOverlays: ChartOverlay[];
   readonly editorDrawings?: readonly ChartDrawing[];
+  readonly chartSettings: ChartSettings;
+  readonly onChartSettingsChange: (settings: ChartSettings) => void;
+  readonly onOpenChartSettings: () => void;
   readonly tradeMarkers?: TradeMarker[];
   /** Receives this cell's bars while it is active, so the editor runs on what the chart shows. */
   readonly onActiveBarsChange?: (bars: readonly Bar[]) => void;
@@ -64,7 +68,7 @@ const EDITOR_PANE_ID = "editor";
 
 export function ChartCell({
   cellId, symbol, interval, indicators: mounted, onChange,
-  isActive, onActivate, onRemove, canRemove, editorOverlays, editorDrawings, tradeMarkers, onActiveBarsChange, onEditorScriptAction,
+  isActive, onActivate, onRemove, canRemove, editorOverlays, editorDrawings, chartSettings, onChartSettingsChange, onOpenChartSettings, tradeMarkers, onActiveBarsChange, onEditorScriptAction,
 }: ChartCellProps) {
   const { bars, status, error, loadOlder, subscribe } = useLiveBars(symbol.binanceSymbol, interval);
   const [runResults, setRunResults] = useState<Record<string, IndicatorRunResult>>({});
@@ -164,7 +168,7 @@ export function ChartCell({
             {error ?? `Loading ${symbol.displayName} from Binance…`}
           </div>
         ) : (
-          <ChartWorkbench title={`${symbol.displayName} · ${interval} · Binance`} interval={interval} bars={bars} subscribeBars={subscribe} onNeedOlderBars={loadOlder} onIndicatorAction={onIndicatorAction} mainOverlays={mainOverlays} subPanes={allSubPanes} tradeMarkers={tradeMarkers} drawings={editorDrawings} />
+          <ChartWorkbench title={`${symbol.displayName} · ${interval} · Binance`} interval={interval} bars={bars} subscribeBars={subscribe} onNeedOlderBars={loadOlder} onIndicatorAction={onIndicatorAction} mainOverlays={mainOverlays} subPanes={allSubPanes} tradeMarkers={tradeMarkers} drawings={editorDrawings} settings={chartSettings} onSettingsChange={onChartSettingsChange} onOpenSettings={onOpenChartSettings} />
         )}
       </div>
       <IndicatorSettingsDialog

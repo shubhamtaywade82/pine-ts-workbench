@@ -161,47 +161,43 @@ export const streaks = (trades: readonly ReportTrade[]): { wins: number; losses:
 };
 
 export interface DrawdownPeriods {
-  /** Average bars-time of declines from a peak until equity recovers it (or the end). */
+  /** Average time from a peak until equity regains it (or the curve ends). */
   readonly averageDrawdownMs: number | undefined;
-  /** Average time of rises from a trough until equity falls below it again (or the end). */
+  /** Average time from a trough until equity falls back to it (or the curve ends). */
   readonly averageRunupMs: number | undefined;
 }
 
-/** Durations of alternating growth and decline phases of the equity curve. */
-export const drawdownPeriods = (equity: readonly EquityPoint[]): DrawdownPeriods => {
-  const declines: number[] = [];
-  let peak = equity[0];
-  let declineStart: number | undefined;
+/**
+ * Time spent away from an extreme: with `isReset = (point, extreme) => point >= extreme`
+ * these are declines from a peak until it is regained (or the curve ends).
+ */
+const spansAway = (
+  equity: readonly EquityPoint[],
+  isReset: (value: number, extreme: number) => boolean,
+): number[] => {
+  const spans: number[] = [];
+  let extreme = equity[0];
+  let awaySince: number | undefined;
   for (const point of equity) {
-    if (peak === undefined || point.equity >= peak.equity) {
-      if (declineStart !== undefined) declines.push(point.time - declineStart);
-      declineStart = undefined;
-      peak = point;
-    } else declineStart ??= peak.time;
+    if (extreme === undefined || isReset(point.equity, extreme.equity)) {
+      if (awaySince !== undefined) spans.push(point.time - awaySince);
+      awaySince = undefined;
+      extreme = point;
+    } else awaySince ??= extreme.time;
   }
   const last = equity.at(-1);
-  if (declineStart !== undefined && last !== undefined) declines.push(last.time - declineStart);
-  const runups = declines.length === 0 ? [] : risingSpans(equity);
+  if (awaySince !== undefined && last !== undefined) spans.push(last.time - awaySince);
+  return spans;
+};
+
+/** Average durations of drawdowns (below a prior peak) and run-ups (above a prior trough). */
+export const drawdownPeriods = (equity: readonly EquityPoint[]): DrawdownPeriods => {
+  const declines = spansAway(equity, (value, peak) => value >= peak);
+  const runups = spansAway(equity, (value, trough) => value <= trough);
   return {
     averageDrawdownMs: declines.length === 0 ? undefined : mean(declines),
     averageRunupMs: runups.length === 0 ? undefined : mean(runups),
   };
-};
-
-const risingSpans = (equity: readonly EquityPoint[]): number[] => {
-  const spans: number[] = [];
-  let trough = equity[0];
-  let riseStart: number | undefined;
-  for (const point of equity) {
-    if (trough === undefined || point.equity <= trough.equity) {
-      if (riseStart !== undefined) spans.push(point.time - riseStart);
-      riseStart = undefined;
-      trough = point;
-    } else riseStart ??= trough.time;
-  }
-  const last = equity.at(-1);
-  if (riseStart !== undefined && last !== undefined) spans.push(last.time - riseStart);
-  return spans;
 };
 
 /** Trade returns (percent) bucketed into `binCount` equal-width bins. */

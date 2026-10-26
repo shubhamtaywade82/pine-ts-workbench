@@ -15,6 +15,8 @@ import { ChartLegend, writeLiveOhlc } from "@/components/chart/chart-legend";
 import { useCandleSeries, type CandleFrame } from "@/hooks/use-candle-series";
 import { INTERVAL_MS, type ChartInterval } from "@/lib/public-binance-feed";
 import { ScriptDrawingsPrimitive, type ChartDrawing } from "@/components/chart/script-drawings-primitive";
+import { PriceScaleMenu } from "@/components/chart/price-scale-menu";
+import { DEFAULT_CHART_SETTINGS, toCandleOptions, toChartOptions, type ChartSettings } from "@/lib/chart-settings";
 
 /**
  * A single indicator overlay applied to the chart.
@@ -101,6 +103,11 @@ export interface ChartWorkbenchProps {
   readonly tradeMarkers?: readonly TradeMarker[];
   /** Editor-script drawings (SMC lines and boxes) on the price pane. */
   readonly drawings?: readonly ChartDrawing[];
+  /** Appearance shared by all charts (Settings dialog / price-scale menu). */
+  readonly settings?: ChartSettings;
+  readonly onSettingsChange?: (settings: ChartSettings) => void;
+  /** "More settings…" in the price-scale menu. */
+  readonly onOpenSettings?: () => void;
   /** Legend heading, e.g. "BTC / USDT · 1m". */
   readonly title: string;
   /** Bar interval — drives the countdown to the candle close. */
@@ -119,7 +126,7 @@ export interface ChartWorkbenchProps {
  * `chart.addLineSeries`).
  */
 export function ChartWorkbench({
-  bars, subscribeBars, mainOverlays, subPanes, tradeMarkers, drawings, title, interval, onNeedOlderBars, onIndicatorAction,
+  bars, subscribeBars, mainOverlays, subPanes, tradeMarkers, drawings, settings = DEFAULT_CHART_SETTINGS, onSettingsChange, onOpenSettings, title, interval, onNeedOlderBars, onIndicatorAction,
 }: ChartWorkbenchProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -244,6 +251,11 @@ export function ChartWorkbench({
     markersPlugin.setMarkers(markerData);
   }, [tradeMarkers]);
 
+  useEffect(() => {
+    chartRef.current?.applyOptions(toChartOptions(settings));
+    candlestickRef.current?.applyOptions(toCandleOptions(settings));
+  }, [settings, candlestickRef, bars.length === 0]);
+
   // The primitive is bound to the candle series, which is recreated with the chart.
   const drawingsRef = useRef<{ series: ISeriesApi<"Candlestick">; primitive: ScriptDrawingsPrimitive } | null>(null);
   useEffect(() => {
@@ -324,7 +336,13 @@ export function ChartWorkbench({
   return (
     <div className="relative h-full w-full">
       <div ref={containerRef} className="h-full w-full" />
+      {onSettingsChange !== undefined && (
+        <div className="absolute bottom-1 right-1 z-20">
+          <PriceScaleMenu settings={settings} onChange={onSettingsChange} onMoreSettings={() => onOpenSettings?.()} />
+        </div>
+      )}
       <ChartLegend
+        statusLine={settings.statusLine}
         title={title} bars={bars} mainOverlays={mainOverlays} subPanes={subPanes}
         hoverTime={hoverTime} paneHeights={paneHeights} liveOhlcRef={liveOhlcRef}
         onIndicatorAction={onIndicatorAction}

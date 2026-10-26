@@ -15,7 +15,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { Settings } from "lucide-react";
+import { KeyRound } from "lucide-react";
 
 /**
  * Settings storage — API keys + liveTradeEnabled are stored
@@ -78,8 +78,8 @@ export function SettingsDialog({ onSaved }: { onSaved: (s: BinanceSettings) => v
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="ghost" size="sm" className="h-8 w-8 p-0" title="Settings">
-          <Settings className="h-4 w-4" />
+        <Button variant="ghost" size="sm" className="h-8 w-8 p-0" title="Binance API keys">
+          <KeyRound className="h-4 w-4" />
         </Button>
       </DialogTrigger>
       <DialogContent className="max-w-md">

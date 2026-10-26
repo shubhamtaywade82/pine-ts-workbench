@@ -4,9 +4,12 @@ import { useCallback, useState, useEffect, useMemo, useRef } from "react";
 import type { ImperativePanelHandle } from "react-resizable-panels";
 import type { Bar, ScriptDrawings } from "@nemesis-oss/pine-ts";
 import type { ChartDrawing } from "@/components/chart/script-drawings-primitive";
+import { NO_DRAWINGS, toChartDrawings, toEditorOverlays } from "@/lib/editor-output";
 import { MemoizedChartCell } from "@/components/chart/chart-cell";
 import { TopToolbar, LAYOUT_OPTIONS, type GridLayout } from "@/components/chart/top-toolbar";
 import { useChartGrid, newCell } from "@/hooks/use-chart-grid";
+import { ChartSettingsDialog } from "@/components/chart/chart-settings-dialog";
+import { DEFAULT_CHART_SETTINGS, loadChartSettings, saveChartSettings, type ChartSettings } from "@/lib/chart-settings";
 import { PineEditor } from "@/components/editor/pine-editor";
 import { useBacktest, StrategyCodeTab, StrategyTester } from "@/components/strategy/strategy-panel";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -40,50 +43,6 @@ import type { ChartOverlay, IndicatorAction } from "@/components/chart/chart-wor
  * is auto-saved to localStorage and restored on load.
  */
 
-/** Plot values per editor bar → chart overlays; constant plots become dashed levels. */
-const toEditorOverlays = (
-  results: Record<string, Array<number | undefined>>,
-  plots: { id: string; color: string; kind: string }[],
-  bars: readonly Bar[],
-): ChartOverlay[] => plots.map((plot) => {
-  const values = results[plot.id] ?? [];
-  const data: { time: number; value: number }[] = [];
-  for (let i = 0; i < bars.length; i++) {
-    const value = values[i];
-    if (value === undefined || Number.isNaN(value)) continue;
-    data.push({ time: bars[i]!.time, value });
-  }
-  return {
-    instanceId: `editor:${plot.id}`,
-    indicatorId: `editor.${plot.id}`,
-    indicatorName: `Custom (${plot.id})`,
-    color: plot.color,
-    isLevel: plot.kind === "hline",
-    data,
-  };
-});
-
-const NO_DRAWINGS: ChartDrawing[] = [];
-
-/** Script drawings use bar indices; the chart needs the times of the bars the editor ran on. */
-const toChartDrawings = (drawings: ScriptDrawings, bars: readonly Bar[]): ChartDrawing[] => {
-  const time = (index: number) => bars[index]?.time;
-  const resolved: ChartDrawing[] = [];
-  for (const line of drawings.lines) {
-    const [from, to] = [time(line.fromBar), time(line.toBar)];
-    if (from === undefined || to === undefined) continue;
-    const isBullish = line.direction === "bullish";
-    // BOS dashed, CHoCH solid, as in the SMC Confluence Engine.
-    resolved.push({ kind: "line", from, to, price: line.price, text: line.text, isBullish, isDashed: line.text === "BOS" });
-  }
-  for (const box of drawings.boxes) {
-    const [from, to] = [time(box.fromBar), time(box.toBar)];
-    if (from === undefined || to === undefined) continue;
-    resolved.push({ kind: "box", from, to, top: box.top, bottom: box.bottom, isBullish: box.direction === "bullish" });
-  }
-  return resolved;
-};
-
 /** Expands or collapses a panel to match `isOpen` (panels stay mounted either way). */
 const syncPanel = (panel: ImperativePanelHandle | null, isOpen: boolean) => {
   if (panel === null || panel.isExpanded() === isOpen) return;
@@ -95,6 +54,14 @@ export default function Home() {
   const grid = useChartGrid();
   const { layout, cells, activeCellId, replaceGrid, onCellChange } = grid;
   const [theme, setTheme] = useState<"dark" | "light">("dark");
+  const [chartSettings, setChartSettings] = useState<ChartSettings>(DEFAULT_CHART_SETTINGS);
+  const [isChartSettingsOpen, setIsChartSettingsOpen] = useState(false);
+  useEffect(() => setChartSettings(loadChartSettings()), []);
+  const onChartSettingsChange = useCallback((next: ChartSettings) => {
+    setChartSettings(next);
+    saveChartSettings(next);
+  }, []);
+  const openChartSettings = useCallback(() => setIsChartSettingsOpen(true), []);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [editorTab, setEditorTab] = useState<Workspace["editorTab"]>("indicator");
   const [isTesterOpen, setIsTesterOpen] = useState(false);
@@ -211,6 +178,11 @@ export default function Home() {
         onToggleTheme={toggleTheme}
         onAlertSettingsSaved={setAlertSettings}
         onSettingsSaved={setSettings}
+        onOpenChartSettings={openChartSettings}
+      />
+      <ChartSettingsDialog
+        open={isChartSettingsOpen} settings={chartSettings}
+        onOpenChange={setIsChartSettingsOpen} onApply={onChartSettingsChange}
       />
 
       {/* Body: [chart grid | Pine Editor] over Strategy Tester, as on TradingView */}
@@ -236,6 +208,9 @@ export default function Home() {
                     onEditorScriptAction={onEditorScriptAction}
                     tradeMarkers={cell.id === activeCellId ? tradeMarkers : []}
                     onActiveBarsChange={setEditorBars}
+                    chartSettings={chartSettings}
+                    onChartSettingsChange={onChartSettingsChange}
+                    onOpenChartSettings={openChartSettings}
                   />
                 ))}
               </div>

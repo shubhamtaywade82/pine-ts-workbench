@@ -4,6 +4,7 @@ import {
   StrategyEngine, PineRuntime, ta, type Bar, type PineContext, type StrategyScript,
 } from "@nemesis-oss/pine-ts";
 import { loadScript } from "@/lib/script-loader";
+import type { EquityPoint } from "@/lib/backtest-report";
 
 /**
  * Strategy runner — Wave 20. Takes user-written TypeScript strategy code,
@@ -22,7 +23,8 @@ export interface BacktestResult {
   readonly error?: string;
   readonly summary?: BacktestSummary;
   readonly trades?: BacktestTrade[];
-  readonly equityCurve?: { time: number; equity: number }[];
+  /** Equity and close per backtested bar, for the report and buy & hold. */
+  readonly equityCurve?: EquityPoint[];
 }
 
 export interface BacktestSummary {
@@ -139,7 +141,7 @@ type LegacyStrategyFn = (args: {
 
 interface EngineRun {
   readonly engine: StrategyEngine;
-  readonly equityCurve: { time: number; equity: number }[];
+  readonly equityCurve: EquityPoint[];
 }
 
 /**
@@ -171,7 +173,7 @@ const runConcise = async (script: StrategyScript, bars: readonly Bar[]): Promise
   const output = await script.backtest(confirmed);
   return {
     engine: output.engine,
-    equityCurve: output.equity.map((equity, i) => ({ time: confirmed[i]!.time, equity })),
+    equityCurve: output.equity.map((equity, i) => ({ time: confirmed[i]!.time, equity, close: confirmed[i]!.close })),
   };
 };
 
@@ -208,7 +210,7 @@ const runLegacy = async (
     getSymbolInfo: async () => testInfo,
   };
   const runtime = new PineRuntime({ provider, symbol: "BACKTEST", timeframe: "1" });
-  const equityCurve: { time: number; equity: number }[] = [];
+  const equityCurve: EquityPoint[] = [];
 
   await runtime.run((ctx: PineContext) => {
     // PineRuntime doesn't drive the engine; fill orders queued on the
@@ -219,7 +221,7 @@ const runLegacy = async (
     } catch {
       // Per-bar error — continue (the strategy might error on some bars).
     }
-    equityCurve.push({ time: ctx.bar.time, equity: engine.equity });
+    equityCurve.push({ time: ctx.bar.time, equity: engine.equity, close: ctx.bar.close });
   }, bars as never);
   return { engine, equityCurve };
 };
