@@ -18,11 +18,11 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
 
       # package.json depends on `file:./pine-ts`, the local pine-ts checkout
       # (gitignored; see README setup). CI recreates it from GitHub.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           repository: shubhamtaywade82/pine-ts
           ref: ${{ inputs.pine-ts-ref || 'main' }}
