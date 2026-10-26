@@ -134,6 +134,7 @@ export function ChartWorkbench({
   const subPaneSeriesRef = useRef<Map<string, ISeriesApi<"Line">>>(new Map());
   // LWC v5 markers plugin, bound to the candle series it was created on.
   const markersRef = useRef<{ series: ISeriesApi<"Candlestick">; plugin: ISeriesMarkersPluginApi<Time> } | null>(null);
+  const drawingsRef = useRef<{ series: ISeriesApi<"Candlestick">; primitive: ScriptDrawingsPrimitive } | null>(null);
   const [hoverTime, setHoverTime] = useState<number | null>(null);
   const [paneHeights, setPaneHeights] = useState<number[]>([]);
 
@@ -195,6 +196,9 @@ export function ChartWorkbench({
       chart.remove();
       chartRef.current = null;
       markersRef.current = null;
+      // A primitive left attached would request redraws of the removed chart ("Object is disposed").
+      drawingsRef.current?.series.detachPrimitive(drawingsRef.current.primitive);
+      drawingsRef.current = null;
       overlaySeriesRef.current.clear();
       subPaneSeriesRef.current.clear();
     };
@@ -257,7 +261,6 @@ export function ChartWorkbench({
   }, [settings, candlestickRef, bars.length === 0]);
 
   // The primitive is bound to the candle series, which is recreated with the chart.
-  const drawingsRef = useRef<{ series: ISeriesApi<"Candlestick">; primitive: ScriptDrawingsPrimitive } | null>(null);
   useEffect(() => {
     const candle = candlestickRef.current;
     if (candle === null) return;
