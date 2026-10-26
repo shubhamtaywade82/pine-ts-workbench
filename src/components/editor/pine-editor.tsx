@@ -1,23 +1,23 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { transform } from "sucrase";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { Plus, Save } from "lucide-react";
-import type { Bar, PineContext } from "@nemesis-oss/pine-ts";
+import type { Bar, IndicatorScript, PineContext } from "@nemesis-oss/pine-ts";
 import { ta, PineRuntime } from "@nemesis-oss/pine-ts";
 import { CodeEditor, type CodeError } from "@/components/editor/code-editor";
+import { loadScript, ScriptCompileError } from "@/lib/script-loader";
 
 /**
  * Pine editor — a TradingView-style editor where users write custom
  * indicators in TypeScript against the pine-ts API, previewed live on the
  * active chart's bars.
  *
- * The user writes a `calculate` function that receives `{ ta, ctx, inputs }`
- * and returns a `Record<string, number | undefined>` (plotId → value per bar).
- * The code is transpiled with sucrase and evaluated bar-by-bar in PineRuntime.
+ * The user writes `indicator("Name", ({ close, input, plot, hline }) => ...)`
+ * (legacy `calculate({ ta, ctx, inputs })` functions still run). The code is
+ * transpiled with sucrase and evaluated bar-by-bar in PineRuntime.
  *
  * Uses CodeMirror (bundled locally) rather than Monaco, whose CDN loader was
  * incompatible with the Caddy proxy environment.
@@ -34,7 +34,20 @@ export interface PineEditorProps {
   readonly onAddToChart?: () => void;
 }
 
-const DEFAULT_CODE = `// Custom indicator — write TypeScript using the pine-ts API.
+const DEFAULT_CODE = `// Custom indicator — runs once per bar, like Pine Script.
+// In scope: close, open, high, low, volume, hl2, hlc3, ohlc4, input, plot,
+// hline, ta.*, math.*, and ctx (the full Pine context).
+
+indicator("RSI", ({ close, input, plot, hline }) => {
+  const length = input.int(14, "Length", { min: 1 });
+  plot(ta.rsi(close, length), "RSI");
+  hline(70, "Upper");
+  hline(30, "Lower");
+});
+`;
+
+// The previous default template; saved copies identical to it are upgraded.
+const LEGACY_DEFAULT_CODE = `// Custom indicator — write TypeScript using the pine-ts API.
 // The calculate function receives { ta, ctx, inputs } and returns
 // a map of plotId -> value (number or undefined for na).
 //
@@ -66,37 +79,25 @@ const LEVEL_COLOR = "#787b86";
 type CalculateFn = (args: { ta: typeof ta; ctx: PineContext; inputs: Record<string, unknown> }) =>
   Record<string, number | undefined>;
 
+type PlotSpec = { id: string; color: string; kind: string };
+type ScriptRun = { results: Record<string, Array<number | undefined>>; plots: PlotSpec[]; firstBarError: string | null };
+
 interface ConsoleLine { readonly time: string; readonly text: string; readonly isError: boolean }
 
-class ScriptCompileError extends Error {
-  constructor(message: string, readonly position: CodeError | null) { super(message); }
-}
-
-/** Transpiles the user's TS and returns its `calculate` function. */
-const compileCalculate = (userCode: string): CalculateFn => {
-  // `export` is stripped because new Function() can't evaluate ES module syntax.
-  const cleanCode = userCode.replace(/\bexport\s+(function|const|let|var)\b/g, "$1");
-  let transpiled: string;
-  try {
-    transpiled = transform(cleanCode, { transforms: ["typescript"], production: true }).code;
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    // Sucrase reports "(line:column)" with a 0-based column.
-    const match = /\((\d+):(\d+)\)/.exec(message);
-    const position = match ? { line: Number(match[1]), column: Number(match[2]) + 1, message } : null;
-    throw new ScriptCompileError(message, position);
-  }
-  const factory = new Function(`${transpiled}\nreturn typeof calculate === 'function' ? calculate : null;`) as
-    () => CalculateFn | null;
-  const calculateFn = factory();
-  if (calculateFn === null) {
-    throw new ScriptCompileError("No calculate function exported. Export function calculate({ ta, ctx, inputs }).", null);
-  }
-  return calculateFn;
+/** Runs a concise `indicator()` script; plot metadata comes from its plot()/hline() calls. */
+const runIndicator = async (script: IndicatorScript, bars: readonly Bar[]): Promise<ScriptRun> => {
+  const output = await script.run(bars);
+  const results = Object.fromEntries(Object.entries(output.values).map(([id, values]) => [id, [...values]]));
+  const plots = output.plots.map((plot, i) => ({
+    id: plot.id,
+    kind: plot.kind,
+    color: plot.color ?? (plot.kind === "hline" ? LEVEL_COLOR : PLOT_COLORS[i % PLOT_COLORS.length]!),
+  }));
+  return { results, plots, firstBarError: null };
 };
 
-/** Runs `calculateFn` on every bar; collects plot values and the first per-bar error. */
-const runOnBars = async (calculateFn: CalculateFn, bars: readonly Bar[]) => {
+/** Runs a legacy `calculate` function on every bar; collects plot values and the first per-bar error. */
+const runLegacy = async (calculateFn: CalculateFn, bars: readonly Bar[]): Promise<ScriptRun> => {
   const results: Record<string, Array<number | undefined>> = {};
   let firstBarError: string | null = null;
   const provider = {
@@ -116,20 +117,28 @@ const runOnBars = async (calculateFn: CalculateFn, bars: readonly Bar[]) => {
     }
     barIndex++;
   }, bars as never);
-  return { results, firstBarError };
+  return { results, plots: derivePlots(results), firstBarError };
 };
 
 /** One plot per returned key; a key that is the same number on every bar is a level (hline). */
-const derivePlots = (results: Record<string, Array<number | undefined>>) =>
+const derivePlots = (results: Record<string, Array<number | undefined>>): PlotSpec[] =>
   Object.entries(results).map(([id, values], i) => {
     const defined = values.filter((v): v is number => v !== undefined && !Number.isNaN(v));
     const isLevel = defined.length > 0 && defined.every((v) => v === defined[0]);
     return { id, color: isLevel ? LEVEL_COLOR : PLOT_COLORS[i % PLOT_COLORS.length]!, kind: isLevel ? "hline" : "line" };
   });
 
+const runScript = (userCode: string, bars: readonly Bar[]): Promise<ScriptRun> => {
+  const loaded = loadScript<CalculateFn>(userCode, "calculate");
+  if (loaded.kind === "indicator") return runIndicator(loaded.script, bars);
+  if (loaded.kind === "legacy") return runLegacy(loaded.fn, bars);
+  throw new ScriptCompileError("This is a strategy; open it in the Strategy tab.", null);
+};
+
 const loadSavedCode = (): string | null => {
   try {
-    return window.localStorage.getItem(STORAGE_KEY);
+    const saved = window.localStorage.getItem(STORAGE_KEY);
+    return saved === LEGACY_DEFAULT_CODE ? null : saved;
   } catch {
     return null; // Storage blocked (private mode) — fall back to the default script.
   }
@@ -169,8 +178,8 @@ export function PineEditor({ bars, onResults, onAddToChart }: PineEditorProps) {
 
   const runCode = useCallback(async (userCode: string) => {
     try {
-      const { results, firstBarError } = await runOnBars(compileCalculate(userCode), bars);
-      onResults(results, derivePlots(results));
+      const { results, plots, firstBarError } = await runScript(userCode, bars);
+      onResults(results, plots);
       setError(null);
       if (firstBarError !== null) log(firstBarError, true);
       else log("Compiled successfully. Script added to chart.", false);

@@ -1,19 +1,20 @@
 "use client";
 
-import { transform } from "sucrase";
 import {
-  StrategyEngine, PineRuntime, ta, type Bar, type PineContext,
+  StrategyEngine, PineRuntime, ta, type Bar, type PineContext, type StrategyScript,
 } from "@nemesis-oss/pine-ts";
+import { loadScript } from "@/lib/script-loader";
 
 /**
  * Strategy runner — Wave 20. Takes user-written TypeScript strategy code,
  * transpiles it via sucrase, and runs it bar-by-bar against historical bars
- * using the pine-ts StrategyEngine + PaperBrokerAdapter (built-in emulator).
+ * using the pine-ts StrategyEngine (built-in emulator).
  *
- * The user writes a `strategy` function that receives `{ ta, ctx, engine, inputs }`
- * and calls `engine.entry(id, direction, qty)` / `engine.close(id)` / etc. on each
- * bar. After the run, the engine's results (netprofit, grossprofit, drawdown,
- * closedtrades, equity curve) are collected and returned.
+ * The user writes `defineStrategy("Name", { ...declaration }, ({ close, strategy }) => ...)`
+ * and places orders with `strategy.entry(id, direction, { when })` /
+ * `strategy.close(id, { when })`. Legacy `strategy({ ta, ctx, engine, inputs })`
+ * functions still run. After the run, the engine's results (netprofit,
+ * grossprofit, drawdown, closedtrades, equity curve) are collected and returned.
  */
 
 export interface BacktestResult {
@@ -48,7 +49,24 @@ export interface BacktestTrade {
   readonly profit: number;
 }
 
-const DEFAULT_STRATEGY = `// SMA Crossover Strategy
+const DEFAULT_STRATEGY = `// SMA Crossover Strategy — runs once per bar, like Pine Script.
+// Entry: close crosses above SMA(length) -> go long
+// Exit:  close crosses below SMA(length) -> close position
+
+defineStrategy("SMA Crossover", {
+  initial_capital: 10_000,
+  default_qty_value: 0.001,
+  commission_type: "percent",
+  commission_value: 0.1,
+}, ({ close, input, strategy }) => {
+  const sma = ta.sma(close, input.int(20, "Length", { min: 1 }));
+  strategy.entry("long", "long", { when: ta.crossover(close, sma) });
+  strategy.close("long", { when: ta.crossunder(close, sma) });
+});
+`;
+
+// Earlier default templates; saved copies identical to one are upgraded.
+const PREVIOUS_DEFAULT_STRATEGY = `// SMA Crossover Strategy
 // Entry: when close crosses above SMA(20) -> go long
 // Exit:  when close crosses below SMA(20) -> close position
 
@@ -102,7 +120,8 @@ export const loadStrategyCode = (): string => {
   if (typeof window === "undefined") return DEFAULT_STRATEGY;
   try {
     const saved = window.localStorage.getItem(STORAGE_KEY);
-    return saved === null || saved === LEGACY_DEFAULT_STRATEGY ? DEFAULT_STRATEGY : saved;
+    const isStaleDefault = saved === LEGACY_DEFAULT_STRATEGY || saved === PREVIOUS_DEFAULT_STRATEGY;
+    return saved === null || isStaleDefault ? DEFAULT_STRATEGY : saved;
   } catch { return DEFAULT_STRATEGY; }
 };
 
@@ -111,10 +130,21 @@ export const saveStrategyCode = (code: string): void => {
   try { window.localStorage.setItem(STORAGE_KEY, code); } catch { /* ignore */ }
 };
 
+type LegacyStrategyFn = (args: {
+  ta: typeof ta;
+  ctx: PineContext;
+  engine: StrategyEngine;
+  inputs: Record<string, unknown>;
+}) => void;
+
+interface EngineRun {
+  readonly engine: StrategyEngine;
+  readonly equityCurve: { time: number; equity: number }[];
+}
+
 /**
- * Runs a backtest: creates a StrategyEngine, sets it as active, drives a
- * PineRuntime bar-by-bar calling the user's strategy function, then collects
- * the engine's results.
+ * Runs a backtest of user code: a concise `defineStrategy(...)` script, or a
+ * legacy `strategy({ ta, ctx, engine, inputs })` function.
  */
 export async function runBacktest(
   userCode: string,
@@ -122,108 +152,110 @@ export async function runBacktest(
   inputs: Record<string, unknown> = { length: 20, qty: 0.001 },
 ): Promise<BacktestResult> {
   try {
-    // Strip `export` keyword (same fix as the Pine editor).
-    const cleanCode = userCode.replace(/\bexport\s+(function|const|let|var)\b/g, "$1");
-    const transpiled = transform(cleanCode, {
-      transforms: ["typescript"],
-      production: true,
-    }).code;
-
-    // Evaluate the user's strategy function.
-    const wrapped = `
-      ${transpiled}
-      return typeof strategy === 'function' ? strategy : null;
-    `;
-    // eslint-disable-next-line no-new-func
-    const factory = new Function(wrapped) as () => ((args: {
-      ta: typeof ta;
-      ctx: PineContext;
-      engine: StrategyEngine;
-      inputs: Record<string, unknown>;
-    }) => void) | null;
-    const strategyFn = factory();
-    if (strategyFn === null) {
-      return { ok: false, error: "No `strategy` function exported. Export function strategy({ ta, ctx, engine, inputs })." };
+    const loaded = loadScript<LegacyStrategyFn>(userCode, "strategy");
+    if (loaded.kind === "indicator") {
+      return { ok: false, error: "This is an indicator; open it in the Indicator tab." };
     }
-
-    // Create a StrategyEngine (built-in emulator, no broker adapter).
-    const engine = new StrategyEngine();
-    engine.configure({
-      // pine-ts 0.1.x uses `title` as the broker symbol (no setSymbol API).
-      title: "BACKTEST",
-      pyramiding: 1,
-      initial_capital: 10_000,
-      default_qty_type: "fixed",
-      default_qty_value: 1,
-      commission_type: "percent",
-      commission_value: 0.1,
-      slippage: 0,
-      slippage_unit: "points",
-      margin_long: 100,
-      margin_short: 100,
-    });
-
-    // Create a PineRuntime with the bars.
-    const testInfo = { ticker: "BACKTEST", tickerId: "BACKTEST", timezone: "UTC", type: "crypto" as const };
-    const provider = {
-      getHistoricalBars: async () => bars,
-      streamBars: () => ({ [Symbol.asyncIterator]: async function* () { yield* []; } }),
-      getSymbolInfo: async () => testInfo,
-    };
-    const runtime = new PineRuntime({ provider, symbol: "BACKTEST", timeframe: "1" });
-
-    // Track equity per bar for the equity curve.
-    const equityCurve: { time: number; equity: number }[] = [];
-
-    // Drive the runtime bar-by-bar, calling the strategy on each bar.
-    await runtime.run((ctx: PineContext) => {
-      // PineRuntime doesn't drive the engine; fill orders queued on the
-      // previous bar against this bar before the strategy places new ones.
-      engine.processBar(ctx.bar);
-      try {
-        strategyFn({ ta, ctx, engine, inputs });
-      } catch (err) {
-        // Per-bar error — continue (the strategy might error on some bars).
-      }
-      equityCurve.push({ time: ctx.bar.time, equity: engine.equity });
-    }, bars as never);
-
-    // Collect results from the engine.
-    const closedTrades = engine.getClosedTrades();
-    const trades: BacktestTrade[] = closedTrades.map((t) => ({
-      entryTime: t.entryTime,
-      exitTime: t.exitTime,
-      direction: t.direction,
-      qty: t.qty,
-      entryPrice: t.entryPrice,
-      exitPrice: t.exitPrice,
-      profit: t.profit,
-    }));
-
-    const wins = trades.filter((t) => t.profit > 0);
-    const losses = trades.filter((t) => t.profit <= 0);
-    const grossProfit = engine.grossprofit;
-    const grossLoss = engine.grossloss;
-    const profitFactor = grossLoss !== 0 ? Math.abs(grossProfit / grossLoss) : grossProfit > 0 ? Infinity : 0;
-
-    const summary: BacktestSummary = {
-      initialCapital: 10_000,
-      netProfit: engine.netprofit,
-      grossProfit,
-      grossLoss,
-      maxDrawdown: engine.max_drawdown,
-      finalEquity: engine.equity,
-      totalTrades: trades.length,
-      winTrades: wins.length,
-      lossTrades: losses.length,
-      winRate: trades.length > 0 ? (wins.length / trades.length) * 100 : 0,
-      profitFactor,
-    };
-
-    return { ok: true, summary, trades, equityCurve };
+    const run = loaded.kind === "strategy"
+      ? await runConcise(loaded.script, bars)
+      : await runLegacy(loaded.fn, bars, inputs);
+    return summarize(run);
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
 }
+
+/** Concise scripts backtest confirmed bars only: a forming bar would fill orders on unconfirmed prices. */
+const runConcise = async (script: StrategyScript, bars: readonly Bar[]): Promise<EngineRun> => {
+  const confirmed = bars.at(-1)?.isClosed === false ? bars.slice(0, -1) : bars;
+  const output = await script.backtest(confirmed);
+  return {
+    engine: output.engine,
+    equityCurve: output.equity.map((equity, i) => ({ time: confirmed[i]!.time, equity })),
+  };
+};
+
+/**
+ * Legacy path: creates a StrategyEngine, drives a PineRuntime bar-by-bar
+ * calling the user's strategy function.
+ */
+const runLegacy = async (
+  strategyFn: LegacyStrategyFn,
+  bars: readonly Bar[],
+  inputs: Record<string, unknown>,
+): Promise<EngineRun> => {
+  // Create a StrategyEngine (built-in emulator, no broker adapter).
+  const engine = new StrategyEngine();
+  engine.configure({
+    // pine-ts 0.1.x uses `title` as the broker symbol (no setSymbol API).
+    title: "BACKTEST",
+    pyramiding: 1,
+    initial_capital: 10_000,
+    default_qty_type: "fixed",
+    default_qty_value: 1,
+    commission_type: "percent",
+    commission_value: 0.1,
+    slippage: 0,
+    slippage_unit: "points",
+    margin_long: 100,
+    margin_short: 100,
+  });
+
+  const testInfo = { ticker: "BACKTEST", tickerId: "BACKTEST", timezone: "UTC", type: "crypto" as const };
+  const provider = {
+    getHistoricalBars: async () => bars,
+    streamBars: () => ({ [Symbol.asyncIterator]: async function* () { yield* []; } }),
+    getSymbolInfo: async () => testInfo,
+  };
+  const runtime = new PineRuntime({ provider, symbol: "BACKTEST", timeframe: "1" });
+  const equityCurve: { time: number; equity: number }[] = [];
+
+  await runtime.run((ctx: PineContext) => {
+    // PineRuntime doesn't drive the engine; fill orders queued on the
+    // previous bar against this bar before the strategy places new ones.
+    engine.processBar(ctx.bar);
+    try {
+      strategyFn({ ta, ctx, engine, inputs });
+    } catch {
+      // Per-bar error — continue (the strategy might error on some bars).
+    }
+    equityCurve.push({ time: ctx.bar.time, equity: engine.equity });
+  }, bars as never);
+  return { engine, equityCurve };
+};
+
+const summarize = ({ engine, equityCurve }: EngineRun): BacktestResult => {
+  const trades: BacktestTrade[] = engine.getClosedTrades().map((t) => ({
+    entryTime: t.entryTime,
+    exitTime: t.exitTime,
+    direction: t.direction,
+    qty: t.qty,
+    entryPrice: t.entryPrice,
+    exitPrice: t.exitPrice,
+    profit: t.profit,
+  }));
+
+  const wins = trades.filter((t) => t.profit > 0);
+  const losses = trades.filter((t) => t.profit <= 0);
+  const grossProfit = engine.grossprofit;
+  const grossLoss = engine.grossloss;
+  const profitFactor = grossLoss !== 0 ? Math.abs(grossProfit / grossLoss) : grossProfit > 0 ? Infinity : 0;
+
+  const summary: BacktestSummary = {
+    initialCapital: engine.config.initial_capital ?? 0,
+    netProfit: engine.netprofit,
+    grossProfit,
+    grossLoss,
+    maxDrawdown: engine.max_drawdown,
+    finalEquity: engine.equity,
+    totalTrades: trades.length,
+    winTrades: wins.length,
+    lossTrades: losses.length,
+    winRate: trades.length > 0 ? (wins.length / trades.length) * 100 : 0,
+    profitFactor,
+  };
+
+  return { ok: true, summary, trades, equityCurve };
+};
 
 export { DEFAULT_STRATEGY };
