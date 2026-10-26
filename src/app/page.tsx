@@ -235,7 +235,12 @@ export default function Home() {
           ref={testerPanelRef} order={2} defaultSize={30} minSize={15} collapsible collapsedSize={0}
           onCollapse={() => isRestored && setIsTesterOpen(false)} onExpand={() => isRestored && setIsTesterOpen(true)}
         >
-          <StrategyTester result={editor.backtest.result} onOpenSettings={editor.openSettings} />
+          <StrategyTester
+            result={editor.backtest.result}
+            onOpenSettings={editor.openSettings}
+            strategyCode={editor.strategyCode}
+            onApplyCode={editor.scripts.setDraft}
+          />
         </ResizablePanel>
       </ResizablePanelGroup>
       <RightSidebar active={rightPanel} isOpen={isEditorOpen} onSelect={onSelectRightPanel} />

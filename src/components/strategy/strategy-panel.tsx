@@ -53,7 +53,17 @@ export function useBacktest(
 }
 
 /** Bottom Strategy Tester panel: TradingView-style metrics report and list of trades. */
-export function StrategyTester({ result, onOpenSettings }: { result: BacktestResult | null; onOpenSettings: () => void }) {
+export function StrategyTester({
+  result,
+  onOpenSettings,
+  strategyCode,
+  onApplyCode,
+}: {
+  result: BacktestResult | null;
+  onOpenSettings: () => void;
+  strategyCode?: string | null;
+  onApplyCode?: (code: string) => void;
+}) {
   const summary = result?.summary;
   if (result === null) return <TesterMessage text="Run a strategy from the Pine Editor to see results." />;
   if (!result.ok || summary === undefined) return <TesterMessage text={result.error ?? "Backtest failed."} isError />;
@@ -64,6 +74,8 @@ export function StrategyTester({ result, onOpenSettings }: { result: BacktestRes
       initialCapital={summary.initialCapital}
       currency="USD"
       onOpenSettings={onOpenSettings}
+      strategyCode={strategyCode}
+      onApplyCode={onApplyCode}
     />
   );
 }

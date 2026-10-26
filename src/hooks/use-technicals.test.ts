@@ -58,8 +58,7 @@ function renderTestHook<T>(hook: () => T) {
     stateIndex = 0;
     effectIndex = 0;
     refIndex = 0;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const internals = (React as any).__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
+    const internals = (React as unknown as { __CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE: { H: typeof dispatcher } }).__CLIENT_INTERNALS_DO_NOT_USE_OR_WARN_USERS_THEY_CANNOT_UPGRADE;
     const prev = internals.H;
     internals.H = dispatcher;
     try {

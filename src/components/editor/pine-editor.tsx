@@ -1,13 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Plus, Settings, X } from "lucide-react";
+import { Plus, Settings, Sparkles, X } from "lucide-react";
 import type { Bar, InputConfig, InputsBag, ScriptDrawings } from "@nemesis-oss/pine-ts";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { CodeEditor, type CodeError } from "@/components/editor/code-editor";
 import { OpenScriptDialog, ScriptMenu } from "@/components/editor/script-menu";
+import { AiScriptDialog } from "@/components/editor/ai-script-dialog";
 import { ScriptCompileError } from "@/lib/script-loader";
 import { runIndicatorCode, type PlotSpec } from "@/lib/indicator-runner";
 import { describeCode } from "@/lib/script-library";
@@ -89,6 +90,8 @@ export function PineEditor({ bars, onResults, onStrategyCode, onAddToChart, onCl
   const [autoRun, setAutoRun] = useState(true);
   const [error, setError] = useState<CodeError | null>(null);
   const [isOpenDialogOpen, setIsOpenDialogOpen] = useState(false);
+  const [isAiDialogOpen, setIsAiDialogOpen] = useState(false);
+  const [aiErrorToFix, setAiErrorToFix] = useState<string | null>(null);
   const { lines, log } = useConsole();
   const runCode = useScriptRunner({ bars, inputs: scripts.settings.inputs, onResults, onStrategyCode, log, setError });
   useAutoRun(scripts.draft, bars, autoRun, runCode);
@@ -102,6 +105,7 @@ export function PineEditor({ bars, onResults, onStrategyCode, onAddToChart, onCl
 
   const onSaved = (ok: boolean) => log(ok ? "Script saved." : "Could not save: browser storage is unavailable.", !ok);
   const addToChart = () => { onAddToChart?.(); void runCode(scripts.draft); };
+  const onFixWithAi = (msg: string) => { setAiErrorToFix(msg); setIsAiDialogOpen(true); };
   return (
     <div className="flex h-full flex-col bg-[#131722]">
       <div className="flex h-9 shrink-0 items-center justify-between px-3 text-sm text-[#d1d4dc]">
@@ -111,6 +115,15 @@ export function PineEditor({ bars, onResults, onStrategyCode, onAddToChart, onCl
       <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border px-2">
         <ScriptMenu scripts={scripts} onSaved={onSaved} onOpenScripts={() => setIsOpenDialogOpen(true)} />
         <div className="flex shrink-0 items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-7 text-xs gap-1 border-indigo-500/40 text-indigo-300 hover:bg-indigo-950/40"
+            onClick={() => { setAiErrorToFix(error?.message ?? null); setIsAiDialogOpen(true); }}
+            title="Pine Script AI Copilot & Self-Healing Agent"
+          >
+            <Sparkles className="h-3.5 w-3.5 text-indigo-400" /> AI
+          </Button>
           <button type="button" title="Settings" onClick={onOpenSettings} className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground">
             <Settings className="h-4 w-4" />
           </button>
@@ -133,8 +146,15 @@ export function PineEditor({ bars, onResults, onStrategyCode, onAddToChart, onCl
       >
         <CodeEditor value={scripts.draft} onChange={scripts.setDraft} error={error} />
       </div>
-      <EditorConsole lines={lines} barCount={bars.length} />
+      <EditorConsole lines={lines} barCount={bars.length} onFixError={onFixWithAi} />
       <OpenScriptDialog open={isOpenDialogOpen} onClose={() => setIsOpenDialogOpen(false)} scripts={scripts} />
+      <AiScriptDialog
+        isOpen={isAiDialogOpen}
+        onClose={() => setIsAiDialogOpen(false)}
+        currentCode={scripts.draft}
+        currentError={aiErrorToFix}
+        onApplyCode={(code) => { scripts.setDraft(code); void runCode(code); }}
+      />
     </div>
   );
 }
@@ -185,7 +205,11 @@ function useAutoRun(code: string, bars: readonly Bar[], autoRun: boolean, runCod
   }, [bars]);
 }
 
-function EditorConsole({ lines, barCount }: { lines: readonly ConsoleLine[]; barCount: number }) {
+function EditorConsole({ lines, barCount, onFixError }: {
+  lines: readonly ConsoleLine[];
+  barCount: number;
+  onFixError?: (error: string) => void;
+}) {
   const endRef = useRef<HTMLDivElement>(null);
   useEffect(() => { endRef.current?.scrollIntoView({ block: "nearest" }); }, [lines]);
   return (
@@ -196,8 +220,20 @@ function EditorConsole({ lines, barCount }: { lines: readonly ConsoleLine[]; bar
       </div>
       <div className="flex-1 overflow-y-auto px-3 pb-1">
         {lines.map((line, i) => (
-          <div key={i} className={line.isError ? "text-[#f23645]" : "text-[#b2b5be]"}>
-            <span className="mr-2 text-[#50535e]">{line.time}</span>{line.text}
+          <div key={i} className={`flex items-center justify-between ${line.isError ? "text-[#f23645]" : "text-[#b2b5be]"}`}>
+            <div>
+              <span className="mr-2 text-[#50535e]">{line.time}</span>{line.text}
+            </div>
+            {line.isError && onFixError && (
+              <button
+                type="button"
+                onClick={() => onFixError(line.text)}
+                className="inline-flex items-center gap-1 rounded bg-indigo-900/40 px-1.5 py-0.5 text-[10px] text-indigo-300 hover:bg-indigo-800/60"
+                title="Self-heal error with AI"
+              >
+                <Sparkles className="h-2.5 w-2.5" /> Fix with AI
+              </button>
+            )}
           </div>
         ))}
         <div ref={endRef} />

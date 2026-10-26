@@ -1,7 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ChartLine, List, Settings } from "lucide-react";
+import { ChartLine, List, Settings, Sparkles } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { AiAuditDialog } from "@/components/strategy/ai-audit-dialog";
+import type { BacktestSummary } from "@/lib/strategy-runner";
 import {
   buyHoldEquity, cagr, drawdownPeriods, isLong, maxDrawdown, periodPnl, profitFactor, riskRatios,
   type EquityPoint, type Period, type ReportTrade,
@@ -22,11 +25,36 @@ export interface ReportData {
 export interface StrategyReportProps extends ReportData {
   /** The strategy's settings dialog (Inputs, Properties, ...), as TradingView's tester gear. */
   readonly onOpenSettings: () => void;
+  readonly strategyCode?: string | null;
+  readonly onApplyCode?: (code: string) => void;
 }
 
 /** TradingView-style Strategy Tester: the metrics report or the list of trades. */
-export function StrategyReport({ onOpenSettings, ...data }: StrategyReportProps) {
+export function StrategyReport({ onOpenSettings, strategyCode, onApplyCode, ...data }: StrategyReportProps) {
   const [view, setView] = useState<"metrics" | "trades">("metrics");
+  const [isAuditOpen, setIsAuditOpen] = useState(false);
+
+  const summary = useMemo((): BacktestSummary => {
+    const netPnl = data.trades.reduce((total, t) => total + t.profit, 0);
+    const grossProfit = data.trades.filter((t) => t.profit > 0).reduce((tot, t) => tot + t.profit, 0);
+    const grossLoss = Math.abs(data.trades.filter((t) => t.profit < 0).reduce((tot, t) => tot + t.profit, 0));
+    const drawdown = maxDrawdown(data.equity);
+    const winners = data.trades.filter((t) => t.profit > 0).length;
+    return {
+      initialCapital: data.initialCapital,
+      netProfit: netPnl,
+      grossProfit,
+      grossLoss,
+      maxDrawdown: drawdown.amount,
+      finalEquity: data.initialCapital + netPnl,
+      winTrades: winners,
+      lossTrades: data.trades.length - winners,
+      profitFactor: profitFactor(data.trades),
+      winRate: data.trades.length === 0 ? 0 : winners / data.trades.length,
+      totalTrades: data.trades.length,
+    };
+  }, [data.trades, data.equity, data.initialCapital]);
+
   return (
     <div className="flex h-full flex-col bg-background">
       <div className="flex shrink-0 items-center gap-1 border-b border-border px-3 py-1.5">
@@ -34,10 +62,29 @@ export function StrategyReport({ onOpenSettings, ...data }: StrategyReportProps)
         <IconToggle isActive={view === "trades"} onClick={() => setView("trades")} title="List of trades"><List className="h-4 w-4" /></IconToggle>
         <span className="mx-1 h-4 w-px bg-border" />
         <IconToggle isActive={false} onClick={onOpenSettings} title="Strategy settings"><Settings className="h-4 w-4" /></IconToggle>
+        {strategyCode && (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-6 text-xs gap-1 border-indigo-500/40 text-indigo-300 hover:bg-indigo-950/40 ml-auto"
+            onClick={() => setIsAuditOpen(true)}
+            title="AI Quant Strategy Auditor & Autonomous Optimizer"
+          >
+            <Sparkles className="h-3 w-3 text-indigo-400" /> AI Audit & Optimize
+          </Button>
+        )}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
         {view === "trades" ? <TradeList trades={data.trades} quoteCurrency={data.currency} /> : <Metrics {...data} />}
       </div>
+      <AiAuditDialog
+        isOpen={isAuditOpen}
+        onClose={() => setIsAuditOpen(false)}
+        strategyCode={strategyCode ?? null}
+        summary={summary}
+        trades={data.trades}
+        onApplyOptimizedCode={(code) => onApplyCode?.(code)}
+      />
     </div>
   );
 }

@@ -77,7 +77,7 @@ export function useEditorScript(onOpenEditor: () => void, onOpenTester: () => vo
   };
 
   return {
-    scripts, editorBars, setEditorBars, backtest, tradeMarkers, chartOutput, onScriptAction, settingsDialog,
+    scripts, editorBars, setEditorBars, backtest, tradeMarkers, chartOutput, onScriptAction, settingsDialog, strategyCode,
     openSettings: () => setIsSettingsOpen(true),
     editorProps: {
       bars: editorBars,
