@@ -15,11 +15,15 @@ const UP_COLOR = "#089981";
 const DOWN_COLOR = "#f23645";
 const VOLUME_UP_COLOR = "#08998180";
 const VOLUME_DOWN_COLOR = "#f2364580";
+// Time constant for price smoothing: ~63% of move closes in 120ms, ~95% in 360ms.
+const SMOOTHING_TAU_MS = 120;
+// Below this relative price delta, the remaining distance is invisible and animation settles.
+const SETTLE_EPSILON = 1e-7;
 const COUNTDOWN_REFRESH_MS = 1_000;
 
 interface Ohlc { open: number; high: number; low: number; close: number }
 
-/** The forming candle as currently drawn. */
+/** The forming candle as currently drawn (mid-smoothing it trails the real bar). */
 export interface CandleFrame extends Ohlc { readonly time: number; readonly volume: number }
 
 interface CandleSeries {
@@ -38,6 +42,11 @@ const toVolume = (bar: Bar) => ({
   value: bar.volume,
   color: bar.close >= bar.open ? VOLUME_UP_COLOR : VOLUME_DOWN_COLOR,
 });
+
+const lerp = (from: number, to: number, t: number): number => from + (to - from) * t;
+
+const isSameOhlc = (a: Ohlc, b: Ohlc): boolean =>
+  a.open === b.open && a.high === b.high && a.low === b.low && a.close === b.close;
 
 /** Adds the candle + volume series to `chart`, TradingView-styled. */
 const createCandleSeries = (chart: IChartApi): CandleSeries => {
