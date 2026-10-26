@@ -43,6 +43,18 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm build
 
+      # Likewise `file:./ollama-sdk`: the local ollama-sdk checkout, built from main.
+      - uses: actions/checkout@v5
+        with:
+          repository: shubhamtaywade82/ollama-sdk
+          path: ollama-sdk
+      - name: Build ollama-sdk
+        working-directory: ollama-sdk
+        # --ignore-scripts: its `prepare` installs git hooks, which CI doesn't need.
+        run: |
+          npm ci --ignore-scripts
+          npm run build
+
       - uses: oven-sh/setup-bun@v2
       - run: bun install --frozen-lockfile
       - run: bunx prisma generate
