@@ -12,7 +12,7 @@ import { ScriptCompileError } from "@/lib/script-loader";
 import { runIndicatorCode, type PlotSpec } from "@/lib/indicator-runner";
 import { describeCode } from "@/lib/script-library";
 import { DEFAULT_STRATEGY, loadStrategyCode } from "@/lib/strategy-runner";
-import { useScriptLibrary, type ScriptTemplates } from "@/hooks/use-script-library";
+import type { ScriptLibraryState, ScriptTemplates } from "@/hooks/use-script-library";
 
 /**
  * TradingView-style Pine Editor panel. One editor for indicators and
@@ -29,6 +29,8 @@ export interface PineEditorProps {
   /** "Add to chart" / Ctrl+Enter: puts the script back on the chart if it was removed from the legend. */
   readonly onAddToChart?: () => void;
   readonly onClose?: () => void;
+  /** The script library, owned by the page so the Indicators dialog shares it. */
+  readonly scripts: ScriptLibraryState;
 }
 
 const DEFAULT_INDICATOR = `// Custom indicator — runs once per bar, like Pine Script.
@@ -43,13 +45,13 @@ indicator("RSI", ({ close, input, plot, hline }) => {
 });
 `;
 
-const TEMPLATES: ScriptTemplates = { indicator: DEFAULT_INDICATOR, strategy: DEFAULT_STRATEGY };
+export const SCRIPT_TEMPLATES: ScriptTemplates = { indicator: DEFAULT_INDICATOR, strategy: DEFAULT_STRATEGY };
 
 // Where the editor kept its single indicator script before the library existed.
 const LEGACY_INDICATOR_KEY = "pine-ts-workbench-editor-code";
 
 /** The pre-library scripts, so the first library load keeps the user's work. */
-const legacyScripts = (): string[] => {
+export const legacyScripts = (): string[] => {
   let indicator: string | null = null;
   try { indicator = window.localStorage.getItem(LEGACY_INDICATOR_KEY); } catch { /* storage blocked */ }
   const isOldTemplate = indicator === null || indicator.includes("export function calculate({ ta, ctx, inputs }");
@@ -74,8 +76,7 @@ function useConsole() {
   return { lines, log };
 }
 
-export function PineEditor({ bars, onResults, onStrategyCode, onAddToChart, onClose }: PineEditorProps) {
-  const scripts = useScriptLibrary(TEMPLATES, legacyScripts);
+export function PineEditor({ bars, onResults, onStrategyCode, onAddToChart, onClose, scripts }: PineEditorProps) {
   const [autoRun, setAutoRun] = useState(true);
   const [error, setError] = useState<CodeError | null>(null);
   const [isOpenDialogOpen, setIsOpenDialogOpen] = useState(false);

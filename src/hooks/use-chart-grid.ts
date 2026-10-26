@@ -45,11 +45,15 @@ export function useChartGrid() {
     setCells((prev) => prev.map((c) => (c.id === cellId ? { ...c, ...patch } : c)));
   }, []);
 
-  const onAddIndicator = useCallback((indicatorId: string) => {
-    const added = createMountedIndicator(indicatorId);
-    if (added === undefined) return;
+  /** Adds an indicator instance to the active chart. */
+  const addToActiveCell = useCallback((added: MountedIndicator) => {
     setCells((prev) => prev.map((c) => (c.id === activeCell.id ? { ...c, indicators: [...c.indicators, added] } : c)));
   }, [activeCell.id]);
+
+  const onAddIndicator = useCallback((indicatorId: string) => {
+    const added = createMountedIndicator(indicatorId);
+    if (added !== undefined) addToActiveCell(added);
+  }, [addToActiveCell]);
 
   const onLayoutChange = useCallback((nextLayout: GridLayout) => {
     setLayout(nextLayout);
@@ -80,6 +84,6 @@ export function useChartGrid() {
 
   return {
     layout, cells, activeCellId, activeCell, canAddCell: cells.length < MAX_CELLS,
-    setActiveCellId, replaceGrid, onCellChange, onAddIndicator, onLayoutChange, onRemoveCell, onAddCell,
+    setActiveCellId, replaceGrid, onCellChange, onAddIndicator, addToActiveCell, onLayoutChange, onRemoveCell, onAddCell,
   };
 }

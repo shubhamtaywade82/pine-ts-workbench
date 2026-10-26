@@ -44,13 +44,13 @@ export function useScriptLibrary(templates: ScriptTemplates, seed: () => readonl
 
   useEffect(() => {
     let loaded = loadLibrary();
-    const isFirstUse = loaded.length === 0;
-    if (isFirstUse) {
-      for (const code of seed()) loaded = createScript(loaded, { code, id: newId(), now: Date.now() });
+    if (loaded.length === 0) {
+      const now = Date.now();
+      // Earlier seeds count as more recently opened, so the first one (the old indicator) opens.
+      seed().forEach((code, i) => { loaded = createScript(loaded, { code, id: newId(), now: now - i }); });
       persistLibrary(loaded);
     }
-    // First use opens the first seeded script (the editor's old indicator), as before the library.
-    const latest = isFirstUse ? loaded[0] : [...loaded].sort((a, b) => b.openedAt - a.openedAt)[0];
+    const latest = [...loaded].sort((a, b) => b.openedAt - a.openedAt)[0];
     setLibrary(loaded);
     setActiveId(latest?.id);
     setDraft(latest === undefined ? templates.indicator : currentCode(latest));

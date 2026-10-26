@@ -75,3 +75,13 @@ export const runIndicatorCode = (userCode: string, bars: readonly Bar[]): Promis
   throw new ScriptCompileError("This is a strategy; it runs in the Strategy Tester.", null);
 };
 
+
+/** Whether indicator code declares `overlay: true` (draws on the price pane); false when it does not compile. */
+export const isOverlayScript = (userCode: string): boolean => {
+  try {
+    const loaded = loadScript<CalculateFn>(userCode, "calculate");
+    return loaded.kind === "indicator" && loaded.script.options.overlay === true;
+  } catch {
+    return false;
+  }
+};

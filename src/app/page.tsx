@@ -10,7 +10,11 @@ import { TopToolbar, LAYOUT_OPTIONS, type GridLayout } from "@/components/chart/
 import { useChartGrid, newCell } from "@/hooks/use-chart-grid";
 import { ChartSettingsDialog } from "@/components/chart/chart-settings-dialog";
 import { DEFAULT_CHART_SETTINGS, loadChartSettings, saveChartSettings, type ChartSettings } from "@/lib/chart-settings";
-import { PineEditor } from "@/components/editor/pine-editor";
+import { PineEditor, SCRIPT_TEMPLATES, legacyScripts } from "@/components/editor/pine-editor";
+import { useScriptLibrary } from "@/hooks/use-script-library";
+import { createScriptIndicator } from "@/components/chart/indicator-dialogs";
+import { currentCode } from "@/lib/script-library";
+import { isOverlayScript } from "@/lib/indicator-runner";
 import { useBacktest, StrategyTester } from "@/components/strategy/strategy-panel";
 import type { TradeMarker } from "@/components/chart/chart-workbench";
 import type { BacktestTrade } from "@/lib/strategy-runner";
@@ -91,6 +95,12 @@ export default function Home() {
   // Strategy code from the Pine Editor; null until the editor opens a strategy.
   const [strategyCode, setStrategyCode] = useState<string | null>(null);
   const backtest = useBacktest(editorBars, strategyCode, setBacktestTrades);
+  const scripts = useScriptLibrary(SCRIPT_TEMPLATES, legacyScripts);
+  const { addToActiveCell } = grid;
+  const onAddScript = useCallback((scriptId: string) => {
+    const script = scripts.library.find((s) => s.id === scriptId);
+    if (script !== undefined) addToActiveCell(createScriptIndicator(script, isOverlayScript(currentCode(script))));
+  }, [scripts.library, addToActiveCell]);
 
   // Convert backtest trades → trade markers for the active chart cell. Wave 21.
   const tradeMarkers = useMemo<TradeMarker[]>(() => {
@@ -167,6 +177,9 @@ export default function Home() {
         activeCell={grid.activeCell}
         onActiveCellChange={(patch) => onCellChange(grid.activeCell.id, patch)}
         onAddIndicator={grid.onAddIndicator}
+        scripts={scripts}
+        onAddScript={onAddScript}
+        onOpenScript={(id) => { scripts.open(id); setIsEditorOpen(true); }}
         layout={layout}
         onLayoutChange={grid.onLayoutChange}
         canAddCell={grid.canAddCell}
@@ -236,6 +249,7 @@ export default function Home() {
                   }}
                   onAddToChart={() => setIsEditorScriptOnChart(true)}
                   onClose={() => setIsEditorOpen(false)}
+                  scripts={scripts}
                 />
               </div>
             </ResizablePanel>

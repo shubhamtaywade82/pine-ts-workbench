@@ -15,6 +15,8 @@ import {
 import type { ChartDrawing } from "@/components/chart/script-drawings-primitive";
 import type { ChartSettings } from "@/lib/chart-settings";
 import { Button } from "@/components/ui/button";
+import { loadLibrary, currentCode } from "@/lib/script-library";
+import { runIndicatorCode } from "@/lib/indicator-runner";
 import { X } from "lucide-react";
 import { useLiveBars, type LiveStatus } from "@/hooks/use-live-bars";
 
@@ -34,8 +36,28 @@ const FALLBACK_COLOR = "#1e88e5";
 
 interface IndicatorRunResult {
   readonly plots: Record<string, Array<number | undefined>>;
-  readonly meta: ReturnType<typeof registry.metadata>;
+  readonly meta: { readonly plots: readonly { id: string; kind: string; color?: string }[] } | undefined;
 }
+
+/** Runs one mounted indicator over `bars`: a registry built-in, or a saved "My scripts" indicator. */
+const runMounted = async (m: MountedIndicator, bars: readonly Bar[]): Promise<IndicatorRunResult | undefined> => {
+  if (m.scriptId !== undefined) {
+    const script = loadLibrary().find((s) => s.id === m.scriptId);
+    if (script === undefined) return undefined;
+    const run = await runIndicatorCode(currentCode(script), bars);
+    return { plots: run.results, meta: { plots: run.plots.map((p) => ({ ...p, kind: p.kind === "hline" ? "line" : p.kind })) } };
+  }
+  const meta = registry.metadata(m.indicatorId);
+  const instance = registry.instantiate(m.indicatorId, m.inputs);
+  if (!instance || !meta) return undefined;
+  const perPlot: Record<string, Array<number | undefined>> = {};
+  let barIndex = 0;
+  for await (const r of instance.run(bars as never)) {
+    for (const [plotId, value] of Object.entries(r)) (perPlot[plotId] ??= [])[barIndex] = value;
+    barIndex++;
+  }
+  return { plots: perPlot, meta };
+};
 
 /** What the page stores (and persists) per chart cell. */
 export interface CellSettings {
@@ -98,19 +120,12 @@ export function ChartCell({
     (async () => {
       const out: Record<string, IndicatorRunResult> = {};
       for (const m of mounted) {
-        const meta = registry.metadata(m.indicatorId);
-        const instance = registry.instantiate(m.indicatorId, m.inputs);
-        if (!instance || !meta) continue;
-        const perPlot: Record<string, Array<number | undefined>> = {};
-        let barIndex = 0;
-        for await (const r of instance.run(bars as never)) {
-          for (const [plotId, value] of Object.entries(r)) {
-            if (perPlot[plotId] === undefined) perPlot[plotId] = [];
-            perPlot[plotId]![barIndex] = value;
-          }
-          barIndex++;
+        try {
+          const result = await runMounted(m, bars);
+          if (result !== undefined) out[m.instanceId] = result;
+        } catch {
+          // A saved script that no longer compiles draws nothing; the Pine Editor reports the error.
         }
-        out[m.instanceId] = { plots: perPlot, meta };
       }
       if (!cancelled) setRunResults(out);
     })();
