@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   createChart,
-  LineSeries,
   createSeriesMarkers,
   type IChartApi,
   type ISeriesApi,
@@ -16,6 +15,7 @@ import { useCandleSeries, type CandleFrame } from "@/hooks/use-candle-series";
 import { INTERVAL_MS, type ChartInterval } from "@/lib/public-binance-feed";
 import { ScriptDrawingsPrimitive, type ChartDrawing } from "@/components/chart/script-drawings-primitive";
 import { PriceScaleMenu } from "@/components/chart/price-scale-menu";
+import { useOverlaySeries } from "@/hooks/use-overlay-series";
 import { DEFAULT_CHART_SETTINGS, toCandleOptions, toChartOptions, type ChartSettings } from "@/lib/chart-settings";
 
 /**
@@ -54,17 +54,6 @@ const TV = {
 };
 
 const LOAD_OLDER_THRESHOLD_BARS = 30;
-
-/** `hasValueLabel`: price-axis label for sub-pane plots; levels never get one (TradingView shows only the scale). */
-const lineOptions = (overlay: ChartOverlay, hasValueLabel = false) => ({
-  color: overlay.color,
-  lineWidth: 1 as const,
-  lineStyle: overlay.isLevel ? 2 : 0, // 2 = Dashed
-  priceLineVisible: false,
-  crosshairMarkerVisible: !overlay.isLevel,
-  visible: !overlay.isHidden,
-  lastValueVisible: hasValueLabel && !overlay.isLevel,
-});
 
 /**
  * A pane (sub-chart) below the main price pane. Used for oscillators like
@@ -272,69 +261,7 @@ export function ChartWorkbench({
     drawingsRef.current.primitive.setDrawings(drawings ?? []);
   }, [drawings, candlestickRef]);
 
-  // Update the main-pane overlays.
-  useEffect(() => {
-    const chart = chartRef.current;
-    if (chart === null) return;
-    const known = new Set<string>();
-    for (const overlay of mainOverlays) {
-      known.add(overlay.instanceId);
-      let series = overlaySeriesRef.current.get(overlay.instanceId);
-      if (series === undefined) {
-        series = chart.addSeries(LineSeries, lineOptions(overlay));
-        overlaySeriesRef.current.set(overlay.instanceId, series);
-      } else {
-        series.applyOptions(lineOptions(overlay));
-      }
-      series.setData(
-        overlay.data.map((d) => ({
-          time: Math.floor(d.time / 1000) as Time,
-          value: d.value,
-        })),
-      );
-    }
-    // Remove series that are no longer present.
-    for (const [id, series] of overlaySeriesRef.current.entries()) {
-      if (!known.has(id)) {
-        chart.removeSeries(series);
-        overlaySeriesRef.current.delete(id);
-      }
-    }
-  }, [mainOverlays]);
-
-  // Update the sub-pane overlays.
-  useEffect(() => {
-    const chart = chartRef.current;
-    if (chart === null) return;
-    const known = new Set(subPanes.flatMap((pane) => pane.overlays.map((o) => `${pane.paneId}:${o.instanceId}`)));
-    // Remove first: LWC drops emptied panes and renumbers the rest, which the moves below rely on.
-    for (const [key, series] of subPaneSeriesRef.current.entries()) {
-      if (!known.has(key)) {
-        chart.removeSeries(series);
-        subPaneSeriesRef.current.delete(key);
-      }
-    }
-    subPanes.forEach((pane, i) => {
-      const paneIndex = i + 1;
-      for (const overlay of pane.overlays) {
-        const key = `${pane.paneId}:${overlay.instanceId}`;
-        let series = subPaneSeriesRef.current.get(key);
-        if (series === undefined) {
-          series = chart.addSeries(LineSeries, lineOptions(overlay, true), paneIndex);
-          subPaneSeriesRef.current.set(key, series);
-        } else {
-          series.applyOptions(lineOptions(overlay, true));
-          // A pane added or removed before this one shifts its index; series don't follow on their own.
-          if (series.getPane().paneIndex() !== paneIndex) series.moveToPane(paneIndex);
-        }
-        series.setData(overlay.data.map((d) => ({ time: Math.floor(d.time / 1000) as Time, value: d.value })));
-      }
-    });
-    // TradingView gives price ~75% of the height; LWC defaults to equal panes.
-    chart.panes().forEach((pane, i) => pane.setStretchFactor(i === 0 ? 3 : 1));
-    // Pane heights settle on LWC's next paint, not synchronously.
-    requestAnimationFrame(() => setPaneHeights(chart.panes().map((pane) => pane.getHeight())));
-  }, [subPanes]);
+  useOverlaySeries(chartRef, { mainOverlays, subPanes, overlaySeriesRef, subPaneSeriesRef }, setPaneHeights);
 
   return (
     <div className="relative h-full w-full">

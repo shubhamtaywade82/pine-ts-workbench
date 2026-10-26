@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   createScript, currentCode, deleteScript, loadLibrary, markOpened, persistLibrary, renameScript,
-  saveVersion, toggleFavorite, type ScriptKind, type ScriptLibrary, type SavedScript,
+  saveVersion, toggleFavorite, updateSettings, EMPTY_SETTINGS,
+  type ScriptKind, type ScriptLibrary, type SavedScript, type ScriptSettings,
 } from "@/lib/script-library";
 
 /** Code a "Create new" script starts from, per kind. */
@@ -26,6 +27,8 @@ export interface ScriptLibraryState {
   readonly restoreVersion: (code: string) => void;
   readonly remove: (id: string) => void;
   readonly toggleFavorite: (id: string) => void;
+  readonly settings: ScriptSettings;
+  readonly setSettings: (settings: ScriptSettings) => void;
 }
 
 /**
@@ -94,5 +97,7 @@ export function useScriptLibrary(templates: ScriptTemplates, seed: () => readonl
       if (id === activeId) { setActiveId(undefined); setDraft(templates.indicator); }
     },
     toggleFavorite: (id) => commit(toggleFavorite(library, id)),
+    settings: active?.settings ?? EMPTY_SETTINGS,
+    setSettings: (settings) => { if (active !== undefined) commit(updateSettings(library, active.id, settings)); },
   };
 }

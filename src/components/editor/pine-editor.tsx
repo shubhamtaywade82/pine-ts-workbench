@@ -1,8 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Plus, X } from "lucide-react";
-import type { Bar, ScriptDrawings } from "@nemesis-oss/pine-ts";
+import { Plus, Settings, X } from "lucide-react";
+import type { Bar, InputConfig, InputsBag, ScriptDrawings } from "@nemesis-oss/pine-ts";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
@@ -22,8 +22,8 @@ import type { ScriptLibraryState, ScriptTemplates } from "@/hooks/use-script-lib
 
 export interface PineEditorProps {
   readonly bars: readonly Bar[];
-  /** Indicator plot values per bar (aligned with `bars`), plot specs and drawings. */
-  readonly onResults: (results: Record<string, Array<number | undefined>>, plots: PlotSpec[], drawings: ScriptDrawings) => void;
+  /** An indicator run: plot values per bar (aligned with `bars`), plot specs, drawings and declared inputs. */
+  readonly onResults: (run: IndicatorRun) => void;
   /** Strategy code to backtest (the Strategy Tester shows results and errors). */
   readonly onStrategyCode: (code: string) => void;
   /** "Add to chart" / Ctrl+Enter: puts the script back on the chart if it was removed from the legend. */
@@ -31,6 +31,8 @@ export interface PineEditorProps {
   readonly onClose?: () => void;
   /** The script library, owned by the page so the Indicators dialog shares it. */
   readonly scripts: ScriptLibraryState;
+  /** Opens the script's settings dialog (Inputs, Properties, Style, Visibility). */
+  readonly onOpenSettings: () => void;
 }
 
 const DEFAULT_INDICATOR = `// Custom indicator — runs once per bar, like Pine Script.
@@ -58,6 +60,13 @@ export const legacyScripts = (): string[] => {
   return [isOldTemplate ? DEFAULT_INDICATOR : indicator!, loadStrategyCode()];
 };
 
+export interface IndicatorRun {
+  readonly results: Record<string, Array<number | undefined>>;
+  readonly plots: PlotSpec[];
+  readonly drawings: ScriptDrawings;
+  readonly inputs: readonly InputConfig[];
+}
+
 const AUTO_RUN_DEBOUNCE_MS = 500;
 const MAX_CONSOLE_LINES = 50;
 
@@ -76,13 +85,20 @@ function useConsole() {
   return { lines, log };
 }
 
-export function PineEditor({ bars, onResults, onStrategyCode, onAddToChart, onClose, scripts }: PineEditorProps) {
+export function PineEditor({ bars, onResults, onStrategyCode, onAddToChart, onClose, scripts, onOpenSettings }: PineEditorProps) {
   const [autoRun, setAutoRun] = useState(true);
   const [error, setError] = useState<CodeError | null>(null);
   const [isOpenDialogOpen, setIsOpenDialogOpen] = useState(false);
   const { lines, log } = useConsole();
-  const runCode = useScriptRunner({ bars, onResults, onStrategyCode, log, setError });
+  const runCode = useScriptRunner({ bars, inputs: scripts.settings.inputs, onResults, onStrategyCode, log, setError });
   useAutoRun(scripts.draft, bars, autoRun, runCode);
+  // New input values from the settings dialog apply at once, like TradingView's Ok.
+  // Via refs: runCode changes whenever the page re-renders, the inputs only on Ok.
+  const latest = useRef({ draft: scripts.draft, runCode });
+  useEffect(() => { latest.current = { draft: scripts.draft, runCode }; }, [scripts.draft, runCode]);
+  useEffect(() => {
+    if (latest.current.draft !== "") void latest.current.runCode(latest.current.draft);
+  }, [scripts.settings.inputs]);
 
   const onSaved = (ok: boolean) => log(ok ? "Script saved." : "Could not save: browser storage is unavailable.", !ok);
   const addToChart = () => { onAddToChart?.(); void runCode(scripts.draft); };
@@ -95,6 +111,9 @@ export function PineEditor({ bars, onResults, onStrategyCode, onAddToChart, onCl
       <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border px-2">
         <ScriptMenu scripts={scripts} onSaved={onSaved} onOpenScripts={() => setIsOpenDialogOpen(true)} />
         <div className="flex shrink-0 items-center gap-2">
+          <button type="button" title="Settings" onClick={onOpenSettings} className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground">
+            <Settings className="h-4 w-4" />
+          </button>
           <Switch id="auto-run" checked={autoRun} onCheckedChange={setAutoRun} />
           <Label htmlFor="auto-run" className="text-xs text-muted-foreground">Auto-update</Label>
           <Button size="sm" variant="outline" className="h-7 text-xs" onClick={addToChart} title="Add to chart (Ctrl+Enter)">
@@ -121,8 +140,9 @@ export function PineEditor({ bars, onResults, onStrategyCode, onAddToChart, onCl
 }
 
 /** Runs the code by kind: indicators on the bars here, strategies handed to the Strategy Tester. */
-function useScriptRunner({ bars, onResults, onStrategyCode, log, setError }: {
+function useScriptRunner({ bars, inputs, onResults, onStrategyCode, log, setError }: {
   bars: readonly Bar[];
+  inputs: InputsBag;
   onResults: PineEditorProps["onResults"];
   onStrategyCode: PineEditorProps["onStrategyCode"];
   log: (text: string, isError: boolean) => void;
@@ -136,15 +156,15 @@ function useScriptRunner({ bars, onResults, onStrategyCode, log, setError }: {
       return;
     }
     try {
-      const { results, plots, drawings, firstBarError } = await runIndicatorCode(code, bars);
-      onResults(results, plots, drawings);
+      const { firstBarError, ...run } = await runIndicatorCode(code, bars, inputs);
+      onResults(run);
       setError(null);
       log(firstBarError ?? "Compiled successfully. Script added to chart.", firstBarError !== null);
     } catch (err) {
       setError(err instanceof ScriptCompileError ? err.position : null);
       log(err instanceof Error ? err.message : String(err), true);
     }
-  }, [bars, onResults, onStrategyCode, log, setError]);
+  }, [bars, inputs, onResults, onStrategyCode, log, setError]);
 }
 
 /**

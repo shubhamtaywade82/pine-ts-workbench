@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   createScript, currentCode, deleteScript, describeCode, markOpened, recentlyUsed, renameScript,
-  saveVersion, toggleFavorite, uniqueName, type ScriptLibrary,
+  saveVersion, toggleFavorite, uniqueName, updateSettings, type ScriptLibrary,
 } from "./script-library";
 
 const RSI = `indicator("RSI", ({ close, plot }) => { plot(ta.rsi(close, 14)); });`;
@@ -43,6 +43,11 @@ describe("script library", () => {
     let library = createScript(withScript(RSI, "a", 1), { code: SMA_STRATEGY, id: "b", now: 2 });
     library = markOpened(library, "a", 3);
     expect(recentlyUsed(library).map((s) => s.id)).toEqual(["a", "b"]);
+  });
+
+  test("should store settings on the script", () => {
+    const settings = { inputs: { Length: 21 }, properties: { initial_capital: 5000 }, plotStyles: {} };
+    expect(updateSettings(withScript(RSI), "a", settings)[0]!.settings).toEqual(settings);
   });
 
   test("should toggle favourites and delete scripts", () => {

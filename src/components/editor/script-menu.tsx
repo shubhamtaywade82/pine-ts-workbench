@@ -86,7 +86,7 @@ export function OpenScriptDialog({ open, onClose, scripts }: { open: boolean; on
     .sort((a, b) => Number(b.isFavorite) - Number(a.isFavorite) || b.openedAt - a.openedAt);
   return (
     <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose(); }}>
-      <DialogContent className="flex max-h-[80vh] max-w-md flex-col gap-3">
+      <DialogContent className="flex max-h-[80vh] sm:max-w-md flex-col gap-3">
         <DialogTitle>Open my script</DialogTitle>
         <Input placeholder="Search" value={query} onChange={(e) => setQuery(e.target.value)} autoFocus />
         <div className="min-h-0 flex-1 overflow-y-auto">
@@ -120,7 +120,7 @@ function NameDialog({ open, onClose, title, initial, onSubmit }: {
   const submit = () => { if (name.trim() !== "") { onSubmit(name); onClose(); } };
   return (
     <Dialog open={open} onOpenChange={(isOpen) => { if (isOpen) setName(initial); else onClose(); }}>
-      <DialogContent className="max-w-sm">
+      <DialogContent className="sm:max-w-sm">
         <DialogTitle>{title}</DialogTitle>
         <Input value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} autoFocus />
         <div className="flex justify-end gap-2">
@@ -136,7 +136,7 @@ function VersionHistoryDialog({ open, onClose, scripts }: { open: boolean; onClo
   const versions = scripts.active?.versions ?? [];
   return (
     <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose(); }}>
-      <DialogContent className="flex max-h-[80vh] max-w-md flex-col gap-3">
+      <DialogContent className="flex max-h-[80vh] sm:max-w-md flex-col gap-3">
         <DialogTitle>Version history</DialogTitle>
         <div className="min-h-0 flex-1 overflow-y-auto">
           {versions.map((version, i) => ({ version, number: i + 1 })).reverse().map(({ version, number }) => (

@@ -1,10 +1,15 @@
 "use client";
 
 import {
-  StrategyEngine, PineRuntime, ta, type Bar, type PineContext, type StrategyScript,
+  StrategyEngine, PineRuntime, ta, type Bar, type InputConfig, type PineContext, type StrategyOptions, type StrategyScript,
 } from "@nemesis-oss/pine-ts";
 import { loadScript } from "@/lib/script-loader";
 import type { EquityPoint } from "@/lib/backtest-report";
+import { EMPTY_SETTINGS, type ScriptSettings } from "@/lib/script-library";
+import { runWithKnownInputs } from "@/lib/indicator-runner";
+
+// Inputs passed to legacy `strategy({ ..., inputs })` functions, which declare none.
+const LEGACY_INPUTS: Record<string, unknown> = { length: 20, qty: 0.001 };
 
 /**
  * Strategy runner — Wave 20. Takes user-written TypeScript strategy code,
@@ -25,6 +30,9 @@ export interface BacktestResult {
   readonly trades?: BacktestTrade[];
   /** Equity and close per backtested bar, for the report and buy & hold. */
   readonly equityCurve?: EquityPoint[];
+  /** Inputs the strategy declared and its `defineStrategy()` options, for the settings dialog. */
+  readonly declaredInputs?: readonly InputConfig[];
+  readonly declaration?: StrategyOptions;
 }
 
 export interface BacktestSummary {
@@ -137,6 +145,8 @@ type LegacyStrategyFn = (args: {
 interface EngineRun {
   readonly engine: StrategyEngine;
   readonly equityCurve: EquityPoint[];
+  readonly declaredInputs?: readonly InputConfig[];
+  readonly declaration?: StrategyOptions;
 }
 
 /**
@@ -146,7 +156,7 @@ interface EngineRun {
 export async function runBacktest(
   userCode: string,
   bars: readonly Bar[],
-  inputs: Record<string, unknown> = { length: 20, qty: 0.001 },
+  settings: Pick<ScriptSettings, "inputs" | "properties"> = EMPTY_SETTINGS,
 ): Promise<BacktestResult> {
   try {
     const loaded = loadScript<LegacyStrategyFn>(userCode, "strategy");
@@ -154,8 +164,8 @@ export async function runBacktest(
       return { ok: false, error: "This is an indicator; open it in the Indicator tab." };
     }
     const run = loaded.kind === "strategy"
-      ? await runConcise(loaded.script, bars)
-      : await runLegacy(loaded.fn, bars, inputs);
+      ? await runConcise(loaded.script, bars, settings)
+      : await runLegacy(loaded.fn, bars, LEGACY_INPUTS);
     return summarize(run);
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
@@ -163,11 +173,17 @@ export async function runBacktest(
 }
 
 /** Concise scripts backtest confirmed bars only: a forming bar would fill orders on unconfirmed prices. */
-const runConcise = async (script: StrategyScript, bars: readonly Bar[]): Promise<EngineRun> => {
+const runConcise = async (
+  script: StrategyScript,
+  bars: readonly Bar[],
+  { inputs, properties }: Pick<ScriptSettings, "inputs" | "properties">,
+): Promise<EngineRun> => {
   const confirmed = bars.at(-1)?.isClosed === false ? bars.slice(0, -1) : bars;
-  const output = await script.backtest(confirmed);
+  const output = await runWithKnownInputs((bag) => script.backtest(confirmed, { inputs: bag, properties }), inputs);
   return {
     engine: output.engine,
+    declaredInputs: output.inputs,
+    declaration: script.options,
     equityCurve: output.equity.map((equity, i) => ({ time: confirmed[i]!.time, equity, close: confirmed[i]!.close })),
   };
 };
@@ -221,7 +237,7 @@ const runLegacy = async (
   return { engine, equityCurve };
 };
 
-const summarize = ({ engine, equityCurve }: EngineRun): BacktestResult => {
+const summarize = ({ engine, equityCurve, declaredInputs, declaration }: EngineRun): BacktestResult => {
   const trades: BacktestTrade[] = engine.getClosedTrades().map((t) => ({
     entryTime: t.entryTime,
     exitTime: t.exitTime,
@@ -252,7 +268,7 @@ const summarize = ({ engine, equityCurve }: EngineRun): BacktestResult => {
     profitFactor,
   };
 
-  return { ok: true, summary, trades, equityCurve };
+  return { ok: true, summary, trades, equityCurve, declaredInputs, declaration };
 };
 
 export { DEFAULT_STRATEGY };

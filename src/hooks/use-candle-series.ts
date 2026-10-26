@@ -16,7 +16,7 @@ const DOWN_COLOR = "#f23645";
 const VOLUME_UP_COLOR = "#08998180";
 const VOLUME_DOWN_COLOR = "#f2364580";
 // Time constant for price smoothing: ~63% of move closes in 120ms, ~95% in 360ms.
-const SMOOTHING_TAU_MS = 120;
+export const SMOOTHING_TAU_MS = 120;
 // Below this relative price delta, the remaining distance is invisible and animation settles.
 const SETTLE_EPSILON = 1e-7;
 const COUNTDOWN_REFRESH_MS = 1_000;
@@ -183,7 +183,10 @@ export function useCandleSeries(
     }
     if (isAppend) {
       stopAnimation();
-      series.candle.update(toCandle(nextBars[nextBars.length - 2]!));
+      // Settle the closed candle and its volume at their final values before the new one opens.
+      const closed = nextBars[nextBars.length - 2]!;
+      series.candle.update(toCandle(closed));
+      series.volume.update(toVolume(closed));
       series.volume.update(toVolume(nextLast));
       shownBarsRef.current = nextBars;
       targetRef.current = nextLast;

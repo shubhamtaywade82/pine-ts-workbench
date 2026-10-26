@@ -28,7 +28,7 @@ export function ChartSettingsDialog({ open, settings, onOpenChange, onApply }: {
   useEffect(() => { if (open) setDraft(settings); }, [open, settings]);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex max-h-[85vh] max-w-2xl flex-col gap-0 p-0">
+      <DialogContent className="flex max-h-[85vh] flex-col gap-0 p-0 sm:max-w-2xl">
         <DialogTitle className="px-6 pt-5 pb-3 text-lg">Settings</DialogTitle>
         <div className="flex min-h-0 flex-1">
           <nav className="flex w-48 shrink-0 flex-col gap-0.5 px-3">

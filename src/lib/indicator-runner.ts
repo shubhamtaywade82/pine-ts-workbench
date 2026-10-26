@@ -1,4 +1,4 @@
-import type { Bar, IndicatorScript, PineContext, ScriptDrawings } from "@nemesis-oss/pine-ts";
+import type { Bar, IndicatorScript, InputConfig, InputsBag, PineContext, ScriptDrawings } from "@nemesis-oss/pine-ts";
 import { ta, PineRuntime } from "@nemesis-oss/pine-ts";
 import { loadScript, ScriptCompileError } from "@/lib/script-loader";
 
@@ -20,20 +20,22 @@ export type ScriptRun = {
   results: Record<string, Array<number | undefined>>;
   plots: PlotSpec[];
   drawings: ScriptDrawings;
+  /** Inputs the script declared, for the settings dialog (none for legacy scripts). */
+  inputs: readonly InputConfig[];
   firstBarError: string | null;
 };
 
 const NO_DRAWINGS: ScriptDrawings = { lines: [], boxes: [] };
 
-const runIndicator = async (script: IndicatorScript, bars: readonly Bar[]): Promise<ScriptRun> => {
-  const output = await script.run(bars);
+const runIndicator = async (script: IndicatorScript, bars: readonly Bar[], inputs: InputsBag): Promise<ScriptRun> => {
+  const output = await runWithKnownInputs((bag) => script.run(bars, { inputs: bag }), inputs);
   const results = Object.fromEntries(Object.entries(output.values).map(([id, values]) => [id, [...values]]));
   const plots = output.plots.map((plot, i) => ({
     id: plot.id,
     kind: plot.kind,
     color: plot.color ?? (plot.kind === "hline" ? LEVEL_COLOR : PLOT_COLORS[i % PLOT_COLORS.length]!),
   }));
-  return { results, plots, drawings: output.drawings, firstBarError: null };
+  return { results, plots, drawings: output.drawings, inputs: output.inputs, firstBarError: null };
 };
 
 /** Runs a legacy `calculate` function on every bar; collects plot values and the first per-bar error. */
@@ -57,7 +59,7 @@ const runLegacy = async (calculateFn: CalculateFn, bars: readonly Bar[]): Promis
     }
     barIndex++;
   }, bars as never);
-  return { results, plots: derivePlots(results), drawings: NO_DRAWINGS, firstBarError };
+  return { results, plots: derivePlots(results), drawings: NO_DRAWINGS, inputs: [], firstBarError };
 };
 
 /** One plot per returned key; a key that is the same number on every bar is a level (hline). */
@@ -68,9 +70,22 @@ const derivePlots = (results: Record<string, Array<number | undefined>>): PlotSp
     return { id, color: isLevel ? LEVEL_COLOR : PLOT_COLORS[i % PLOT_COLORS.length]!, kind: isLevel ? "hline" : "line" };
   });
 
-export const runIndicatorCode = (userCode: string, bars: readonly Bar[]): Promise<ScriptRun> => {
+/**
+ * Runs with the saved input values; when the code no longer declares one of
+ * them (an input was renamed or removed), runs again on the code's defaults.
+ */
+export const runWithKnownInputs = async <T>(run: (inputs: InputsBag) => Promise<T>, inputs: InputsBag): Promise<T> => {
+  try {
+    return await run(inputs);
+  } catch (err) {
+    if (Object.keys(inputs).length === 0 || !(err instanceof Error) || !err.message.startsWith("Unknown input override")) throw err;
+    return run({});
+  }
+};
+
+export const runIndicatorCode = (userCode: string, bars: readonly Bar[], inputs: InputsBag = {}): Promise<ScriptRun> => {
   const loaded = loadScript<CalculateFn>(userCode, "calculate");
-  if (loaded.kind === "indicator") return runIndicator(loaded.script, bars);
+  if (loaded.kind === "indicator") return runIndicator(loaded.script, bars, inputs);
   if (loaded.kind === "legacy") return runLegacy(loaded.fn, bars);
   throw new ScriptCompileError("This is a strategy; it runs in the Strategy Tester.", null);
 };

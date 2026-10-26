@@ -4,7 +4,26 @@
  * (`library` in, new `library` out) plus load/persist at the boundary.
  */
 
+import type { StrategyOptions } from "@nemesis-oss/pine-ts";
+import type { ChartInterval } from "@/lib/public-binance-feed";
+
 export type ScriptKind = "indicator" | "strategy";
+
+export type InputValue = number | string | boolean;
+
+/** What TradingView keeps in a script's settings dialog; every field overrides the code's defaults. */
+export interface ScriptSettings {
+  /** Input values by input title (the override key). */
+  readonly inputs: Readonly<Record<string, InputValue>>;
+  /** Strategy declaration overrides (Properties tab). */
+  readonly properties: StrategyOptions;
+  /** Per-plot colour and visibility by plot id (Style tab). */
+  readonly plotStyles: Readonly<Record<string, { readonly color?: string; readonly isHidden?: boolean }>>;
+  /** Intervals the script draws on; undefined = all (Visibility tab). */
+  readonly visibleIntervals?: readonly ChartInterval[];
+}
+
+export const EMPTY_SETTINGS: ScriptSettings = { inputs: {}, properties: {}, plotStyles: {} };
 
 export interface ScriptVersion {
   readonly code: string;
@@ -19,6 +38,7 @@ export interface SavedScript {
   readonly versions: readonly ScriptVersion[];
   readonly isFavorite: boolean;
   readonly openedAt: number;
+  readonly settings?: ScriptSettings;
 }
 
 export type ScriptLibrary = readonly SavedScript[];
@@ -85,6 +105,9 @@ export const toggleFavorite = (library: ScriptLibrary, id: string): ScriptLibrar
 
 export const markOpened = (library: ScriptLibrary, id: string, now: number): ScriptLibrary =>
   update(library, id, (script) => ({ ...script, openedAt: now }));
+
+export const updateSettings = (library: ScriptLibrary, id: string, settings: ScriptSettings): ScriptLibrary =>
+  update(library, id, (script) => ({ ...script, settings }));
 
 export const deleteScript = (library: ScriptLibrary, id: string): ScriptLibrary => library.filter((s) => s.id !== id);
 

@@ -136,9 +136,9 @@ export function ChartCell({
     return computeOverlays(bars, mounted, runResults);
   }, [bars, mounted, runResults]);
 
-  // The page runs the editor + backtest on these bars. Hand them over only when
-  // the series structurally changes (new bar, older page, switch), not on every
-  // stream tick — a tick snapshot would re-render the whole workspace each time.
+  // The page runs the editor + backtest on these bars. Hand them over when the
+  // series changes (new bar, older page, switch, forming close) at the 1/s
+  // snapshot rate, never per stream tick — that would re-render the whole workspace.
   const notifiedRef = useRef<string | null>(null);
   const wasActiveRef = useRef(false);
   useEffect(() => {
@@ -146,7 +146,8 @@ export function ChartCell({
     const first = bars[0];
     const last = bars[bars.length - 1];
     if (first === undefined || last === undefined) { notifiedRef.current = null; return; }
-    const signature = `${symbol.binanceSymbol}:${interval}:${first.time}:${last.time}:${bars.length}`;
+    // The forming bar's close too: the editor's indicator then follows live ticks (at the 1/s snapshot rate).
+    const signature = `${symbol.binanceSymbol}:${interval}:${first.time}:${last.time}:${bars.length}:${last.close}`;
     if (wasActiveRef.current && signature === notifiedRef.current) return;
     wasActiveRef.current = true;
     notifiedRef.current = signature;

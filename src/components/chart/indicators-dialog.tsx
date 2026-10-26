@@ -66,7 +66,7 @@ export function IndicatorsDialog({ open, onOpenChange, scripts, onAddBuiltin, on
   };
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="flex h-[70vh] max-w-3xl flex-col gap-3">
+      <DialogContent className="flex h-[70vh] flex-col gap-3 sm:max-w-3xl">
         <DialogTitle>Indicators, metrics, and strategies</DialogTitle>
         <label className="flex items-center gap-2 rounded-md border border-border px-3">
           <Search className="h-4 w-4 text-muted-foreground" />

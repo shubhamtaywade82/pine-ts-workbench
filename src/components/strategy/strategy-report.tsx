@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { ChartLine, List } from "lucide-react";
+import { ChartLine, List, Settings } from "lucide-react";
 import {
   buyHoldEquity, cagr, drawdownPeriods, isLong, maxDrawdown, periodPnl, profitFactor, riskRatios,
   type EquityPoint, type Period, type ReportTrade,
@@ -19,14 +19,21 @@ export interface ReportData {
   readonly currency: string;
 }
 
+export interface StrategyReportProps extends ReportData {
+  /** The strategy's settings dialog (Inputs, Properties, ...), as TradingView's tester gear. */
+  readonly onOpenSettings: () => void;
+}
+
 /** TradingView-style Strategy Tester: the metrics report or the list of trades. */
-export function StrategyReport(data: ReportData) {
+export function StrategyReport({ onOpenSettings, ...data }: StrategyReportProps) {
   const [view, setView] = useState<"metrics" | "trades">("metrics");
   return (
     <div className="flex h-full flex-col bg-background">
       <div className="flex shrink-0 items-center gap-1 border-b border-border px-3 py-1.5">
         <IconToggle isActive={view === "metrics"} onClick={() => setView("metrics")} title="Metrics"><ChartLine className="h-4 w-4" /></IconToggle>
         <IconToggle isActive={view === "trades"} onClick={() => setView("trades")} title="List of trades"><List className="h-4 w-4" /></IconToggle>
+        <span className="mx-1 h-4 w-px bg-border" />
+        <IconToggle isActive={false} onClick={onOpenSettings} title="Strategy settings"><Settings className="h-4 w-4" /></IconToggle>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
         {view === "trades" ? <TradeList trades={data.trades} quoteCurrency={data.currency} /> : <Metrics {...data} />}
