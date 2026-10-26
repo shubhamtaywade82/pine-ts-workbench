@@ -193,12 +193,12 @@ export function ChartWorkbench({
 
     return () => {
       observer.disconnect();
-      chart.remove();
-      chartRef.current = null;
-      markersRef.current = null;
       // A primitive left attached would request redraws of the removed chart ("Object is disposed").
       drawingsRef.current?.series.detachPrimitive(drawingsRef.current.primitive);
       drawingsRef.current = null;
+      chart.remove();
+      chartRef.current = null;
+      markersRef.current = null;
       overlaySeriesRef.current.clear();
       subPaneSeriesRef.current.clear();
     };
