@@ -119,8 +119,8 @@ export function ChartWorkbench({
 }: ChartWorkbenchProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
-  const overlaySeriesRef = useRef<Map<string, ISeriesApi<"Line">>>(new Map());
-  const subPaneSeriesRef = useRef<Map<string, ISeriesApi<"Line">>>(new Map());
+  const overlaySeriesRef = useRef<Map<string, ISeriesApi<"Custom">>>(new Map());
+  const subPaneSeriesRef = useRef<Map<string, ISeriesApi<"Custom">>>(new Map());
   // LWC v5 markers plugin, bound to the candle series it was created on.
   const markersRef = useRef<{ series: ISeriesApi<"Candlestick">; plugin: ISeriesMarkersPluginApi<Time> } | null>(null);
   const drawingsRef = useRef<{ series: ISeriesApi<"Candlestick">; primitive: ScriptDrawingsPrimitive } | null>(null);

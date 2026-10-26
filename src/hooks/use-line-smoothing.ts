@@ -32,8 +32,8 @@ const isLastValueUpdate = (previous: readonly OverlayPoint[] | undefined, next: 
  * candle) instead of jumping; any other change replaces the data at once.
  */
 export function useLineSmoothing() {
-  const shownData = useRef(new WeakMap<ISeriesApi<"Line">, readonly OverlayPoint[]>());
-  const tweens = useRef(new Map<ISeriesApi<"Line">, Tween>());
+  const shownData = useRef(new WeakMap<ISeriesApi<"Custom">, readonly OverlayPoint[]>());
+  const tweens = useRef(new Map<ISeriesApi<"Custom">, Tween>());
   const frame = useRef<number | null>(null);
 
   const animate = useCallback(() => {
@@ -45,7 +45,7 @@ export function useLineSmoothing() {
       for (const [series, tween] of tweens.current) {
         tween.shown += (tween.target - tween.shown) * k;
         const isSettled = Math.abs(tween.target - tween.shown) <= Math.abs(tween.target) * SETTLE_EPSILON;
-        series.update({ time: tween.time, value: isSettled ? tween.target : tween.shown });
+        series.update({ time: tween.time, value: isSettled ? tween.target : tween.shown } as never);
         if (isSettled) tweens.current.delete(series);
       }
       frame.current = tweens.current.size > 0 ? requestAnimationFrame(step) : null;
@@ -56,13 +56,13 @@ export function useLineSmoothing() {
   useEffect(() => () => { if (frame.current !== null) cancelAnimationFrame(frame.current); }, []);
 
   /** `series.setData(data)`, except a moved last point eases to its new value. */
-  return useCallback((series: ISeriesApi<"Line">, data: readonly OverlayPoint[]) => {
+  return useCallback((series: ISeriesApi<"Custom">, data: readonly OverlayPoint[]) => {
     const previous = shownData.current.get(series);
     shownData.current.set(series, data);
     const last = data.at(-1);
     if (last === undefined || !("value" in last) || !isLastValueUpdate(previous, data)) {
       tweens.current.delete(series);
-      series.setData([...data]);
+      series.setData([...data] as never);
       return;
     }
     const running = tweens.current.get(series);
