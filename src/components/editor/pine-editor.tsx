@@ -88,6 +88,7 @@ function useConsole() {
 
 export function PineEditor({ bars, onResults, onStrategyCode, onAddToChart, onClose, scripts, onOpenSettings }: PineEditorProps) {
   const [autoRun, setAutoRun] = useState(true);
+  const [aiGhostText, setAiGhostText] = useState(true);
   const [error, setError] = useState<CodeError | null>(null);
   const [isOpenDialogOpen, setIsOpenDialogOpen] = useState(false);
   const [isAiDialogOpen, setIsAiDialogOpen] = useState(false);
@@ -129,6 +130,10 @@ export function PineEditor({ bars, onResults, onStrategyCode, onAddToChart, onCl
           </button>
           <Switch id="auto-run" title="Auto-update" checked={autoRun} onCheckedChange={setAutoRun} />
           <Label htmlFor="auto-run" className="sr-only">Auto-update</Label>
+          <div className="flex items-center gap-1 border-l border-border pl-2">
+            <Switch id="ai-ghost" title="AI Inline Ghost Text (Tab to accept)" checked={aiGhostText} onCheckedChange={setAiGhostText} />
+            <Label htmlFor="ai-ghost" className="text-xs text-muted-foreground cursor-pointer">AI Tab</Label>
+          </div>
           <Button size="sm" variant="outline" className="h-7 text-xs" onClick={addToChart} title="Add to chart (Ctrl+Enter)">
             <Plus className="mr-1 h-3.5 w-3.5" /> Add to chart
           </Button>
@@ -144,7 +149,7 @@ export function PineEditor({ bars, onResults, onStrategyCode, onAddToChart, onCl
           if (e.key === "Enter") { e.preventDefault(); e.stopPropagation(); addToChart(); }
         }}
       >
-        <CodeEditor value={scripts.draft} onChange={scripts.setDraft} error={error} />
+        <CodeEditor value={scripts.draft} onChange={scripts.setDraft} error={error} aiGhostText={aiGhostText} />
       </div>
       <EditorConsole lines={lines} barCount={bars.length} onFixError={onFixWithAi} />
       <OpenScriptDialog open={isOpenDialogOpen} onClose={() => setIsOpenDialogOpen(false)} scripts={scripts} />
