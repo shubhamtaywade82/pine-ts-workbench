@@ -202,6 +202,7 @@ export default function Home() {
                     canRemove={cells.length > 1}
                     editorOverlays={cell.id === activeCellId ? activeOutput.overlays : NO_OVERLAYS}
                     editorDrawings={cell.id === activeCellId ? activeOutput.drawings : NO_DRAWINGS}
+                    isEditorOverlay={activeOutput.isOverlay}
                     onEditorScriptAction={editor.onScriptAction}
                     tradeMarkers={cell.id === activeCellId ? editor.tradeMarkers : NO_MARKERS}
                     onActiveBarsChange={editor.setEditorBars}

@@ -11,7 +11,8 @@ import {
   type LiveTrade,
 } from "@/lib/public-binance-feed";
 
-const HISTORY_BARS = 200;
+// TradingView-like depth; multi-timeframe scripts (4H context on 5m) need it.
+const HISTORY_BARS = 1000;
 // Bars fetched per scroll-back request; Binance allows up to 1000 per call.
 const OLDER_PAGE_BARS = 500;
 // The chart subscribes to raw updates (drawn once per animation frame), so the

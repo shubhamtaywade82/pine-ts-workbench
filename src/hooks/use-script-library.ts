@@ -23,7 +23,8 @@ export interface ScriptLibraryState {
   readonly open: (id: string) => void;
   readonly copy: (name: string) => void;
   readonly rename: (name: string) => void;
-  readonly createNew: (kind: ScriptKind) => void;
+  /** Starts a script from the kind's template, or from `code` (a built-in example). */
+  readonly createNew: (kind: ScriptKind, code?: string) => void;
   readonly restoreVersion: (code: string) => void;
   readonly remove: (id: string) => void;
   readonly toggleFavorite: (id: string) => void;
@@ -90,7 +91,7 @@ export function useScriptLibrary(templates: ScriptTemplates, seed: () => readonl
     library, active, draft, isDirty, setDraft, save, open,
     copy: (name) => startScript(draft, name),
     rename: (name) => { if (active !== undefined) commit(renameScript(library, active.id, name)); },
-    createNew: (kind) => startScript(templates[kind]),
+    createNew: (kind, code) => startScript(code ?? templates[kind]),
     restoreVersion: setDraft,
     remove: (id) => {
       commit(deleteScript(library, id));

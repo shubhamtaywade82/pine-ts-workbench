@@ -20,22 +20,26 @@ export type ScriptRun = {
   results: Record<string, Array<number | undefined>>;
   plots: PlotSpec[];
   drawings: ScriptDrawings;
+  /** `overlay: true` scripts plot on the price pane. */
+  isOverlay: boolean;
   /** Inputs the script declared, for the settings dialog (none for legacy scripts). */
   inputs: readonly InputConfig[];
   firstBarError: string | null;
 };
 
-const NO_DRAWINGS: ScriptDrawings = { lines: [], boxes: [] };
+const NO_DRAWINGS: ScriptDrawings = { lines: [], boxes: [], shapes: [], table: undefined, bgcolors: [], barcolors: [] };
 
 const runIndicator = async (script: IndicatorScript, bars: readonly Bar[], inputs: InputsBag): Promise<ScriptRun> => {
   const output = await runWithKnownInputs((bag) => script.run(bars, { inputs: bag }), inputs);
   const results = Object.fromEntries(Object.entries(output.values).map(([id, values]) => [id, [...values]]));
-  const plots = output.plots.map((plot, i) => ({
+  // display: none / data_window plots exist for values (scores, alerts), not for the chart.
+  const shown = output.plots.filter((plot) => plot.display !== "none" && plot.display !== "data_window");
+  const plots = shown.map((plot, i) => ({
     id: plot.id,
     kind: plot.kind,
     color: plot.color ?? (plot.kind === "hline" ? LEVEL_COLOR : PLOT_COLORS[i % PLOT_COLORS.length]!),
   }));
-  return { results, plots, drawings: output.drawings, inputs: output.inputs, firstBarError: null };
+  return { results, plots, drawings: output.drawings, isOverlay: script.options.overlay === true, inputs: output.inputs, firstBarError: null };
 };
 
 /** Runs a legacy `calculate` function on every bar; collects plot values and the first per-bar error. */
@@ -59,7 +63,7 @@ const runLegacy = async (calculateFn: CalculateFn, bars: readonly Bar[]): Promis
     }
     barIndex++;
   }, bars as never);
-  return { results, plots: derivePlots(results), drawings: NO_DRAWINGS, inputs: [], firstBarError };
+  return { results, plots: derivePlots(results), drawings: NO_DRAWINGS, isOverlay: false, inputs: [], firstBarError };
 };
 
 /** One plot per returned key; a key that is the same number on every bar is a level (hline). */

@@ -2,16 +2,9 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { registry, type Bar, type ScriptDrawings } from "@nemesis-oss/pine-ts";
-import {
-  type ChartInterval,
-  type SymbolOption,
-} from "@/lib/public-binance-feed";
-import {
-  ChartWorkbench, type ChartOverlay, type ChartSubPane, type IndicatorAction, type TradeMarker,
-} from "@/components/chart/chart-workbench";
-import {
-  IndicatorSettingsDialog, indicatorLabel, type MountedIndicator,
-} from "@/components/chart/indicator-dialogs";
+import { type ChartInterval, type SymbolOption } from "@/lib/public-binance-feed";
+import { ChartWorkbench, type ChartOverlay, type ChartSubPane, type IndicatorAction, type TradeMarker } from "@/components/chart/chart-workbench";
+import { IndicatorSettingsDialog, indicatorLabel, type MountedIndicator } from "@/components/chart/indicator-dialogs";
 import type { ChartDrawing } from "@/components/chart/script-drawings-primitive";
 import type { ChartSettings } from "@/lib/chart-settings";
 import { Button } from "@/components/ui/button";
@@ -21,20 +14,14 @@ import { runIndicatorCode } from "@/lib/indicator-runner";
 import { X } from "lucide-react";
 import { useLiveBars, type LiveStatus } from "@/hooks/use-live-bars";
 
-/**
- * A self-contained chart cell — manages its own symbol, timeframe, bars,
- * stream, indicators, overlays, and sub-panes. Each cell is fully
- * independent from other cells in the grid.
- *
- * Wave 18 — extracted from page.tsx so the page can manage N cells in a grid.
- */
-
+// A self-contained chart cell: symbol, timeframe, bars, overlays, sub-panes.
 const INDICATOR_COLORS: Record<string, string> = {
   sma: "#1e88e5", ema: "#ff6d00", rsi: "#7e57c2", macd: "#1e88e5",
   bb: "#7e57c2", obv: "#26a69a", vwap: "#eab308", supertrend: "#22c55e",
   stoch: "#2196f3", atr: "#b388ff", kc: "#2196f3", sar: "#2962ff",
   mfi: "#26a69a", wma: "#9c27b0", hma: "#00bcd4", cci: "#e91e63",
   wpr: "#009688", dmi: "#ff007f",
+  smc_structure: "#2962ff", smc_fvg: "#089981", smc_ob: "#00b0ff", smc_liquidity: "#d500f9",
 };
 const FALLBACK_COLOR = "#1e88e5";
 
@@ -74,7 +61,7 @@ const runMounted = async (m: MountedIndicator, bars: readonly Bar[]): Promise<In
     for (const [plotId, value] of Object.entries(r)) (perPlot[plotId] ??= [])[barIndex] = value;
     barIndex++;
   }
-  return { plots: perPlot, meta };
+  return { plots: perPlot, meta, drawings: instance.drawings };
 };
 
 /** What the page stores (and persists) per chart cell. */
@@ -93,6 +80,8 @@ export interface ChartCellProps extends CellSettings {
   readonly canRemove: boolean;
   readonly editorOverlays: ChartOverlay[];
   readonly editorDrawings?: readonly ChartDrawing[];
+  /** The editor script declared `overlay: true`: its plots go on the price pane. */
+  readonly isEditorOverlay?: boolean;
   readonly chartSettings: ChartSettings;
   readonly onChartSettingsChange: (settings: ChartSettings) => void;
   readonly onOpenChartSettings: () => void;
@@ -108,7 +97,7 @@ const EDITOR_PANE_ID = "editor";
 
 export function ChartCell({
   cellId, symbol, interval, indicators: mounted, onChange,
-  isActive, onActivate, onRemove, canRemove, editorOverlays, editorDrawings, chartSettings, onChartSettingsChange, onOpenChartSettings, tradeMarkers, onActiveBarsChange, onEditorScriptAction,
+  isActive, onActivate, onRemove, canRemove, editorOverlays, editorDrawings, isEditorOverlay = false, chartSettings, onChartSettingsChange, onOpenChartSettings, tradeMarkers, onActiveBarsChange, onEditorScriptAction,
 }: ChartCellProps) {
   const { bars, status, error, loadOlder, subscribe } = useLiveBars(symbol.binanceSymbol, interval);
   const [runResults, setRunResults] = useState<Record<string, IndicatorRunResult>>({});
@@ -176,9 +165,9 @@ export function ChartCell({
     onActiveBarsChange?.(bars);
   }, [isActive, bars, onActiveBarsChange, symbol.binanceSymbol, interval]);
 
-  // Editor plots have no overlay flag; a sub-pane keeps oscillators (RSI etc.)
-  // from squashing the price scale.
-  const allSubPanes = editorOverlays.length > 0
+  // Non-overlay editor plots get a sub-pane, so oscillators (RSI etc.) don't squash the price scale.
+  const allMainOverlays = isEditorOverlay ? [...mainOverlays, ...editorOverlays] : mainOverlays;
+  const allSubPanes = editorOverlays.length > 0 && !isEditorOverlay
     ? [...subPanes, { paneId: EDITOR_PANE_ID, title: "Custom", overlays: editorOverlays }]
     : subPanes;
 
@@ -206,7 +195,7 @@ export function ChartCell({
             {error ?? `Loading ${symbol.displayName} from Binance…`}
           </div>
         ) : (
-          <ChartWorkbench title={`${symbol.displayName} · ${interval} · Binance`} interval={interval} bars={bars} subscribeBars={subscribe} onNeedOlderBars={loadOlder} onIndicatorAction={onIndicatorAction} mainOverlays={mainOverlays} subPanes={allSubPanes} tradeMarkers={tradeMarkers} drawings={drawings} settings={chartSettings} onSettingsChange={onChartSettingsChange} onOpenSettings={onOpenChartSettings} />
+          <ChartWorkbench title={`${symbol.displayName} · ${interval} · Binance`} interval={interval} bars={bars} subscribeBars={subscribe} onNeedOlderBars={loadOlder} onIndicatorAction={onIndicatorAction} mainOverlays={allMainOverlays} subPanes={allSubPanes} tradeMarkers={tradeMarkers} drawings={drawings} settings={chartSettings} onSettingsChange={onChartSettingsChange} onOpenSettings={onOpenChartSettings} />
         )}
       </div>
       <IndicatorSettingsDialog
@@ -279,11 +268,7 @@ function computeOverlays(
       const data: { time: number; value?: number }[] = [];
       for (let i = 0; i < bars.length; i++) {
         const v = seriesValues[i];
-        if (v === undefined || Number.isNaN(v)) {
-          data.push({ time: bars[i]!.time });
-        } else {
-          data.push({ time: bars[i]!.time, value: v });
-        }
+        data.push(v === undefined || Number.isNaN(v) ? { time: bars[i]!.time } : { time: bars[i]!.time, value: v });
       }
       paneOverlays.push({
         instanceId: `${m.instanceId}:${plot.id}`,
@@ -294,6 +279,17 @@ function computeOverlays(
         isHidden: m.isHidden === true || plot.isHidden === true,
         isLevel: isConstant(data),
         data,
+      });
+    }
+    if (paneOverlays.length === 0 && result.drawings) {
+      paneOverlays.push({
+        instanceId: `${m.instanceId}:drawings`,
+        indicatorId: m.indicatorId,
+        indicatorName: indicatorLabel(m),
+        color: INDICATOR_COLORS[m.indicatorId] ?? FALLBACK_COLOR,
+        ownerId: m.instanceId,
+        isHidden: m.isHidden === true,
+        data: [],
       });
     }
     if (m.pane === "main") mainOverlays.push(...paneOverlays);

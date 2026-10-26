@@ -60,6 +60,7 @@ export function useEditorScript(onOpenEditor: () => void, onOpenTester: () => vo
     return {
       overlays: isVisible ? overlays.map((o) => ({ ...o, ownerId: "editor", isHidden: isHidden || o.isHidden === true })) : [],
       drawings: isVisible && !isHidden ? drawings : NO_DRAWINGS,
+      isOverlay: run?.isOverlay === true,
     };
   };
 

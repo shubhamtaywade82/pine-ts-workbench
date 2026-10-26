@@ -167,6 +167,7 @@ export function useOverlaySeries(
     if (chart === null) return;
     const known = new Set<string>();
     for (const overlay of mainOverlays) {
+      if (overlay.data.length === 0) continue;
       known.add(overlay.instanceId);
       let series = overlaySeriesRef.current.get(overlay.instanceId);
       if (series === undefined) {
@@ -193,7 +194,7 @@ export function useOverlaySeries(
   useEffect(() => {
     const chart = chartRef.current;
     if (chart === null) return;
-    const known = new Set(subPanes.flatMap((pane) => pane.overlays.map((o) => `${pane.paneId}:${o.instanceId}`)));
+    const known = new Set(subPanes.flatMap((pane) => pane.overlays.filter((o) => o.data.length > 0).map((o) => `${pane.paneId}:${o.instanceId}`)));
     // Remove first: LWC drops emptied panes and renumbers the rest, which the moves below rely on.
     for (const [key, series] of subPaneSeriesRef.current.entries()) {
       if (!known.has(key)) {
@@ -204,6 +205,7 @@ export function useOverlaySeries(
     subPanes.forEach((pane, i) => {
       const paneIndex = i + 1;
       for (const overlay of pane.overlays) {
+        if (overlay.data.length === 0) continue;
         const key = `${pane.paneId}:${overlay.instanceId}`;
         let series = subPaneSeriesRef.current.get(key);
         if (series === undefined) {

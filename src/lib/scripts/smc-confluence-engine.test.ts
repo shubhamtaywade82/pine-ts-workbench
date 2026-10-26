@@ -1,0 +1,33 @@
+import { describe, expect, it } from "bun:test";
+import type { Bar } from "@nemesis-oss/pine-ts";
+import { runIndicatorCode } from "@/lib/indicator-runner";
+import { SMC_CONFLUENCE_ENGINE } from "./smc-confluence-engine";
+
+const FIVE_MINUTES = 300_000;
+
+/** Deterministic 5m bars: a slow sine trend with noise, so swings, sweeps and gaps all occur. */
+const syntheticBars = (count: number): Bar[] => {
+  let seed = 7;
+  const noise = () => ((seed = (seed * 16807) % 2147483647) / 2147483647 - 0.5) * 2;
+  let close = 100;
+  return Array.from({ length: count }, (_, i) => {
+    const open = close;
+    close = Math.max(1, open + Math.sin(i / 120) * 0.15 + noise() * 0.6);
+    const high = Math.max(open, close) + Math.abs(noise()) * 0.4;
+    const low = Math.min(open, close) - Math.abs(noise()) * 0.4;
+    return { time: i * FIVE_MINUTES, open, high, low, close, volume: 100 + Math.abs(noise()) * 900, isClosed: true };
+  });
+};
+
+describe("SMC Confluence Engine template", () => {
+  it("runs on 5m bars and produces scores, drawings and the dashboard", async () => {
+    const run = await runIndicatorCode(SMC_CONFLUENCE_ENGINE, syntheticBars(3000));
+    const longScores = run.results["CE Long Score"]!.filter((x) => x !== undefined);
+    expect(longScores.length).toBe(3000);
+    expect(Math.max(...(longScores as number[]))).toBeGreaterThan(30);
+    expect(run.drawings.shapes.length).toBeGreaterThan(10);
+    expect(run.drawings.table?.rows.length).toBe(16);
+    expect(run.drawings.bgcolors.length).toBeGreaterThan(0);
+    expect(run.inputs.length).toBeGreaterThan(40);
+  });
+});
