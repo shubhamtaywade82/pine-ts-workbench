@@ -16,6 +16,7 @@ import { INTERVAL_MS, type BinanceSymbol, type ChartInterval } from "@/lib/publi
 import { subscribeDepthWalls, type WallsSubscription } from "@/lib/depth-feed";
 import { wallOptionsFor } from "@/lib/depth-walls";
 import { DepthWallsPrimitive } from "@/components/chart/depth-walls-primitive";
+import { LastPricePrimitive } from "@/components/chart/last-price-primitive";
 import { ScriptDrawingsPrimitive, type ChartDrawing } from "@/components/chart/script-drawings-primitive";
 import { PriceScaleMenu } from "@/components/chart/price-scale-menu";
 import { useOverlaySeries } from "@/hooks/use-overlay-series";
@@ -57,6 +58,8 @@ const TV = {
 };
 
 const LOAD_OLDER_THRESHOLD_BARS = 30;
+// Volume dot on the forming candle is sized against this many recent closed candles.
+const AVERAGE_VOLUME_BARS = 20;
 
 /**
  * A pane (sub-chart) below the main price pane. Used for oscillators like
@@ -131,6 +134,7 @@ export function ChartWorkbench({
   const drawingsRef = useRef<{ series: ISeriesApi<"Candlestick">; primitive: ScriptDrawingsPrimitive } | null>(null);
   const depthWallsRef = useRef<{ series: ISeriesApi<"Candlestick">; primitive: DepthWallsPrimitive } | null>(null);
   const wallsSubscriptionRef = useRef<WallsSubscription | null>(null);
+  const lastPriceRef = useRef<{ series: ISeriesApi<"Candlestick">; primitive: LastPricePrimitive } | null>(null);
   const [hoverTime, setHoverTime] = useState<number | null>(null);
   const [paneHeights, setPaneHeights] = useState<number[]>([]);
   // With the price scale on the left, the legend starts after it instead of under it.
@@ -207,6 +211,7 @@ export function ChartWorkbench({
   const liveOhlcRef = useRef<HTMLSpanElement>(null);
   const onCandleFrame = useCallback((frame: CandleFrame) => {
     if (liveOhlcRef.current !== null) writeLiveOhlc(liveOhlcRef.current, frame);
+    lastPriceRef.current?.primitive.setFrame(frame);
   }, []);
   const candlestickRef = useCandleSeries(chartRef, bars, INTERVAL_MS[interval], onCandleFrame, subscribeBars);
 
@@ -259,10 +264,25 @@ export function ChartWorkbench({
   useEffect(() => {
     const chart = chartRef.current;
     chart?.applyOptions(toChartOptions(settings));
-    candlestickRef.current?.applyOptions(toCandleOptions(settings));
+    const candle = candlestickRef.current;
+    candle?.applyOptions(toCandleOptions(settings));
+    if (candle !== null && lastPriceRef.current?.series !== candle) {
+      const primitive = new LastPricePrimitive();
+      candle.attachPrimitive(primitive);
+      lastPriceRef.current = { series: candle, primitive };
+    }
+    lastPriceRef.current?.primitive.setStyle({
+      isVisible: settings.scales.showLastPriceLine, upColor: settings.candles.upColor, downColor: settings.candles.downColor,
+    });
     // Scale widths settle on LWC's next paint.
     requestAnimationFrame(() => setLeftScaleWidth(settings.scales.placement === "left" ? (chart?.priceScale("left").width() ?? 0) : 0));
   }, [settings, candlestickRef, bars.length === 0]);
+
+  useEffect(() => {
+    const closed = bars.slice(-AVERAGE_VOLUME_BARS - 1, -1);
+    const total = closed.reduce((sum, bar) => sum + bar.volume, 0);
+    lastPriceRef.current?.primitive.setAverageVolume(closed.length > 0 ? total / closed.length : 0);
+  }, [bars]);
 
   // The primitive is bound to the candle series, which is recreated with the chart.
   useEffect(() => {

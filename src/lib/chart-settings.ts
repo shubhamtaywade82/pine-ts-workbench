@@ -172,6 +172,7 @@ export const toCandleOptions = ({ candles, scales }: ChartSettings): DeepPartial
   wickVisible: candles.showWick,
   wickUpColor: candles.upColor,
   wickDownColor: candles.downColor,
-  priceLineVisible: scales.showLastPriceLine,
+  // LastPricePrimitive draws it from the forming candle only; LWC's line spans the whole pane.
+  priceLineVisible: false,
   priceScaleId: scales.placement,
 });
