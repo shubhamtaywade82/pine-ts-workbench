@@ -2,13 +2,22 @@ import type { BookCoverage, BookSide } from "./order-book";
 
 /**
  * Liquidity walls: the price level with the largest resting quote notional
- * (price × quantity) on each side, within a window around mid. This is not
- * the best bid/ask (the touch), and quote notional — not base quantity — makes
- * sizes comparable across BTC, ETH and SOL.
+ * (price × quantity) on each side, inside a window around mid. This is not the
+ * best bid/ask, and quote notional keeps sizes comparable across markets.
  *
  * A wall is displayed liquidity, not traded volume: it can be pulled or
- * refilled at any time, so `since` says how long it has persisted.
+ * refilled at any time. `observedSince` is when this client began observing
+ * the wall at its price without interruption. It is not the order's age: a
+ * public depth feed does not expose when an order was placed.
  */
+
+export const DEFAULT_WALL_WINDOW_PCT = 0.5;
+/** Bounds of the configurable window. A window wider than the snapshot covers is clipped, not rejected. */
+export const WALL_WINDOW_LIMITS_PCT = { min: 0.05, max: 5 } as const;
+export const DEFAULT_MIN_WALL_NOTIONAL = 0;
+const SWITCH_MARGIN_PCT = 15;
+// Float tolerance when comparing the searched window with the configured one.
+const WINDOW_EPSILON_PCT = 1e-9;
 
 /** Read-only view of a synced order book. */
 export interface BookView {
@@ -23,27 +32,37 @@ export interface Wall {
   readonly side: BookSide;
   readonly price: number;
   readonly quantity: number;
-  /** price × quantity, in the quote asset (USDT). */
+  /** price × quantity, in the market's quote asset. */
   readonly notional: number;
-  /** When this price became the side's wall (ms). */
-  readonly since: number;
+  /** When this client began continuously observing the wall at `price` (ms). */
+  readonly observedSince: number;
 }
 
 export interface WallOptions {
-  /** Only levels within this % of mid count. */
-  readonly maxDistancePct: number;
-  /** Levels below this quote notional are not walls. */
+  /** Half-width of the detection window around mid, in percent. */
+  readonly windowPct: number;
+  /** Minimum notional, in the market's quote asset. Smaller levels are not walls. */
   readonly minNotional: number;
   /** A challenger must exceed the current wall's notional by this % to replace it. */
   readonly switchMarginPct: number;
 }
 
+export const wallOptionsFor = (windowPct: number, minNotional: number): WallOptions => ({
+  windowPct,
+  minNotional,
+  switchMarginPct: SWITCH_MARGIN_PCT,
+});
+
+export const DEFAULT_WALL_OPTIONS = wallOptionsFor(DEFAULT_WALL_WINDOW_PCT, DEFAULT_MIN_WALL_NOTIONAL);
+
 export interface WallFrame {
   readonly mid: number;
   readonly bid: Wall | undefined;
   readonly ask: Wall | undefined;
-  /** The window reaches past the snapshot's known range: a fresh snapshot would widen it. */
-  readonly windowExceedsCoverage: boolean;
+  /** The window actually searched: the configured one, narrowed to verified snapshot coverage. */
+  readonly searchedPct: number;
+  /** Coverage is narrower than the configured window, so some levels were not searched. */
+  readonly clippedByCoverage: boolean;
 }
 
 interface Level {
@@ -52,35 +71,49 @@ interface Level {
   readonly notional: number;
 }
 
+interface CurrentWalls {
+  bid?: Wall;
+  ask?: Wall;
+}
+
 export class WallTracker {
-  private current: { bid: Wall | undefined; ask: Wall | undefined } = { bid: undefined, ask: undefined };
+  private current: CurrentWalls = {};
 
-  public constructor(private readonly options: WallOptions) {}
+  public constructor(private options: WallOptions) {}
 
-  /** Recomputes both walls from `book`; undefined until both sides have a price. */
+  public setOptions(options: WallOptions): void {
+    this.options = options;
+  }
+
+  /**
+   * Recomputes both walls from `book`. Prices are only searched inside the
+   * snapshot's verified coverage, whatever the configured window. Undefined
+   * until both sides have a price.
+   */
   public update(book: BookView, now: number): WallFrame | undefined {
     const { bestBid, bestAsk, coverage } = book;
     if (bestBid === undefined || bestAsk === undefined) return undefined;
     const mid = (bestBid + bestAsk) / 2;
-    const distance = this.options.maxDistancePct / 100;
-    const low = mid * (1 - distance);
-    const high = mid * (1 + distance);
+    const distance = this.options.windowPct / 100;
+    const bidLow = Math.max(mid * (1 - distance), coverage.bidFloor);
+    const askHigh = Math.min(mid * (1 + distance), coverage.askCeiling);
 
-    const bidLevels = levelsWithin(book.levels("bid"), Math.max(low, coverage.bidFloor), Number.POSITIVE_INFINITY);
-    const askLevels = levelsWithin(book.levels("ask"), 0, Math.min(high, coverage.askCeiling));
-    this.current = {
-      bid: this.next("bid", bidLevels, now),
-      ask: this.next("ask", askLevels, now),
-    };
+    const bid = this.next("bid", levelsWithin(book.levels("bid"), bidLow, Number.POSITIVE_INFINITY), now);
+    const ask = this.next("ask", levelsWithin(book.levels("ask"), 0, askHigh), now);
+    this.current = { bid, ask };
+    const searchedPct = Math.max(0, Math.min((mid - bidLow) / mid, (askHigh - mid) / mid)) * 100;
     return {
       mid,
-      ...this.current,
-      windowExceedsCoverage: low < coverage.bidFloor || high > coverage.askCeiling,
+      bid,
+      ask,
+      searchedPct,
+      clippedByCoverage: searchedPct < this.options.windowPct - WINDOW_EPSILON_PCT,
     };
   }
 
+  /** Forgets the walls. The next observation of any level starts a new `observedSince`. */
   public reset(): void {
-    this.current = { bid: undefined, ask: undefined };
+    this.current = {};
   }
 
   /** Hysteresis: keep the incumbent unless it is gone or clearly beaten, so near-equal levels don't flicker. */
@@ -96,9 +129,10 @@ export class WallTracker {
     const held = incumbent === undefined ? undefined : eligible.find((level) => level.price === incumbent.price);
     if (incumbent !== undefined && held !== undefined) {
       const beaten = strongest.notional > held.notional * (1 + this.options.switchMarginPct / 100);
-      if (!beaten) return { side, ...held, since: incumbent.since };
+      if (!beaten) return { side, ...held, observedSince: incumbent.observedSince };
     }
-    return { side, ...strongest, since: incumbent?.price === strongest.price ? incumbent.since : now };
+    const sameLevel = incumbent !== undefined && incumbent.price === strongest.price;
+    return { side, ...strongest, observedSince: sameLevel ? incumbent.observedSince : now };
   }
 }
 

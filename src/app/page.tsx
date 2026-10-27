@@ -9,6 +9,7 @@ import { useChartGrid, newCell } from "@/hooks/use-chart-grid";
 import { useEditorScript } from "@/hooks/use-editor-script";
 import { ChartSettingsDialog } from "@/components/chart/chart-settings-dialog";
 import { DEFAULT_CHART_SETTINGS, loadChartSettings, saveChartSettings, type ChartSettings } from "@/lib/chart-settings";
+import { quoteAssetOf, SUPPORTED_SYMBOLS } from "@/lib/public-binance-feed";
 import { PineEditor } from "@/components/editor/pine-editor";
 import { ScriptSettingsDialog } from "@/components/editor/script-settings-dialog";
 import { createScriptIndicator } from "@/components/chart/indicator-dialogs";
@@ -177,7 +178,7 @@ export default function Home() {
       />
       <ScriptSettingsDialog {...editor.settingsDialog} />
       <ChartSettingsDialog
-        open={isChartSettingsOpen} settings={chartSettings}
+        open={isChartSettingsOpen} settings={chartSettings} quoteAsset={quoteAssetOf(cells.find((c) => c.id === activeCellId)?.symbol.binanceSymbol ?? SUPPORTED_SYMBOLS[0]!.binanceSymbol)}
         onOpenChange={setIsChartSettingsOpen} onApply={onChartSettingsChange}
       />
 

@@ -1,4 +1,5 @@
 import type { DeepPartial, ChartOptions, CandlestickSeriesOptions, PriceScaleOptions } from "lightweight-charts";
+import { DEFAULT_MIN_WALL_NOTIONAL, DEFAULT_WALL_WINDOW_PCT, WALL_WINDOW_LIMITS_PCT } from "./depth-walls";
 
 /**
  * Chart appearance shared by every chart cell, edited in the Settings dialog
@@ -38,6 +39,10 @@ export interface ChartSettings {
     readonly showExecutionLabels: boolean;
     /** Live bubbles at the largest resting bid/ask near price, beside the forming candle. */
     readonly showOrderBookWalls: boolean;
+    /** Half-width of the wall search around mid, in percent. Clipped to the snapshot's verified coverage. */
+    readonly wallWindowPct: number;
+    /** Smallest wall, in the chart's quote currency. */
+    readonly minWallNotional: number;
   };
   readonly canvas: {
     readonly background: string;
@@ -58,7 +63,13 @@ export const DEFAULT_CHART_SETTINGS: ChartSettings = {
   candles: { upColor: "#089981", downColor: "#f23645", showBody: true, showBorders: true, showWick: true },
   statusLine: { showTitle: true, showOhlc: true, showIndicatorTitles: true, showIndicatorValues: true },
   scales: { mode: "regular", autoScale: true, invert: false, showLastPriceLine: true, placement: "right" },
-  trading: { showExecutionMarks: true, showExecutionLabels: true, showOrderBookWalls: true },
+  trading: {
+    showExecutionMarks: true,
+    showExecutionLabels: true,
+    showOrderBookWalls: true,
+    wallWindowPct: DEFAULT_WALL_WINDOW_PCT,
+    minWallNotional: DEFAULT_MIN_WALL_NOTIONAL,
+  },
   canvas: {
     background: "#131722", showVertGrid: true, showHorzGrid: true, gridColor: "#1e222d", crosshairColor: "#9598a1",
     textColor: "#b2b5be", fontSize: 11, marginTopPercent: 10, marginBottomPercent: 10, rightOffsetBars: 10,
@@ -67,19 +78,50 @@ export const DEFAULT_CHART_SETTINGS: ChartSettings = {
 
 const STORAGE_KEY = "pine-ts-workbench-chart-settings";
 
-/** Stored settings over the defaults, section by section, so new fields get defaults. */
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const booleanOr = (value: unknown, fallback: boolean): boolean =>
+  typeof value === "boolean" ? value : fallback;
+
+/** A finite number clamped to `[min, max]`; anything else (missing, text, NaN) takes the fallback. */
+const numberIn = (value: unknown, min: number, max: number, fallback: number): number =>
+  typeof value === "number" && Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback;
+
+const normalizeTrading = (stored: unknown): ChartSettings["trading"] => {
+  const raw = isRecord(stored) ? stored : {};
+  const defaults = DEFAULT_CHART_SETTINGS.trading;
+  return {
+    showExecutionMarks: booleanOr(raw["showExecutionMarks"], defaults.showExecutionMarks),
+    showExecutionLabels: booleanOr(raw["showExecutionLabels"], defaults.showExecutionLabels),
+    showOrderBookWalls: booleanOr(raw["showOrderBookWalls"], defaults.showOrderBookWalls),
+    wallWindowPct: numberIn(raw["wallWindowPct"], WALL_WINDOW_LIMITS_PCT.min, WALL_WINDOW_LIMITS_PCT.max, defaults.wallWindowPct),
+    minWallNotional: numberIn(raw["minWallNotional"], 0, Number.POSITIVE_INFINITY, defaults.minWallNotional),
+  };
+};
+
+/**
+ * Stored settings over the defaults. Sections missing from older saves take
+ * their defaults; the trading section is validated field by field, so a bad
+ * value can never reach the wall detector.
+ */
+export const normalizeChartSettings = (raw: unknown): ChartSettings => {
+  const stored = isRecord(raw) ? raw : {};
+  const section = (key: string): Record<string, unknown> => (isRecord(stored[key]) ? stored[key] : {});
+  return {
+    candles: { ...DEFAULT_CHART_SETTINGS.candles, ...section("candles") },
+    statusLine: { ...DEFAULT_CHART_SETTINGS.statusLine, ...section("statusLine") },
+    scales: { ...DEFAULT_CHART_SETTINGS.scales, ...section("scales") },
+    trading: normalizeTrading(stored["trading"]),
+    canvas: { ...DEFAULT_CHART_SETTINGS.canvas, ...section("canvas") },
+  };
+};
+
 export const loadChartSettings = (): ChartSettings => {
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY);
     if (raw === null) return DEFAULT_CHART_SETTINGS;
-    const stored = JSON.parse(raw) as Partial<ChartSettings>;
-    return {
-      candles: { ...DEFAULT_CHART_SETTINGS.candles, ...stored.candles },
-      statusLine: { ...DEFAULT_CHART_SETTINGS.statusLine, ...stored.statusLine },
-      scales: { ...DEFAULT_CHART_SETTINGS.scales, ...stored.scales },
-      trading: { ...DEFAULT_CHART_SETTINGS.trading, ...stored.trading },
-      canvas: { ...DEFAULT_CHART_SETTINGS.canvas, ...stored.canvas },
-    };
+    return normalizeChartSettings(JSON.parse(raw));
   } catch {
     return DEFAULT_CHART_SETTINGS; // Storage blocked or corrupt — defaults still render.
   }

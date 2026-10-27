@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   createChart,
   createSeriesMarkers,
@@ -13,7 +13,8 @@ import type { Bar } from "@nemesis-oss/pine-ts";
 import { ChartLegend, writeLiveOhlc } from "@/components/chart/chart-legend";
 import { useCandleSeries, type CandleFrame } from "@/hooks/use-candle-series";
 import { INTERVAL_MS, type BinanceSymbol, type ChartInterval } from "@/lib/public-binance-feed";
-import { subscribeDepthWalls } from "@/lib/depth-feed";
+import { subscribeDepthWalls, type WallsSubscription } from "@/lib/depth-feed";
+import { wallOptionsFor } from "@/lib/depth-walls";
 import { DepthWallsPrimitive } from "@/components/chart/depth-walls-primitive";
 import { ScriptDrawingsPrimitive, type ChartDrawing } from "@/components/chart/script-drawings-primitive";
 import { PriceScaleMenu } from "@/components/chart/price-scale-menu";
@@ -129,6 +130,7 @@ export function ChartWorkbench({
   const markersRef = useRef<{ series: ISeriesApi<"Candlestick">; plugin: ISeriesMarkersPluginApi<Time> } | null>(null);
   const drawingsRef = useRef<{ series: ISeriesApi<"Candlestick">; primitive: ScriptDrawingsPrimitive } | null>(null);
   const depthWallsRef = useRef<{ series: ISeriesApi<"Candlestick">; primitive: DepthWallsPrimitive } | null>(null);
+  const wallsSubscriptionRef = useRef<WallsSubscription | null>(null);
   const [hoverTime, setHoverTime] = useState<number | null>(null);
   const [paneHeights, setPaneHeights] = useState<number[]>([]);
   // With the price scale on the left, the legend starts after it instead of under it.
@@ -275,7 +277,9 @@ export function ChartWorkbench({
   }, [drawings, candlestickRef]);
 
   // Depth updates (~10/s) go straight to the primitive, never through React state.
-  const showOrderBookWalls = settings.trading.showOrderBookWalls;
+  const { showOrderBookWalls, wallWindowPct, minWallNotional } = settings.trading;
+  const wallOptions = useMemo(() => wallOptionsFor(wallWindowPct, minWallNotional), [wallWindowPct, minWallNotional]);
+  const wallOptionsRef = useRef(wallOptions);
   useEffect(() => {
     const candle = candlestickRef.current;
     if (candle === null) return;
@@ -289,13 +293,21 @@ export function ChartWorkbench({
       primitive.setUpdate(undefined);
       return;
     }
-    const unsubscribe = subscribeDepthWalls(depthSymbol, (update) => primitive.setUpdate(update));
+    const subscription = subscribeDepthWalls(depthSymbol, wallOptionsRef.current, (update) => primitive.setUpdate(update));
+    wallsSubscriptionRef.current = subscription;
     return () => {
-      unsubscribe();
+      subscription.unsubscribe();
+      wallsSubscriptionRef.current = null;
       // Never leave one symbol's walls on another symbol's chart.
       primitive.setUpdate(undefined);
     };
   }, [candlestickRef, depthSymbol, showOrderBookWalls]);
+
+  // Window and minimum changes apply to the live subscription; the socket is not reopened.
+  useEffect(() => {
+    wallOptionsRef.current = wallOptions;
+    wallsSubscriptionRef.current?.setOptions(wallOptions);
+  }, [wallOptions]);
 
   useOverlaySeries(
     chartRef,

@@ -6,7 +6,7 @@ import type {
   Time,
 } from "lightweight-charts";
 import type { CanvasRenderingTarget2D } from "fancy-canvas";
-import type { DepthWallsUpdate } from "@/lib/depth-feed";
+import type { DepthStatus, DepthWallsUpdate } from "@/lib/depth-feed";
 import { bubbleRadius, decayedReference, type Wall } from "@/lib/depth-walls";
 import type { BookSide } from "@/lib/order-book";
 
@@ -41,7 +41,7 @@ interface Bubble {
  */
 export class DepthWallsPrimitive implements ISeriesPrimitive<Time> {
   private attachedTo: SeriesAttachedParameter<Time> | null = null;
-  private status: DepthWallsUpdate["status"] = "syncing";
+  private update: DepthWallsUpdate | undefined;
   private readonly bubbles = new Map<BookSide, Bubble>();
   private reference = 0;
   private referenceAt = 0;
@@ -66,8 +66,9 @@ export class DepthWallsPrimitive implements ISeriesPrimitive<Time> {
     return [this.view];
   }
 
-  /** The latest feed update, or `undefined` to clear (overlay off / symbol switched). */
+  /** The latest subscription update, or `undefined` to clear (overlay off / symbol switched). */
   public setUpdate(update: DepthWallsUpdate | undefined, now = Date.now()): void {
+    this.update = update;
     if (update === undefined) {
       this.bubbles.clear();
       this.reference = 0;
@@ -75,7 +76,6 @@ export class DepthWallsPrimitive implements ISeriesPrimitive<Time> {
       this.attachedTo?.requestUpdate();
       return;
     }
-    this.status = update.status;
     const walls = { bid: update.frame?.bid, ask: update.frame?.ask };
     const peak = Math.max(walls.bid?.notional ?? 0, walls.ask?.notional ?? 0);
     this.reference = decayedReference(this.reference, peak, now - this.referenceAt, REFERENCE_HALF_LIFE_MS);
@@ -142,11 +142,14 @@ export class DepthWallsPrimitive implements ISeriesPrimitive<Time> {
   private paint(context: CanvasRenderingContext2D, paneWidth: number): void {
     const attached = this.attachedTo;
     const forming = attached?.series.data().at(-1);
-    if (attached === null || forming === undefined) return;
+    if (attached === null || forming === undefined || this.update === undefined) return;
     const formingX = attached.chart.timeScale().timeToCoordinate(forming.time);
     if (formingX === null) return; // Forming candle scrolled out of view.
     const barSpacing = attached.chart.timeScale().options().barSpacing ?? 6;
-    const isCurrent = this.status === "live";
+    const { status, quoteAsset, frame, observedUntil } = this.update;
+    const isCurrent = status === "live";
+    // Observation stops advancing when the feed is not live, so the age freezes there.
+    const observationEnd = isCurrent ? Date.now() : observedUntil;
     context.font = LABEL_FONT;
 
     for (const [side, bubble] of this.bubbles) {
@@ -166,7 +169,14 @@ export class DepthWallsPrimitive implements ISeriesPrimitive<Time> {
       context.stroke();
       context.setLineDash([]);
 
-      const label = wallLabel(bubble.wall, this.status, Date.now());
+      const label = wallLabel({
+        wall: bubble.wall,
+        status,
+        quoteAsset,
+        searchedPct: frame?.searchedPct ?? 0,
+        clippedByCoverage: frame?.clippedByCoverage ?? false,
+        observedMs: observationEnd - bubble.wall.observedSince,
+      });
       const labelWidth = context.measureText(label).width;
       const fitsRight = x + bubble.radius + GAP_PX + labelWidth <= paneWidth;
       context.textAlign = fitsRight ? "left" : "right";
@@ -192,20 +202,44 @@ export const formatNotional = (value: number): string => {
   return value.toFixed(0);
 };
 
-/** How long the wall has stood: "" under 10 s, then "45s", "3m", "1h 5m". */
+/** Observation length: "<10s" under 10 s (never blank, so a short observation isn't hidden), then "45s", "3m", "1h 5m". */
 export const formatAge = (ms: number): string => {
-  const seconds = Math.floor(ms / 1000);
-  if (seconds < 10) return "";
+  const seconds = Math.max(0, Math.floor(ms / 1000));
+  if (seconds < 10) return "<10s";
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);
   if (minutes < 60) return `${minutes}m`;
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`;
 };
 
-export const wallLabel = (wall: Wall, status: DepthWallsUpdate["status"], now: number): string => {
-  const parts = [wall.price.toLocaleString("en-US", { maximumFractionDigits: 8 }), formatNotional(wall.notional)];
-  const age = formatAge(now - wall.since);
-  if (age !== "") parts.push(age);
+/** Detection window as shown: "0.5", "0.9" (never "0.90" or "0.5000"). */
+export const formatPct = (pct: number): string => String(Number(pct.toFixed(2)));
+
+export interface WallLabelInput {
+  readonly wall: Wall;
+  readonly status: DepthStatus;
+  readonly quoteAsset: string;
+  /** The window actually searched (configured, or clipped to coverage). */
+  readonly searchedPct: number;
+  readonly clippedByCoverage: boolean;
+  /** Continuous observation length, measured to the end of observation. */
+  readonly observedMs: number;
+}
+
+/**
+ * "79,500 · 2.05M USDT · observed for 3m · max in ±0.5%". The scope says this
+ * is the largest level inside the searched window, not the market's maximum.
+ * A non-live status is appended so stale or resyncing walls aren't read as current.
+ */
+export const wallLabel = (input: WallLabelInput): string => {
+  const { wall, status, quoteAsset, searchedPct, clippedByCoverage, observedMs } = input;
+  const scope = `max in ±${formatPct(searchedPct)}%${clippedByCoverage ? " (coverage)" : ""}`;
+  const parts = [
+    wall.price.toLocaleString("en-US", { maximumFractionDigits: 8 }),
+    `${formatNotional(wall.notional)} ${quoteAsset}`,
+    `observed for ${formatAge(observedMs)}`,
+    scope,
+  ];
   if (status !== "live") parts.push(status);
   return parts.join(" · ");
 };

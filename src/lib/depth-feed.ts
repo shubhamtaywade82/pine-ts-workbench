@@ -1,31 +1,37 @@
 "use client";
 
 import type { BinanceSymbol } from "./public-binance-feed";
+import { quoteAssetOf } from "./public-binance-feed";
+import { WallTracker, type WallFrame, type WallOptions, type BookView } from "./depth-walls";
 import { LocalOrderBook, type DepthSnapshot, type DepthUpdate } from "./order-book";
-import { WallTracker, type WallFrame, type WallOptions } from "./depth-walls";
 
 /**
- * Live liquidity walls for a Binance Spot symbol — the same market as the
- * chart's candles (a futures book over spot candles would show other prices).
- *
- * One `<symbol>@depth@100ms` socket per symbol, shared by every chart cell
- * showing it. Stream and snapshot both come from Binance's market-data-only
- * mirrors (`data-stream.binance.vision`, `data-api.binance.vision` — the
- * latter already serves the candle history), so the two halves of the sync
- * share one source and stay reachable where `api.binance.com` is
- * geo-restricted.
+ * Live liquidity walls for a Binance Spot symbol, the same market as the
+ * chart's candles. One `<symbol>@depth@100ms` socket per symbol serves every
+ * chart showing it. Each chart observes the book with its own wall options.
+ * Stream and snapshot both come from Binance's market-data mirrors.
  */
 
 const DEPTH_STREAM_URL = "wss://data-stream.binance.vision/stream";
+const DEPTH_SNAPSHOT_URL = "https://data-api.binance.vision/api/v3/depth";
 
 export type DepthStatus = "syncing" | "live" | "stale";
 
-export interface DepthWallsUpdate {
-  /** `live`: synced and updating. `syncing`: (re)building the book. `stale`: socket down or silent. */
+/** Feed-level state, shared by every subscriber. Walls are derived per subscriber from its own options. */
+export interface DepthFeedState {
   readonly status: DepthStatus;
-  /** Latest walls; kept through `syncing`/`stale` so the chart can show them as not current. */
+  /** The synced book. Subscribers read it synchronously, and only while `live`. */
+  readonly book: BookView | undefined;
+  readonly error?: string;
+}
+
+export interface DepthWallsUpdate {
+  readonly status: DepthStatus;
+  /** Last walls computed while live. Kept through syncing and stale so the chart can show them as not current. */
   readonly frame: WallFrame | undefined;
-  /** Last sync failure, cleared once live. */
+  /** End of the continuous observation behind `frame`: now while live, the last live moment otherwise. */
+  readonly observedUntil: number;
+  readonly quoteAsset: string;
   readonly error?: string;
 }
 
@@ -41,23 +47,88 @@ export interface DepthFeedDeps {
   readonly fetchSnapshot: (symbol: BinanceSymbol, limit: number) => Promise<DepthSnapshot>;
 }
 
-export const DEFAULT_WALL_OPTIONS: WallOptions = { maxDistancePct: 0.5, minNotional: 0, switchMarginPct: 15 };
-
-// Binance's maximum. Even 5000 levels reach only ~±1% from mid on BTCUSDT.
+// Binance's maximum. Even 5000 levels reach only about ±1.1% from mid on BTCUSDT.
 const SNAPSHOT_LIMIT = 5_000;
 const FIRST_RETRY_MS = 1_000;
 const MAX_RETRY_MS = 30_000;
 const RECONNECT_DELAY_MS = 3_000;
 // depth@100ms is silent only when the book does not change; this long means the feed is not current.
 const STALE_AFTER_MS = 10_000;
-// A snapshot costs 250 request weight; widen the known range at most this often.
+// A snapshot costs 250 request weight, so the book is re-centred at most this often.
 const COVERAGE_REFRESH_MS = 60_000;
 
-export class DepthFeed {
-  private readonly listeners = new Set<(update: DepthWallsUpdate) => void>();
-  private readonly book = new LocalOrderBook();
+/** Distance from mid to the nearer edge of the verified coverage, in percent. */
+const coverageHeadroomPct = (book: BookView): number => {
+  if (book.bestBid === undefined || book.bestAsk === undefined) return Number.POSITIVE_INFINITY;
+  const mid = (book.bestBid + book.bestAsk) / 2;
+  const { bidFloor, askCeiling } = book.coverage;
+  return Math.min((mid - bidFloor) / mid, (askCeiling - mid) / mid) * 100;
+};
+
+/**
+ * One chart's view of the feed. It derives walls from the book with its own
+ * options. It breaks observation whenever the feed stops being live, so a
+ * wall seen again after a gap, a resync or a stall starts a new observation
+ * instead of continuing the old one.
+ */
+export class WallObserver {
   private readonly tracker: WallTracker;
-  private latest: DepthWallsUpdate | undefined;
+  private lastState: DepthFeedState | undefined;
+  private frame: WallFrame | undefined;
+  private observing = false;
+  private observedUntil = 0;
+
+  public constructor(
+    options: WallOptions,
+    private readonly quoteAsset: string,
+    private readonly now: () => number,
+    private readonly emit: (update: DepthWallsUpdate) => void,
+  ) {
+    this.tracker = new WallTracker(options);
+  }
+
+  public receive(state: DepthFeedState): void {
+    this.lastState = state;
+    this.apply(state);
+    this.publish(state);
+  }
+
+  public setOptions(options: WallOptions): void {
+    this.tracker.setOptions(options);
+    if (this.lastState !== undefined) this.receive(this.lastState);
+  }
+
+  private apply(state: DepthFeedState): void {
+    if (state.status === "live" && state.book !== undefined) {
+      const now = this.now();
+      this.frame = this.tracker.update(state.book, now);
+      this.observedUntil = now;
+      this.observing = true;
+      return;
+    }
+    if (this.observing) {
+      this.tracker.reset();
+      this.observing = false;
+    }
+  }
+
+  private publish(state: DepthFeedState): void {
+    this.emit({
+      status: state.status,
+      frame: this.frame,
+      observedUntil: this.observedUntil,
+      quoteAsset: this.quoteAsset,
+      ...(state.error === undefined ? {} : { error: state.error }),
+    });
+  }
+}
+
+export class DepthFeed {
+  private readonly listeners = new Set<(state: DepthFeedState) => void>();
+  // Widest window each observer searches: the snapshot must cover it around mid.
+  private readonly windows = new Map<object, number>();
+  private readonly book = new LocalOrderBook();
+  private state: DepthFeedState = { status: "syncing", book: undefined };
   private closeSocket: (() => void) | undefined;
   private cancelRetry: (() => void) | undefined;
   private cancelWatchdog: (() => void) | undefined;
@@ -65,27 +136,26 @@ export class DepthFeed {
   private snapshotInFlight = false;
   private retryMs = FIRST_RETRY_MS;
   private lastCoverageRefresh = Number.NEGATIVE_INFINITY;
-  // Bumped on reconnect/stop so a response from an older connection is ignored.
+  // Headroom right after the last snapshot: the most this snapshot can ever cover.
+  private snapshotHeadroomPct = Number.POSITIVE_INFINITY;
+  // Bumped on reconnect and stop, so responses from an older connection are ignored.
   private generation = 0;
   private stopped = false;
   private started = false;
 
   public constructor(
     private readonly symbol: BinanceSymbol,
-    options: WallOptions,
     private readonly deps: DepthFeedDeps,
-  ) {
-    this.tracker = new WallTracker(options);
-  }
+  ) {}
 
   public get isStopped(): boolean {
     return this.stopped;
   }
 
-  /** Starts on the first subscriber; replays the latest update; stops when the last one leaves. */
-  public subscribe(listener: (update: DepthWallsUpdate) => void): () => void {
+  /** Starts on the first subscriber and stops when the last one leaves. Replays the current state. */
+  public subscribe(listener: (state: DepthFeedState) => void): () => void {
     this.listeners.add(listener);
-    if (this.latest !== undefined) listener(this.latest);
+    listener(this.state);
     if (!this.started) {
       this.started = true;
       this.connect();
@@ -94,6 +164,12 @@ export class DepthFeed {
       this.listeners.delete(listener);
       if (this.listeners.size === 0) this.stop();
     };
+  }
+
+  /** Registers (or with `undefined`, removes) an observer's window. */
+  public setWindow(owner: object, windowPct: number | undefined): void {
+    if (windowPct === undefined) this.windows.delete(owner);
+    else this.windows.set(owner, windowPct);
   }
 
   public stop(): void {
@@ -110,14 +186,13 @@ export class DepthFeed {
     this.generation += 1;
     const generation = this.generation;
     this.book.reset();
-    this.tracker.reset();
     this.snapshotInFlight = false;
     this.cancelRetry?.();
     this.cancelRetry = undefined;
     this.closeSocket = this.deps.openSocket(
       `${DEPTH_STREAM_URL}?streams=${this.symbol.toLowerCase()}@depth@100ms`,
       {
-        // Events buffer from here, so the snapshot taken now can be continued by them.
+        // Events buffer from here, so a snapshot taken now can be continued by them.
         onOpen: () => { if (generation === this.generation) this.fetchSnapshot(); },
         onMessage: (event) => { if (generation === this.generation) this.onEvent(event); },
         onClose: () => { if (generation === this.generation) this.onSocketClosed(); },
@@ -129,25 +204,32 @@ export class DepthFeed {
     const result = this.book.push(event);
     if (result === "gap") {
       // Missed events: the book was discarded and this event starts the new buffer.
-      this.emit({ status: "syncing", frame: this.latest?.frame });
+      this.emit("syncing");
       this.scheduleSnapshot();
       return;
     }
     if (result !== "applied") return;
     this.armWatchdog();
-    this.publishFrame();
+    this.emit("live");
+    this.refreshCoverageIfNeeded();
   }
 
-  private publishFrame(): void {
-    const frame = this.tracker.update(this.book, this.deps.now());
-    this.emit({ status: "live", frame });
-    if (frame?.windowExceedsCoverage && this.deps.now() - this.lastCoverageRefresh >= COVERAGE_REFRESH_MS) {
-      // Price drifted toward the edge of the snapshot's known range: re-snapshot around the new mid.
-      this.lastCoverageRefresh = this.deps.now();
-      this.book.reset();
-      this.emit({ status: "syncing", frame });
-      this.fetchSnapshot();
-    }
+  /**
+   * Re-centres the book when price nears the edge of the verified coverage, so
+   * observers keep their window. The threshold is capped by what the last
+   * snapshot could cover at all, so a window wider than the snapshot can't
+   * trigger a refresh on every tick.
+   */
+  private refreshCoverageIfNeeded(): void {
+    const requiredPct = Math.max(0, ...this.windows.values());
+    const threshold = Math.min(requiredPct, this.snapshotHeadroomPct / 2);
+    if (coverageHeadroomPct(this.book) >= threshold) return;
+    const now = this.deps.now();
+    if (now - this.lastCoverageRefresh < COVERAGE_REFRESH_MS) return;
+    this.lastCoverageRefresh = now;
+    this.book.reset();
+    this.emit("syncing");
+    this.fetchSnapshot();
   }
 
   private fetchSnapshot(): void {
@@ -160,20 +242,20 @@ export class DepthFeed {
         this.snapshotInFlight = false;
         const result = this.book.applySnapshot(snapshot, SNAPSHOT_LIMIT);
         if (result !== "synced") {
-          this.emit({ status: "syncing", frame: this.latest?.frame });
+          this.emit("syncing");
           this.scheduleSnapshot();
           return;
         }
         this.retryMs = FIRST_RETRY_MS;
-        this.lastCoverageRefresh = this.deps.now();
+        this.snapshotHeadroomPct = coverageHeadroomPct(this.book);
         this.armWatchdog();
-        this.publishFrame();
+        this.emit("live");
       },
       (error: unknown) => {
         if (generation !== this.generation) return;
         this.snapshotInFlight = false;
         const message = error instanceof Error ? error.message : String(error);
-        this.emit({ status: "syncing", frame: this.latest?.frame, error: `Order book snapshot failed: ${message}` });
+        this.emit("syncing", `Order book snapshot failed: ${message}`);
         this.scheduleSnapshot();
       },
     );
@@ -193,12 +275,12 @@ export class DepthFeed {
   private onSocketClosed(): void {
     this.closeSocket = undefined;
     this.cancelWatchdog?.();
-    this.emit({ status: "stale", frame: this.latest?.frame });
+    this.emit("stale");
     this.cancelReconnect = this.deps.schedule(() => {
       this.cancelReconnect = undefined;
       if (this.stopped) return;
       this.connect();
-      this.emit({ status: "syncing", frame: this.latest?.frame });
+      this.emit("syncing");
     }, RECONNECT_DELAY_MS);
   }
 
@@ -206,19 +288,21 @@ export class DepthFeed {
     this.cancelWatchdog?.();
     this.cancelWatchdog = this.deps.schedule(() => {
       this.cancelWatchdog = undefined;
-      if (this.latest?.status === "live") this.emit({ status: "stale", frame: this.latest.frame });
+      if (this.state.status === "live") this.emit("stale");
     }, STALE_AFTER_MS);
   }
 
-  private emit(update: DepthWallsUpdate): void {
-    this.latest = update;
-    for (const listener of this.listeners) listener(update);
+  private emit(status: DepthStatus, error?: string): void {
+    this.state = {
+      status,
+      book: this.book.isSynced ? this.book : undefined,
+      ...(error === undefined ? {} : { error }),
+    };
+    for (const listener of this.listeners) listener(this.state);
   }
 }
 
 // ---------- browser wiring ----------
-
-const DEPTH_URL = "https://data-api.binance.vision/api/v3/depth";
 
 const browserDeps: DepthFeedDeps = {
   now: () => Date.now(),
@@ -244,7 +328,7 @@ const browserDeps: DepthFeedDeps = {
     };
   },
   fetchSnapshot: async (symbol, limit) => {
-    const res = await fetch(`${DEPTH_URL}?symbol=${symbol}&limit=${limit}`);
+    const res = await fetch(`${DEPTH_SNAPSHOT_URL}?symbol=${symbol}&limit=${limit}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
     return (await res.json()) as DepthSnapshot;
   },
@@ -252,15 +336,38 @@ const browserDeps: DepthFeedDeps = {
 
 const sharedFeeds = new Map<BinanceSymbol, DepthFeed>();
 
-/** Live walls for `symbol`, one shared connection per symbol across chart cells. Returns unsubscribe. */
+const feedFor = (symbol: BinanceSymbol): DepthFeed => {
+  const existing = sharedFeeds.get(symbol);
+  if (existing !== undefined && !existing.isStopped) return existing;
+  const feed = new DepthFeed(symbol, browserDeps);
+  sharedFeeds.set(symbol, feed);
+  return feed;
+};
+
+export interface WallsSubscription {
+  /** Applies new wall options immediately, without reconnecting. */
+  setOptions(options: WallOptions): void;
+  unsubscribe(): void;
+}
+
+/** Live walls for `symbol`, one shared connection per symbol. Options can change without reconnecting. */
 export const subscribeDepthWalls = (
   symbol: BinanceSymbol,
+  options: WallOptions,
   listener: (update: DepthWallsUpdate) => void,
-): (() => void) => {
-  let feed = sharedFeeds.get(symbol);
-  if (feed === undefined || feed.isStopped) {
-    feed = new DepthFeed(symbol, DEFAULT_WALL_OPTIONS, browserDeps);
-    sharedFeeds.set(symbol, feed);
-  }
-  return feed.subscribe(listener);
+): WallsSubscription => {
+  const feed = feedFor(symbol);
+  const observer = new WallObserver(options, quoteAssetOf(symbol), browserDeps.now, listener);
+  feed.setWindow(observer, options.windowPct);
+  const unsubscribeFeed = feed.subscribe((state) => observer.receive(state));
+  return {
+    setOptions: (next) => {
+      feed.setWindow(observer, next.windowPct);
+      observer.setOptions(next);
+    },
+    unsubscribe: () => {
+      feed.setWindow(observer, undefined);
+      unsubscribeFeed();
+    },
+  };
 };
