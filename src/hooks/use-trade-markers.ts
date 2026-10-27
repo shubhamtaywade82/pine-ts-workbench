@@ -3,6 +3,7 @@ import {
   createSeriesMarkers,
   type ISeriesApi,
   type ISeriesMarkersPluginApi,
+  type SeriesType,
   type Time,
 } from "lightweight-charts";
 import type { TradeMarker } from "@/components/chart/chart-workbench";
@@ -15,15 +16,16 @@ const TV = {
 };
 
 /**
- * Attaches entry/exit arrow markers to the candlestick series using LWC v5 plugin API.
+ * Attaches entry/exit arrow markers to the primary series using LWC v5 plugin API.
  */
 export function useTradeMarkers(
-  candlestickRef: RefObject<ISeriesApi<"Candlestick"> | null>,
+  candlestickRef: RefObject<ISeriesApi<SeriesType> | null>,
   tradeMarkers: readonly TradeMarker[] | undefined,
   tradingSettings: ChartSettings["trading"],
+  seriesType?: string,
 ): void {
   const markersRef = useRef<{
-    series: ISeriesApi<"Candlestick">;
+    series: ISeriesApi<SeriesType>;
     plugin: ISeriesMarkersPluginApi<Time>;
   } | null>(null);
 
@@ -55,5 +57,5 @@ export function useTradeMarkers(
 
     markerData.sort((a, b) => (a.time as number) - (b.time as number));
     markersPlugin.setMarkers(markerData);
-  }, [candlestickRef, tradeMarkers, tradingSettings]);
+  }, [candlestickRef, tradeMarkers, tradingSettings, seriesType]);
 }

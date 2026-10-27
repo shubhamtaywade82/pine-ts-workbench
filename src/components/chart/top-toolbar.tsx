@@ -13,7 +13,14 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SymbolSearchDialog } from "@/components/chart/symbol-search-dialog";
-import { ChartLine, LayoutGrid, Maximize, Plus, Sun, Moon, Save, Settings } from "lucide-react";
+import {
+  Activity, AreaChart, BarChart3, CandlestickChart, ChartLine, LayoutGrid,
+  LineChart, Maximize, Moon, Plus, Save, Settings, Sun,
+} from "lucide-react";
+import type { ChartSettings } from "@/lib/chart-settings";
+import {
+  CANDLE_THEMES, CANDLE_TYPES, findCandleTheme, type CandleThemeId, type CandleType,
+} from "@/lib/candle-themes";
 
 export type GridLayout = 1 | 2 | 4 | 6;
 
@@ -44,6 +51,8 @@ export interface TopToolbarProps {
   readonly onAlertSettingsSaved: (settings: AlertSettings) => void;
   readonly onSettingsSaved: (settings: BinanceSettings) => void;
   readonly onOpenChartSettings: () => void;
+  readonly chartSettings?: ChartSettings;
+  readonly onChartSettingsChange?: (settings: ChartSettings) => void;
 }
 
 const toggleFullscreen = () => {
@@ -89,6 +98,38 @@ export function TopToolbar(props: TopToolbarProps) {
           {INTERVAL_LABELS[i]}
         </Button>
       ))}
+      {props.chartSettings && props.onChartSettingsChange && (
+        <>
+          <ToolbarSeparator />
+          <CandleTypeSelector
+            type={props.chartSettings.candles.type}
+            onChange={(type) =>
+              props.onChartSettingsChange!({
+                ...props.chartSettings!,
+                candles: { ...props.chartSettings!.candles, type },
+              })
+            }
+          />
+          <CandleThemeSelector
+            theme={props.chartSettings.candles.theme}
+            upColor={props.chartSettings.candles.upColor}
+            downColor={props.chartSettings.candles.downColor}
+            onChange={(themeId) => {
+              const themeDef = findCandleTheme(themeId);
+              if (!themeDef) return;
+              props.onChartSettingsChange!({
+                ...props.chartSettings!,
+                candles: {
+                  ...props.chartSettings!.candles,
+                  theme: themeId,
+                  upColor: themeDef.upColor,
+                  downColor: themeDef.downColor,
+                },
+              });
+            }}
+          />
+        </>
+      )}
       <ToolbarSeparator />
       <Button variant="ghost" size="sm" className="h-8 text-sm" onClick={() => setIsIndicatorsDialogOpen(true)}>
         <ChartLine className="mr-1 h-4 w-4" /> Indicators
@@ -192,4 +233,65 @@ function SavedLayoutsMenu({ onSave, onLoad }: {
 
 function ToolbarSeparator() {
   return <span className="mx-1 h-5 w-px shrink-0 bg-border" />;
+}
+
+function CandleTypeSelector({ type, onChange }: { readonly type: CandleType; readonly onChange: (type: CandleType) => void }) {
+  return (
+    <Select value={type} onValueChange={(val) => onChange(val as CandleType)}>
+      <SelectTrigger className="h-8 w-auto gap-1.5 border-0 bg-transparent px-2 text-xs font-medium shadow-none hover:bg-muted" title="Chart type">
+        <CandleTypeIcon type={type} className="h-3.5 w-3.5" />
+        <span className="hidden sm:inline">{CANDLE_TYPES.find((t) => t.id === type)?.label ?? "Candles"}</span>
+      </SelectTrigger>
+      <SelectContent>
+        {CANDLE_TYPES.map((t) => (
+          <SelectItem key={t.id} value={t.id} className="text-xs">
+            <div className="flex items-center gap-2">
+              <CandleTypeIcon type={t.id} className="h-3.5 w-3.5 text-muted-foreground" />
+              <span>{t.label}</span>
+            </div>
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+function CandleThemeSelector({
+  theme, upColor, downColor, onChange,
+}: { readonly theme: CandleThemeId; readonly upColor: string; readonly downColor: string; readonly onChange: (theme: CandleThemeId) => void }) {
+  return (
+    <Select value={theme} onValueChange={(val) => onChange(val as CandleThemeId)}>
+      <SelectTrigger className="h-8 w-auto gap-1.5 border-0 bg-transparent px-2 text-xs font-medium shadow-none hover:bg-muted" title="Candle theme">
+        <div className="flex items-center gap-0.5">
+          <span className="h-2 w-2 rounded-full" style={{ backgroundColor: upColor }} />
+          <span className="h-2 w-2 rounded-full" style={{ backgroundColor: downColor }} />
+        </div>
+        <span className="hidden md:inline">{theme === "custom" ? "Custom" : (findCandleTheme(theme)?.name ?? "Theme")}</span>
+      </SelectTrigger>
+      <SelectContent>
+        {CANDLE_THEMES.map((t) => (
+          <SelectItem key={t.id} value={t.id} className="text-xs">
+            <div className="flex items-center justify-between gap-3 w-full">
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-0.5">
+                  <span className="h-2 w-2 rounded-full" style={{ backgroundColor: t.upColor }} />
+                  <span className="h-2 w-2 rounded-full" style={{ backgroundColor: t.downColor }} />
+                </div>
+                <span>{t.name}</span>
+              </div>
+              <span className="text-[10px] text-muted-foreground">{t.description}</span>
+            </div>
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
+
+function CandleTypeIcon({ type, className }: { readonly type: CandleType; readonly className?: string }) {
+  if (type === "line") return <LineChart className={className} />;
+  if (type === "area") return <AreaChart className={className} />;
+  if (type === "baseline") return <Activity className={className} />;
+  if (type === "bars") return <BarChart3 className={className} />;
+  return <CandlestickChart className={className} />;
 }

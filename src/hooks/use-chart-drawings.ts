@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
-import type { IChartApi, ISeriesApi, MouseEventParams, Time } from "lightweight-charts";
+import type { IChartApi, ISeriesApi, MouseEventParams, SeriesType, Time } from "lightweight-charts";
 import type { Bar } from "@nemesis-oss/pine-ts";
 import { UserDrawingsPrimitive } from "@/components/chart/user-drawings-primitive";
 import type { DrawingPoint, DrawingToolType, UserDrawing } from "@/lib/user-drawings";
@@ -7,7 +7,7 @@ import type { DrawingPoint, DrawingToolType, UserDrawing } from "@/lib/user-draw
 function resolvePoint(
   param: MouseEventParams<Time>,
   chart: IChartApi,
-  candle: ISeriesApi<"Candlestick">,
+  candle: ISeriesApi<SeriesType>,
   bars: readonly Bar[],
   intervalMs: number,
 ): DrawingPoint | null {
@@ -34,14 +34,14 @@ function resolvePoint(
 
 export function useChartDrawings(
   chartRef: RefObject<IChartApi | null>,
-  candlestickRef: RefObject<ISeriesApi<"Candlestick"> | null>,
+  candlestickRef: RefObject<ISeriesApi<SeriesType> | null>,
   bars: readonly Bar[],
   intervalMs: number,
 ) {
   const [activeTool, setActiveTool] = useState<DrawingToolType>("cursor");
   const [drawings, setDrawings] = useState<readonly UserDrawing[]>([]);
   const [draftPoint, setDraftPoint] = useState<DrawingPoint | null>(null);
-  const primitiveRef = useRef<{ series: ISeriesApi<"Candlestick">; primitive: UserDrawingsPrimitive } | null>(null);
+  const primitiveRef = useRef<{ series: ISeriesApi<SeriesType>; primitive: UserDrawingsPrimitive } | null>(null);
 
   // Attach primitive to series on mount or series change.
   useEffect(() => {

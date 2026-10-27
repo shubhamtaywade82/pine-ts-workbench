@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, type RefObject } from "react";
-import type { ISeriesApi } from "lightweight-charts";
+import type { ISeriesApi, SeriesType } from "lightweight-charts";
 import type { BinanceSymbol } from "@/lib/public-binance-feed";
 import { subscribeDepthWalls, type WallsSubscription } from "@/lib/depth-feed";
 import { wallOptionsFor } from "@/lib/depth-walls";
@@ -7,14 +7,15 @@ import { DepthWallsPrimitive } from "@/components/chart/depth-walls-primitive";
 import type { ChartSettings } from "@/lib/chart-settings";
 
 /**
- * Attaches and updates live depth wall bubbles on the candlestick series.
+ * Attaches and updates live depth wall bubbles on the primary series.
  */
 export function useDepthWalls(
-  candlestickRef: RefObject<ISeriesApi<"Candlestick"> | null>,
+  candlestickRef: RefObject<ISeriesApi<SeriesType> | null>,
   depthSymbol: BinanceSymbol | undefined,
   tradingSettings: ChartSettings["trading"],
+  seriesType?: string,
 ): void {
-  const depthWallsRef = useRef<{ series: ISeriesApi<"Candlestick">; primitive: DepthWallsPrimitive } | null>(null);
+  const depthWallsRef = useRef<{ series: ISeriesApi<SeriesType>; primitive: DepthWallsPrimitive } | null>(null);
   const wallsSubscriptionRef = useRef<WallsSubscription | null>(null);
 
   const { showOrderBookWalls, wallWindowPct, minWallNotional } = tradingSettings;
@@ -46,7 +47,7 @@ export function useDepthWalls(
       // Never leave one symbol's walls on another symbol's chart.
       primitive.setUpdate(undefined);
     };
-  }, [candlestickRef, depthSymbol, showOrderBookWalls]);
+  }, [candlestickRef, depthSymbol, showOrderBookWalls, seriesType]);
 
   // Window and minimum changes apply to the live subscription without reopening websocket.
   useEffect(() => {

@@ -5,6 +5,7 @@ import {
   createChart,
   type IChartApi,
   type ISeriesApi,
+  type SeriesType,
 } from "lightweight-charts";
 import type { Bar } from "@nemesis-oss/pine-ts";
 import { ChartLegend, writeLiveOhlc } from "@/components/chart/chart-legend";
@@ -85,8 +86,8 @@ export function ChartWorkbench({
   const chartRef = useRef<IChartApi | null>(null);
   const overlaySeriesRef = useRef<Map<string, ISeriesApi<"Custom">>>(new Map());
   const subPaneSeriesRef = useRef<Map<string, ISeriesApi<"Custom">>>(new Map());
-  const drawingsRef = useRef<{ series: ISeriesApi<"Candlestick">; primitive: ScriptDrawingsPrimitive } | null>(null);
-  const lastPriceRef = useRef<{ series: ISeriesApi<"Candlestick">; primitive: LastPricePrimitive } | null>(null);
+  const drawingsRef = useRef<{ series: ISeriesApi<SeriesType>; primitive: ScriptDrawingsPrimitive } | null>(null);
+  const lastPriceRef = useRef<{ series: ISeriesApi<SeriesType>; primitive: LastPricePrimitive } | null>(null);
   const [hoverTime, setHoverTime] = useState<number | null>(null);
   const [paneHeights, setPaneHeights] = useState<number[]>([]);
   const [leftScaleWidth, setLeftScaleWidth] = useState(0);
@@ -148,7 +149,14 @@ export function ChartWorkbench({
     for (const d of drawings) if (d.kind === "barcolor") map.set(Math.floor(d.time / 1000), d.color);
     return map;
   }, [drawings]);
-  const candlestickRef = useCandleSeries(chartRef, bars, INTERVAL_MS[interval], onCandleFrame, subscribeBars, barColors);
+  const candlestickRef = useCandleSeries(chartRef, bars, INTERVAL_MS[interval], {
+    candleType: settings.candles.type,
+    candleSettings: settings.candles,
+    scalePlacement: settings.scales.placement,
+    onFrame: onCandleFrame,
+    subscribeBars,
+    barColors,
+  });
 
   const onNeedOlderRef = useRef(onNeedOlderBars);
   useEffect(() => { onNeedOlderRef.current = onNeedOlderBars; }, [onNeedOlderBars]);
@@ -163,7 +171,7 @@ export function ChartWorkbench({
   }, []);
 
   // Trade execution markers.
-  useTradeMarkers(candlestickRef, tradeMarkers, settings.trading);
+  useTradeMarkers(candlestickRef, tradeMarkers, settings.trading, settings.candles.type);
 
   // Visual options and last price style.
   useEffect(() => {
@@ -198,10 +206,10 @@ export function ChartWorkbench({
       drawingsRef.current = { series: candle, primitive };
     }
     drawingsRef.current.primitive.setDrawings(drawings ?? []);
-  }, [drawings, candlestickRef]);
+  }, [drawings, candlestickRef, settings.candles.type]);
 
   // Live order book walls.
-  useDepthWalls(candlestickRef, depthSymbol, settings.trading);
+  useDepthWalls(candlestickRef, depthSymbol, settings.trading, settings.candles.type);
 
   // User interactive drawing tools (trendline, ray, fibonacci, rectangle, measure).
   const { activeTool, setActiveTool, drawings: userDrawings, clearDrawings, isDrawing } = useChartDrawings(

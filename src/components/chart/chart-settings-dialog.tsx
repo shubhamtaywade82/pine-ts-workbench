@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DEFAULT_CHART_SETTINGS, type ChartSettings, type DepthWallStyle, type ScaleMode } from "@/lib/chart-settings";
+import { CANDLE_THEMES, CANDLE_TYPES, findCandleTheme, type CandleThemeId, type CandleType } from "@/lib/candle-themes";
 import { WALL_WINDOW_LIMITS_PCT } from "@/lib/depth-walls";
 
 type Tab = "symbol" | "statusLine" | "scales" | "canvas" | "trading";
@@ -76,11 +77,29 @@ const patcher = ({ draft, onChange }: TabProps) =>
 function SymbolTab(props: TabProps) {
   const { candles } = props.draft;
   const patch = patcher(props);
+  const onThemeChange = (id: CandleThemeId) => {
+    const theme = findCandleTheme(id);
+    if (theme) patch("candles", { theme: id, upColor: theme.upColor, downColor: theme.downColor });
+    else patch("candles", { theme: "custom" });
+  };
   return (
     <Group title="Candles">
+      <Row label="Type">
+        <select value={candles.type} onChange={(e) => patch("candles", { type: e.target.value as CandleType })}
+          className="h-8 rounded border border-border bg-background px-2 text-xs">
+          {CANDLE_TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+        </select>
+      </Row>
+      <Row label="Theme">
+        <select value={candles.theme} onChange={(e) => onThemeChange(e.target.value as CandleThemeId)}
+          className="h-8 rounded border border-border bg-background px-2 text-xs">
+          {CANDLE_THEMES.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+          <option value="custom">Custom</option>
+        </select>
+      </Row>
       <Row label="Colors">
-        <ColorInput value={candles.upColor} onChange={(upColor) => patch("candles", { upColor })} />
-        <ColorInput value={candles.downColor} onChange={(downColor) => patch("candles", { downColor })} />
+        <ColorInput value={candles.upColor} onChange={(upColor) => patch("candles", { upColor, theme: "custom" })} />
+        <ColorInput value={candles.downColor} onChange={(downColor) => patch("candles", { downColor, theme: "custom" })} />
       </Row>
       <Check label="Body" checked={candles.showBody} onChange={(showBody) => patch("candles", { showBody })} />
       <Check label="Borders" checked={candles.showBorders} onChange={(showBorders) => patch("candles", { showBorders })} />

@@ -75,6 +75,22 @@ describe("normalizeChartSettings: validation", () => {
   test("a trading section that is not an object yields the defaults", () => {
     expect(normalizeChartSettings({ trading: 42 }).trading).toEqual(DEFAULT_CHART_SETTINGS.trading);
   });
+
+  test("candles section normalizes type and theme with valid values and fallbacks", () => {
+    const valid = normalizeChartSettings({ candles: { type: "heikin_ashi", theme: "glass" } }).candles;
+    expect(valid.type).toBe("heikin_ashi");
+    expect(valid.theme).toBe("glass");
+
+    const water = normalizeChartSettings({ candles: { theme: "water" } }).candles;
+    expect(water.theme).toBe("water");
+
+    const custom = normalizeChartSettings({ candles: { theme: "custom" } }).candles;
+    expect(custom.theme).toBe("custom");
+
+    const fallback = normalizeChartSettings({ candles: { type: "unknown", theme: "invalid" } }).candles;
+    expect(fallback.type).toBe("candles");
+    expect(fallback.theme).toBe("tradingview");
+  });
 });
 
 describe("normalizeChartSettings: persistence round trip", () => {

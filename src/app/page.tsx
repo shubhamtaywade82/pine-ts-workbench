@@ -177,6 +177,8 @@ export default function Home() {
         onAlertSettingsSaved={setAlertSettings}
         onSettingsSaved={setSettings}
         onOpenChartSettings={openChartSettings}
+        chartSettings={chartSettings}
+        onChartSettingsChange={onChartSettingsChange}
       />
       <ScriptSettingsDialog {...editor.settingsDialog} />
       <ChartSettingsDialog

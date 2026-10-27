@@ -53,5 +53,32 @@ test.describe("Pine-TS Workbench E2E", () => {
     const testerContent = page.getByText(/Run a strategy from the Pine Editor|Overview|Performance/i).first();
     await expect(testerContent).toBeVisible({ timeout: 5_000 });
   });
+
+  test("switches candle type and theme from top toolbar and settings dialog", async ({ page }) => {
+    await page.goto("/");
+
+    // Top toolbar Candle Type selector
+    const typeBtn = page.getByTitle("Chart type");
+    await expect(typeBtn).toBeVisible({ timeout: 10_000 });
+    await typeBtn.click();
+    await expect(page.getByRole("option", { name: "Heikin Ashi" })).toBeVisible();
+    await page.getByRole("option", { name: "Heikin Ashi" }).click();
+    await expect(typeBtn).toContainText("Heikin Ashi");
+
+    // Top toolbar Candle Theme selector
+    const themeBtn = page.getByTitle("Candle theme");
+    await expect(themeBtn).toBeVisible();
+    await themeBtn.click();
+    await expect(page.getByRole("option", { name: /Frosted Glass/i })).toBeVisible();
+    await expect(page.getByRole("option", { name: /Oceanic Water/i })).toBeVisible();
+    await page.getByRole("option", { name: /Oceanic Water/i }).click();
+
+    // Chart Settings Dialog Symbol tab
+    const settingsBtn = page.getByTitle("Chart settings");
+    await settingsBtn.click();
+    await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Candles" })).toBeVisible();
+    await page.getByRole("button", { name: "Cancel" }).click();
+  });
 });
 

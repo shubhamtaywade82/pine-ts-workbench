@@ -1,4 +1,6 @@
 import type { DeepPartial, ChartOptions, CandlestickSeriesOptions, PriceScaleOptions } from "lightweight-charts";
+import type { CandleThemeId, CandleType } from "./candle-themes";
+import { CANDLE_THEMES, CANDLE_TYPES } from "./candle-themes";
 import { DEFAULT_MIN_WALL_NOTIONAL, DEFAULT_WALL_WINDOW_PCT, WALL_WINDOW_LIMITS_PCT } from "./depth-walls";
 
 /**
@@ -14,6 +16,8 @@ export const DEPTH_WALL_STYLES: readonly DepthWallStyle[] = ["shelf", "dom", "br
 
 export interface ChartSettings {
   readonly candles: {
+    readonly type: CandleType;
+    readonly theme: CandleThemeId;
     readonly upColor: string;
     readonly downColor: string;
     readonly showBody: boolean;
@@ -64,7 +68,15 @@ export interface ChartSettings {
 
 // TradingView's dark theme defaults.
 export const DEFAULT_CHART_SETTINGS: ChartSettings = {
-  candles: { upColor: "#089981", downColor: "#f23645", showBody: true, showBorders: true, showWick: true },
+  candles: {
+    type: "candles",
+    theme: "tradingview",
+    upColor: "#089981",
+    downColor: "#f23645",
+    showBody: true,
+    showBorders: true,
+    showWick: true,
+  },
   statusLine: { showTitle: true, showOhlc: true, showIndicatorTitles: true, showIndicatorValues: true },
   scales: { mode: "regular", autoScale: true, invert: false, showLastPriceLine: true, placement: "right" },
   trading: {
@@ -96,6 +108,26 @@ const numberIn = (value: unknown, min: number, max: number, fallback: number): n
 const isDepthWallStyle = (val: unknown): val is DepthWallStyle =>
   typeof val === "string" && (DEPTH_WALL_STYLES as readonly string[]).includes(val);
 
+const isCandleType = (val: unknown): val is CandleType =>
+  typeof val === "string" && CANDLE_TYPES.some((t) => t.id === val);
+
+const isCandleTheme = (val: unknown): val is CandleThemeId =>
+  val === "custom" || (typeof val === "string" && CANDLE_THEMES.some((t) => t.id === val));
+
+const normalizeCandles = (stored: unknown): ChartSettings["candles"] => {
+  const raw = isRecord(stored) ? stored : {};
+  const defaults = DEFAULT_CHART_SETTINGS.candles;
+  return {
+    type: isCandleType(raw["type"]) ? raw["type"] : defaults.type,
+    theme: isCandleTheme(raw["theme"]) ? raw["theme"] : defaults.theme,
+    upColor: typeof raw["upColor"] === "string" ? raw["upColor"] : defaults.upColor,
+    downColor: typeof raw["downColor"] === "string" ? raw["downColor"] : defaults.downColor,
+    showBody: booleanOr(raw["showBody"], defaults.showBody),
+    showBorders: booleanOr(raw["showBorders"], defaults.showBorders),
+    showWick: booleanOr(raw["showWick"], defaults.showWick),
+  };
+};
+
 const normalizeTrading = (stored: unknown): ChartSettings["trading"] => {
   const raw = isRecord(stored) ? stored : {};
   const defaults = DEFAULT_CHART_SETTINGS.trading;
@@ -118,7 +150,7 @@ export const normalizeChartSettings = (raw: unknown): ChartSettings => {
   const stored = isRecord(raw) ? raw : {};
   const section = (key: string): Record<string, unknown> => (isRecord(stored[key]) ? stored[key] : {});
   return {
-    candles: { ...DEFAULT_CHART_SETTINGS.candles, ...section("candles") },
+    candles: normalizeCandles(stored["candles"]),
     statusLine: { ...DEFAULT_CHART_SETTINGS.statusLine, ...section("statusLine") },
     scales: { ...DEFAULT_CHART_SETTINGS.scales, ...section("scales") },
     trading: normalizeTrading(stored["trading"]),
