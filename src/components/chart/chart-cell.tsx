@@ -10,7 +10,8 @@ import type { ChartSettings } from "@/lib/chart-settings";
 import { Button } from "@/components/ui/button";
 import { loadLibrary, currentCode, EMPTY_SETTINGS } from "@/lib/script-library";
 import { toChartDrawings } from "@/lib/editor-output";
-import { createLiveRunner, type LiveRunner } from "@/lib/indicator-runner";
+import type { LiveRunner } from "@/lib/indicator-runner";
+import { createScriptRunner, type ScriptRunner } from "@/lib/script-worker-client";
 import { X } from "lucide-react";
 import { useLiveBars, type LiveStatus } from "@/hooks/use-live-bars";
 
@@ -50,11 +51,11 @@ const runSavedScript = async (runLive: LiveRunner, scriptId: string, bars: reado
 };
 
 /** Runs one mounted indicator over `bars`: a registry built-in, or a saved "My scripts" indicator. */
-const runMounted = async (m: MountedIndicator, bars: readonly Bar[], runners: Map<string, LiveRunner>): Promise<IndicatorRunResult | undefined> => {
+const runMounted = async (m: MountedIndicator, bars: readonly Bar[], runners: Map<string, ScriptRunner>): Promise<IndicatorRunResult | undefined> => {
   if (m.scriptId !== undefined) {
-    let runLive = runners.get(m.instanceId);
-    if (runLive === undefined) runners.set(m.instanceId, (runLive = createLiveRunner()));
-    return runSavedScript(runLive, m.scriptId, bars);
+    let runner = runners.get(m.instanceId);
+    if (runner === undefined) runners.set(m.instanceId, (runner = createScriptRunner()));
+    return runSavedScript(runner.run, m.scriptId, bars);
   }
   const meta = registry.metadata(m.indicatorId);
   const instance = registry.instantiate(m.indicatorId, m.inputs);
@@ -126,10 +127,15 @@ export function ChartCell({
   }, [setIndicators, settingsInstanceId]);
 
   // Drive indicators. Saved scripts keep a live run per mounted instance, so ticks re-execute one bar.
-  const [liveRunners] = useState(() => new Map<string, LiveRunner>());
+  const [liveRunners] = useState(() => new Map<string, ScriptRunner>());
+  useEffect(() => () => liveRunners.forEach((runner) => runner.dispose()), [liveRunners]);
   useEffect(() => {
     let cancelled = false;
-    for (const id of liveRunners.keys()) if (!mounted.some((m) => m.instanceId === id)) liveRunners.delete(id);
+    for (const [id, runner] of liveRunners) {
+      if (mounted.some((m) => m.instanceId === id)) continue;
+      runner.dispose();
+      liveRunners.delete(id);
+    }
     (async () => {
       const out: Record<string, IndicatorRunResult> = {};
       for (const m of mounted) {
