@@ -1,5 +1,8 @@
 import { describe, expect, test } from "bun:test";
-import { bubbleCenterX, formatAge, formatNotional, wallLabel } from "./depth-walls-primitive";
+import { bubbleCenterX, formatAge, formatPct, wallLabel } from "./depth-walls-primitive";
+
+const wall = { side: "bid" as const, price: 79_500, quantity: 25.76, notional: 2_048_054, observedSince: 0 };
+const base = { wall, quoteAsset: "USDT", searchedPct: 0.5, clippedByCoverage: false, observedMs: 180_000 };
 
 describe("depth wall bubbles", () => {
   test("sit just right of the forming candle", () => {
@@ -10,24 +13,45 @@ describe("depth wall bubbles", () => {
   test("stay inside the pane at the right edge", () => {
     expect(bubbleCenterX(795, 10, 10, 800)).toBe(790);
   });
+});
 
-  test("format quote notional compactly", () => {
-    expect(formatNotional(950)).toBe("950");
-    expect(formatNotional(12_300)).toBe("12.3K");
-    expect(formatNotional(2_048_054)).toBe("2.05M");
-    expect(formatNotional(1_250_000_000)).toBe("1.25B");
+describe("wall labels", () => {
+  test("show price, notional in the quote currency, observation length, and the detection scope", () => {
+    expect(wallLabel({ ...base, status: "live" })).toBe("79,500 · 2.05M USDT · observed for 3m · max in ±0.5%");
   });
 
-  test("show how long a wall has stood, from 10 s", () => {
-    expect(formatAge(9_000)).toBe("");
+  test("name the quote currency from the input, never assume USDT", () => {
+    expect(wallLabel({ ...base, status: "live", quoteAsset: "EUR" })).toContain("2.05M EUR");
+  });
+
+  test("say the window was clipped by snapshot coverage", () => {
+    expect(wallLabel({ ...base, status: "live", searchedPct: 0.9, clippedByCoverage: true }))
+      .toContain("max in ±0.9% (coverage)");
+  });
+
+  test("append a non-live status so a frozen or resyncing wall is not read as current", () => {
+    expect(wallLabel({ ...base, status: "stale" })).toEndWith("max in ±0.5% · stale");
+    expect(wallLabel({ ...base, status: "syncing" })).toEndWith("max in ±0.5% · syncing");
+  });
+
+  test("never uses the old 'stood' wording, which implied an order's age", () => {
+    expect(wallLabel({ ...base, status: "live" })).not.toMatch(/stood|since|age/);
+  });
+});
+
+describe("formatting", () => {
+  test("observation length: under 10 s is shown, not hidden", () => {
+    expect(formatAge(0)).toBe("<10s");
+    expect(formatAge(9_000)).toBe("<10s");
     expect(formatAge(45_000)).toBe("45s");
     expect(formatAge(180_000)).toBe("3m");
     expect(formatAge(3_900_000)).toBe("1h 5m");
   });
 
-  test("label price, notional, age, and a non-live status", () => {
-    const wall = { side: "bid" as const, price: 79_500, quantity: 25.76, notional: 2_048_054, since: 0 };
-    expect(wallLabel(wall, "live", 180_000)).toBe("79,500 · 2.05M · 3m");
-    expect(wallLabel(wall, "stale", 5_000)).toBe("79,500 · 2.05M · stale");
+  test("the detection window prints without padding", () => {
+    expect(formatPct(0.5)).toBe("0.5");
+    expect(formatPct(0.9)).toBe("0.9");
+    expect(formatPct(1.25)).toBe("1.25");
+    expect(formatPct(0.2985)).toBe("0.3");
   });
 });

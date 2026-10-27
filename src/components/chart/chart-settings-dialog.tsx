@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DEFAULT_CHART_SETTINGS, type ChartSettings, type ScaleMode } from "@/lib/chart-settings";
+import { WALL_WINDOW_LIMITS_PCT } from "@/lib/depth-walls";
 
 type Tab = "symbol" | "statusLine" | "scales" | "canvas" | "trading";
 
@@ -18,9 +19,11 @@ const TABS: readonly { id: Tab; label: string; icon: ReactNode }[] = [
 ];
 
 /** TradingView's chart Settings dialog. Edits a draft; Ok applies it, Cancel discards it. */
-export function ChartSettingsDialog({ open, settings, onOpenChange, onApply }: {
+export function ChartSettingsDialog({ open, settings, quoteAsset, onOpenChange, onApply }: {
   open: boolean;
   settings: ChartSettings;
+  /** Quote currency of the active chart; shown as the unit of the minimum wall size. */
+  quoteAsset: string;
   onOpenChange: (open: boolean) => void;
   onApply: (settings: ChartSettings) => void;
 }) {
@@ -45,7 +48,7 @@ export function ChartSettingsDialog({ open, settings, onOpenChange, onApply }: {
             {tab === "statusLine" && <StatusLineTab draft={draft} onChange={setDraft} />}
             {tab === "scales" && <ScalesTab draft={draft} onChange={setDraft} />}
             {tab === "canvas" && <CanvasTab draft={draft} onChange={setDraft} />}
-            {tab === "trading" && <TradingTab draft={draft} onChange={setDraft} />}
+            {tab === "trading" && <TradingTab draft={draft} onChange={setDraft} quoteAsset={quoteAsset} />}
           </div>
         </div>
         <div className="flex items-center justify-between border-t border-border px-6 py-3">
@@ -157,15 +160,32 @@ function CanvasTab(props: TabProps) {
   );
 }
 
-function TradingTab(props: TabProps) {
+function TradingTab(props: TabProps & { readonly quoteAsset: string }) {
   const { trading } = props.draft;
   const patch = patcher(props);
+  const { wallWindowPct, minWallNotional } = trading;
   return (
-    <Group title="Appearance">
-      <Check label="Execution marks (strategy entries and exits)" checked={trading.showExecutionMarks} onChange={(showExecutionMarks) => patch("trading", { showExecutionMarks })} />
-      <Check label="Execution labels" checked={trading.showExecutionLabels} onChange={(showExecutionLabels) => patch("trading", { showExecutionLabels })} />
-      <Check label="Order book walls (largest resting bid / ask within 0.5% of price)" checked={trading.showOrderBookWalls} onChange={(showOrderBookWalls) => patch("trading", { showOrderBookWalls })} />
-    </Group>
+    <>
+      <Group title="Appearance">
+        <Check label="Execution marks (strategy entries and exits)" checked={trading.showExecutionMarks} onChange={(showExecutionMarks) => patch("trading", { showExecutionMarks })} />
+        <Check label="Execution labels" checked={trading.showExecutionLabels} onChange={(showExecutionLabels) => patch("trading", { showExecutionLabels })} />
+      </Group>
+      <Group title="Order book walls">
+        <Check label="Show the largest resting bid and ask" checked={trading.showOrderBookWalls} onChange={(showOrderBookWalls) => patch("trading", { showOrderBookWalls })} />
+        <Row label="Search window (±)">
+          <ValidatedNumber value={wallWindowPct} min={WALL_WINDOW_LIMITS_PCT.min} max={WALL_WINDOW_LIMITS_PCT.max} unit="%"
+            onChange={(next) => patch("trading", { wallWindowPct: next })} />
+        </Row>
+        <Row label="Minimum wall size">
+          <ValidatedNumber value={minWallNotional} min={0} max={1_000_000_000} unit={props.quoteAsset}
+            onChange={(next) => patch("trading", { minWallNotional: next })} />
+        </Row>
+        <p className="text-xs text-muted-foreground">
+          Walls are the largest level inside the window. Each is labelled with the window actually searched:
+          snapshot coverage can narrow it. Minimum size is in each chart&apos;s quote currency.
+        </p>
+      </Group>
+    </>
   );
 }
 
@@ -199,6 +219,39 @@ function ColorInput({ value, onChange }: { value: string; onChange: (value: stri
   return (
     <input type="color" value={value} onChange={(e) => onChange(e.target.value)}
       className="h-8 w-8 cursor-pointer rounded border border-border bg-transparent p-0.5" />
+  );
+}
+
+/**
+ * Number field that validates as you type. An invalid entry is flagged and not
+ * applied; leaving the field restores the last valid value.
+ */
+function ValidatedNumber({ value, min, max, unit, onChange }: { value: number; min: number; max: number; unit: string; onChange: (value: number) => void }) {
+  const [text, setText] = useState(String(value));
+  const [isValid, setIsValid] = useState(true);
+  // Follow external changes (Defaults), but keep "1." while typing "1.5".
+  useEffect(() => {
+    setText((current) => (Number(current) === value ? current : String(value)));
+    setIsValid(true);
+  }, [value]);
+  const onType = (raw: string) => {
+    setText(raw);
+    const parsed = raw.trim() === "" ? Number.NaN : Number(raw);
+    const valid = Number.isFinite(parsed) && parsed >= min && parsed <= max;
+    setIsValid(valid);
+    if (valid) onChange(parsed);
+  };
+  return (
+    <span className="flex flex-col gap-1">
+      <span className="flex items-center gap-2">
+        <input type="number" step="any" value={text} aria-invalid={!isValid}
+          onChange={(e) => onType(e.target.value)}
+          onBlur={() => { setText(String(value)); setIsValid(true); }}
+          className={`h-8 w-24 rounded border bg-background px-2 text-sm ${isValid ? "border-border" : "border-red-500"}`} />
+        <span className="text-sm text-muted-foreground">{unit}</span>
+      </span>
+      {!isValid && <span className="text-xs text-red-500">Enter a number from {min} to {max}</span>}
+    </span>
   );
 }
 

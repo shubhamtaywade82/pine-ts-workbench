@@ -56,6 +56,20 @@ export const SUPPORTED_SYMBOLS: readonly SymbolOption[] = [
   { binanceSymbol: "BNBUSDT", displayName: "BNB / USDT" },
 ];
 
+/**
+ * Quote asset of each supported market. The table is typed over every
+ * `BinanceSymbol`, so a new market cannot be added without declaring its quote
+ * asset. Nothing assumes USDT.
+ */
+export const QUOTE_ASSET: Record<BinanceSymbol, string> = {
+  BTCUSDT: "USDT",
+  ETHUSDT: "USDT",
+  SOLUSDT: "USDT",
+  BNBUSDT: "USDT",
+};
+
+export const quoteAssetOf = (symbol: BinanceSymbol): string => QUOTE_ASSET[symbol];
+
 export const SUPPORTED_INTERVALS: readonly ChartInterval[] = ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "1d", "1w", "1M"];
 
 /** TradingView's toolbar labels. */
