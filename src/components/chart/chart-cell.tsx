@@ -10,7 +10,7 @@ import type { ChartSettings } from "@/lib/chart-settings";
 import { Button } from "@/components/ui/button";
 import { loadLibrary, currentCode, EMPTY_SETTINGS } from "@/lib/script-library";
 import { toChartDrawings } from "@/lib/editor-output";
-import { runIndicatorCode } from "@/lib/indicator-runner";
+import { createLiveRunner, type LiveRunner } from "@/lib/indicator-runner";
 import { X } from "lucide-react";
 import { useLiveBars, type LiveStatus } from "@/hooks/use-live-bars";
 
@@ -35,11 +35,11 @@ interface IndicatorRunResult {
 }
 
 /** A saved "My scripts" indicator, run with the inputs, plot styles and visibility saved in its settings. */
-const runSavedScript = async (scriptId: string, bars: readonly Bar[]): Promise<IndicatorRunResult | undefined> => {
+const runSavedScript = async (runLive: LiveRunner, scriptId: string, bars: readonly Bar[]): Promise<IndicatorRunResult | undefined> => {
   const script = loadLibrary().find((s) => s.id === scriptId);
   if (script === undefined) return undefined;
   const { inputs, plotStyles, visibleIntervals } = script.settings ?? EMPTY_SETTINGS;
-  const run = await runIndicatorCode(currentCode(script), bars, inputs);
+  const run = await runLive(currentCode(script), bars, inputs);
   const plots = run.plots.map((p) => ({
     ...p,
     kind: p.kind === "hline" ? "line" : p.kind,
@@ -50,8 +50,12 @@ const runSavedScript = async (scriptId: string, bars: readonly Bar[]): Promise<I
 };
 
 /** Runs one mounted indicator over `bars`: a registry built-in, or a saved "My scripts" indicator. */
-const runMounted = async (m: MountedIndicator, bars: readonly Bar[]): Promise<IndicatorRunResult | undefined> => {
-  if (m.scriptId !== undefined) return runSavedScript(m.scriptId, bars);
+const runMounted = async (m: MountedIndicator, bars: readonly Bar[], runners: Map<string, LiveRunner>): Promise<IndicatorRunResult | undefined> => {
+  if (m.scriptId !== undefined) {
+    let runLive = runners.get(m.instanceId);
+    if (runLive === undefined) runners.set(m.instanceId, (runLive = createLiveRunner()));
+    return runSavedScript(runLive, m.scriptId, bars);
+  }
   const meta = registry.metadata(m.indicatorId);
   const instance = registry.instantiate(m.indicatorId, m.inputs);
   if (!instance || !meta) return undefined;
@@ -121,14 +125,16 @@ export function ChartCell({
       : m)));
   }, [setIndicators, settingsInstanceId]);
 
-  // Drive indicators.
+  // Drive indicators. Saved scripts keep a live run per mounted instance, so ticks re-execute one bar.
+  const [liveRunners] = useState(() => new Map<string, LiveRunner>());
   useEffect(() => {
     let cancelled = false;
+    for (const id of liveRunners.keys()) if (!mounted.some((m) => m.instanceId === id)) liveRunners.delete(id);
     (async () => {
       const out: Record<string, IndicatorRunResult> = {};
       for (const m of mounted) {
         try {
-          const result = await runMounted(m, bars);
+          const result = await runMounted(m, bars, liveRunners);
           if (result !== undefined) out[m.instanceId] = result;
         } catch {
           // A saved script that no longer compiles draws nothing; the Pine Editor reports the error.
@@ -137,7 +143,7 @@ export function ChartCell({
       if (!cancelled) setRunResults(out);
     })();
     return () => { cancelled = true; };
-  }, [bars, mounted]);
+  }, [bars, mounted, liveRunners]);
 
   const { mainOverlays, subPanes } = useMemo(() => {
     return computeOverlays(bars, mounted, runResults, interval);

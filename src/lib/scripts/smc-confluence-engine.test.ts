@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { Bar } from "@nemesis-oss/pine-ts";
-import { runIndicatorCode } from "@/lib/indicator-runner";
+import { createLiveRunner, runIndicatorCode } from "@/lib/indicator-runner";
 import { SMC_CONFLUENCE_ENGINE } from "./smc-confluence-engine";
 
 const FIVE_MINUTES = 300_000;
@@ -29,5 +29,18 @@ describe("SMC Confluence Engine template", () => {
     expect(run.drawings.table?.rows.length).toBe(16);
     expect(run.drawings.bgcolors.length).toBeGreaterThan(0);
     expect(run.inputs.length).toBeGreaterThan(40);
+  });
+});
+
+describe("SMC Confluence Engine on a live runner", () => {
+  it("gives the same output as a full run after a tick and a new bar", async () => {
+    const bars = syntheticBars(600).map((bar, i, all) => (i === all.length - 1 ? { ...bar, isClosed: false } : bar));
+    const runLive = createLiveRunner();
+    await runLive(SMC_CONFLUENCE_ENGINE, bars);
+    const last = bars.at(-1)!;
+    const ticked = [...bars.slice(0, -1), { ...last, close: last.close + 0.4, high: Math.max(last.high, last.close + 0.4) }];
+    expect(await runLive(SMC_CONFLUENCE_ENGINE, ticked)).toEqual(await runIndicatorCode(SMC_CONFLUENCE_ENGINE, ticked));
+    const next = [...ticked.slice(0, -1), { ...ticked.at(-1)!, isClosed: true }, { ...last, time: last.time + FIVE_MINUTES, isClosed: false }];
+    expect(await runLive(SMC_CONFLUENCE_ENGINE, next)).toEqual(await runIndicatorCode(SMC_CONFLUENCE_ENGINE, next));
   });
 });

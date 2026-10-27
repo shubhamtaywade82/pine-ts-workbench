@@ -1,4 +1,4 @@
-import type { Bar, IndicatorScript, InputConfig, InputsBag, PineContext, ScriptDrawings } from "@nemesis-oss/pine-ts";
+import type { Bar, IndicatorScript, InputConfig, InputsBag, LiveIndicator, PineContext, ScriptDrawings, ScriptOutput } from "@nemesis-oss/pine-ts";
 import { ta, PineRuntime } from "@nemesis-oss/pine-ts";
 import { loadScript, ScriptCompileError } from "@/lib/script-loader";
 
@@ -29,8 +29,10 @@ export type ScriptRun = {
 
 const NO_DRAWINGS: ScriptDrawings = { lines: [], boxes: [], shapes: [], table: undefined, bgcolors: [], barcolors: [] };
 
-const runIndicator = async (script: IndicatorScript, bars: readonly Bar[], inputs: InputsBag): Promise<ScriptRun> => {
-  const output = await runWithKnownInputs((bag) => script.run(bars, { inputs: bag }), inputs);
+const runIndicator = async (script: IndicatorScript, bars: readonly Bar[], inputs: InputsBag): Promise<ScriptRun> =>
+  toScriptRun(script, await runWithKnownInputs((bag) => script.run(bars, { inputs: bag }), inputs));
+
+const toScriptRun = (script: IndicatorScript, output: ScriptOutput): ScriptRun => {
   const results = Object.fromEntries(Object.entries(output.values).map(([id, values]) => [id, [...values]]));
   // display: none / data_window plots exist for values (scores, alerts), not for the chart.
   const shown = output.plots.filter((plot) => plot.display !== "none" && plot.display !== "data_window");
@@ -103,4 +105,38 @@ export const isOverlayScript = (userCode: string): boolean => {
   } catch {
     return false;
   }
+};
+
+export type LiveRunner = (userCode: string, bars: readonly Bar[], inputs?: InputsBag) => Promise<ScriptRun>;
+
+/**
+ * One script slot on a live chart (the Pine Editor, or a saved script on a
+ * chart). While the code and inputs stay the same, a snapshot re-executes only
+ * the forming bar (or the bar that just closed and the new one) instead of all
+ * history. Calls are queued, since a live run must see updates in order.
+ */
+export const createLiveRunner = (): LiveRunner => {
+  let key: string | undefined;
+  let current: { script: IndicatorScript; live: LiveIndicator<ScriptOutput> } | undefined;
+  let queue: Promise<unknown> = Promise.resolve();
+
+  const runOnce = async (userCode: string, bars: readonly Bar[], inputs: InputsBag): Promise<ScriptRun> => {
+    const nextKey = `${userCode}\u0000${JSON.stringify(inputs)}`;
+    if (nextKey !== key || current === undefined) {
+      key = undefined;
+      current = undefined;
+      const loaded = loadScript<CalculateFn>(userCode, "calculate");
+      if (loaded.kind !== "indicator") return runIndicatorCode(userCode, bars, inputs);
+      const live = await runWithKnownInputs((bag) => loaded.script.live(bars, { inputs: bag }), inputs);
+      current = { script: loaded.script, live };
+      key = nextKey;
+    }
+    return toScriptRun(current.script, await current.live.update(bars));
+  };
+
+  return (userCode, bars, inputs = {}) => {
+    const run = queue.then(() => runOnce(userCode, bars, inputs));
+    queue = run.catch(() => undefined);
+    return run;
+  };
 };

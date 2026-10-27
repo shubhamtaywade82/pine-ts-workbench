@@ -8,7 +8,7 @@ import { CodeEditor, type CodeError } from "@/components/editor/code-editor";
 import { OpenScriptDialog, ScriptMenu } from "@/components/editor/script-menu";
 import { AiScriptDialog } from "@/components/editor/ai-script-dialog";
 import { ScriptCompileError } from "@/lib/script-loader";
-import { runIndicatorCode, type PlotSpec } from "@/lib/indicator-runner";
+import { createLiveRunner, type PlotSpec } from "@/lib/indicator-runner";
 import { describeCode } from "@/lib/script-library";
 import { DEFAULT_STRATEGY, loadStrategyCode } from "@/lib/strategy-runner";
 import type { ScriptLibraryState, ScriptTemplates } from "@/hooks/use-script-library";
@@ -171,6 +171,7 @@ function useScriptRunner({ bars, inputs, onResults, onStrategyCode, log, setErro
   log: (text: string, isError: boolean) => void;
   setError: (error: CodeError | null) => void;
 }) {
+  const [runLive] = useState(createLiveRunner);
   return useCallback(async (code: string) => {
     if (describeCode(code).kind === "strategy") {
       onStrategyCode(code);
@@ -179,7 +180,7 @@ function useScriptRunner({ bars, inputs, onResults, onStrategyCode, log, setErro
       return;
     }
     try {
-      const { firstBarError, ...run } = await runIndicatorCode(code, bars, inputs);
+      const { firstBarError, ...run } = await runLive(code, bars, inputs);
       onResults(run);
       setError(null);
       log(firstBarError ?? "Compiled successfully. Script added to chart.", firstBarError !== null);
@@ -187,7 +188,7 @@ function useScriptRunner({ bars, inputs, onResults, onStrategyCode, log, setErro
       setError(err instanceof ScriptCompileError ? err.position : null);
       log(err instanceof Error ? err.message : String(err), true);
     }
-  }, [bars, inputs, onResults, onStrategyCode, log, setError]);
+  }, [bars, inputs, onResults, onStrategyCode, log, setError, runLive]);
 }
 
 /**
