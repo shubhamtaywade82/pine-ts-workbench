@@ -89,8 +89,12 @@ export class DepthWallsPrimitive implements ISeriesPrimitive<Time> {
   private retarget(side: BookSide, wall: Wall | undefined): void {
     const bubble = this.bubbles.get(side);
     if (wall === undefined) {
-      // Pulled wall: fade out where it was.
-      if (bubble !== undefined) bubble.targetAlpha = 0;
+      if (bubble !== undefined && bubble.wall !== undefined) {
+        // Wall removed: classify as absorbed if it was being eaten, otherwise pulled.
+        const wasAbsorbing = bubble.wall.status === "absorbing" || bubble.wall.status === "absorbed";
+        bubble.wall = { ...bubble.wall, status: wasAbsorbing ? "absorbed" : "pulled" };
+        bubble.targetAlpha = 0;
+      }
       return;
     }
     const radius = bubbleRadius(wall.notional, this.reference, RADIUS);
@@ -175,14 +179,16 @@ export class DepthWallsPrimitive implements ISeriesPrimitive<Time> {
     const { status, quoteAsset, frame, observedUntil } = this.update!;
     const isCurrent = status === "live";
     const color = isCurrent ? (side === "bid" ? BID_COLOR : ASK_COLOR) : STALE_COLOR;
+    const isAbsorbing = wall.status === "absorbing";
+    const isDashed = !isCurrent || isAbsorbing || wall.status === "pulled";
     context.globalAlpha = bubble.alpha;
     context.beginPath();
     context.arc(x, y, bubble.radius, 0, Math.PI * 2);
     context.fillStyle = `${color}4d`; // ~30%
     context.fill();
-    context.setLineDash(isCurrent ? [] : [3, 2]);
-    context.lineWidth = 1.5;
-    context.strokeStyle = color;
+    context.setLineDash(isDashed ? [3, 2] : []);
+    context.lineWidth = wall.status === "tested" || isAbsorbing ? 2 : 1.5;
+    context.strokeStyle = isAbsorbing ? "#f59e0b" : color;
     context.stroke();
     context.setLineDash([]);
 
@@ -251,18 +257,40 @@ export interface WallLabelInput {
   readonly observedMs: number;
 }
 
+/** Formats real-time liquidity dynamics: absorbing (-35%), absorbed, stacking, tested, or holding. */
+export const formatLiquidityStatus = (wall: Wall, observedMs: number): string => {
+  const age = formatAge(observedMs);
+  switch (wall.status) {
+    case "absorbing":
+      return `absorbing (${Math.round(wall.changePct ?? 0)}%) · ${age}`;
+    case "absorbed":
+      return `absorbed (filled) · ${age}`;
+    case "stacking":
+      return `stacking (+${Math.round(wall.changePct ?? 0)}%) · ${age}`;
+    case "tested":
+      return `tested (holding) · ${age}`;
+    case "pulled":
+      return "pulled (cancelled)";
+    case "holding":
+      return `holding · ${age}`;
+    default:
+      return `observed for ${age}`;
+  }
+};
+
 /**
- * "79,500 · 2.05M USDT · observed for 3m · max in ±0.5%". The scope says this
+ * "79,500 · 2.05M USDT · holding · 3m · max in ±0.5%". The scope says this
  * is the largest level inside the searched window, not the market's maximum.
- * A non-live status is appended so stale or resyncing walls aren't read as current.
+ * Real-time liquidity status (absorbing, stacking, tested, holding) updates as order volume changes.
  */
 export const wallLabel = (input: WallLabelInput): string => {
   const { wall, status, quoteAsset, searchedPct, clippedByCoverage, observedMs } = input;
   const scope = `max in ±${formatPct(searchedPct)}%${clippedByCoverage ? " (coverage)" : ""}`;
+  const liquidity = formatLiquidityStatus(wall, observedMs);
   const parts = [
     wall.price.toLocaleString("en-US", { maximumFractionDigits: 8 }),
     `${formatNotional(wall.notional)} ${quoteAsset}`,
-    `observed for ${formatAge(observedMs)}`,
+    liquidity,
     scope,
   ];
   if (status !== "live") parts.push(status);

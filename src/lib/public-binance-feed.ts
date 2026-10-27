@@ -68,6 +68,46 @@ export const QUOTE_ASSET: Record<BinanceSymbol, string> = {
   BNBUSDT: "USDT",
 };
 
+/** Maps Pine Script timeframe strings ("15", "60", "240", "D") to Binance intervals. */
+export const timeframeToChartInterval = (timeframe: string): ChartInterval | undefined => {
+  const norm = timeframe.trim().toLowerCase();
+  if (norm === "1" || norm === "1m") return "1m";
+  if (norm === "3" || norm === "3m") return "3m";
+  if (norm === "5" || norm === "5m") return "5m";
+  if (norm === "15" || norm === "15m") return "15m";
+  if (norm === "30" || norm === "30m") return "30m";
+  if (norm === "60" || norm === "1h" || norm === "60m") return "1h";
+  if (norm === "120" || norm === "2h" || norm === "120m") return "2h";
+  if (norm === "240" || norm === "4h" || norm === "240m") return "4h";
+  if (norm === "d" || norm === "1d") return "1d";
+  if (norm === "w" || norm === "1w") return "1w";
+  if (norm === "1m-month") return "1M";
+  return undefined;
+};
+
+const htfBarsCache = new Map<string, { loadedAt: number; bars: Bar[] }>();
+const HTF_CACHE_TTL_MS = 60_000;
+
+/** Fetches higher-timeframe candles so indicators warm up without missing history. */
+export const fetchHtfBars = async (
+  timeframe: string,
+  symbol: BinanceSymbol = "BTCUSDT",
+): Promise<Bar[] | undefined> => {
+  const interval = timeframeToChartInterval(timeframe);
+  if (interval === undefined) return undefined;
+  const key = `${symbol}:${interval}`;
+  const cached = htfBarsCache.get(key);
+  const now = Date.now();
+  if (cached && now - cached.loadedAt < HTF_CACHE_TTL_MS) return cached.bars;
+  try {
+    const bars = await fetchHistoricalBars(symbol, interval, 1000);
+    htfBarsCache.set(key, { loadedAt: now, bars });
+    return bars;
+  } catch {
+    return cached?.bars;
+  }
+};
+
 export const quoteAssetOf = (symbol: BinanceSymbol): string => QUOTE_ASSET[symbol];
 
 export const SUPPORTED_INTERVALS: readonly ChartInterval[] = ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "1d", "1w", "1M"];

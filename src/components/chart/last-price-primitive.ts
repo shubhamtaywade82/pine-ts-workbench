@@ -82,9 +82,26 @@ export class LastPricePrimitive implements ISeriesPrimitive<Time> {
     context.lineTo(width, y);
     context.stroke();
     context.setLineDash([]);
+    this.drawGlowingDot(context, x, y, color);
+  }
+
+  private drawGlowingDot(context: CanvasRenderingContext2D, x: number, y: number, color: string): void {
+    const radius = volumeDotRadius(this.frame?.volume ?? 0, this.averageVolume);
+    context.save();
+    // Soft outer glow halo
+    context.shadowColor = color;
+    context.shadowBlur = Math.max(8, radius * 2);
     context.fillStyle = color;
     context.beginPath();
-    context.arc(x, y, volumeDotRadius(frame.volume, this.averageVolume), 0, Math.PI * 2);
+    context.arc(x, y, radius, 0, Math.PI * 2);
     context.fill();
+    // Inner bright core gives a luminous neon effect
+    context.shadowBlur = 4;
+    context.shadowColor = "#ffffff";
+    context.fillStyle = "#ffffff";
+    context.beginPath();
+    context.arc(x, y, Math.max(1.2, radius * 0.4), 0, Math.PI * 2);
+    context.fill();
+    context.restore();
   }
 }

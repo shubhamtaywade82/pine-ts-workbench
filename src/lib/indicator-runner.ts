@@ -1,4 +1,4 @@
-import type { Bar, IndicatorScript, InputConfig, InputsBag, LiveIndicator, PineContext, ScriptDrawings, ScriptOutput } from "@nemesis-oss/pine-ts";
+import type { Bar, HtfBarLoader, IndicatorScript, InputConfig, InputsBag, LiveIndicator, PineContext, ScriptDrawings, ScriptOutput } from "@nemesis-oss/pine-ts";
 import { ta, PineRuntime } from "@nemesis-oss/pine-ts";
 import { loadScript, ScriptCompileError } from "@/lib/script-loader";
 
@@ -29,8 +29,8 @@ export type ScriptRun = {
 
 const NO_DRAWINGS: ScriptDrawings = { lines: [], boxes: [], shapes: [], table: undefined, bgcolors: [], barcolors: [] };
 
-const runIndicator = async (script: IndicatorScript, bars: readonly Bar[], inputs: InputsBag): Promise<ScriptRun> =>
-  toScriptRun(script, await runWithKnownInputs((bag) => script.run(bars, { inputs: bag }), inputs));
+const runIndicator = async (script: IndicatorScript, bars: readonly Bar[], inputs: InputsBag, getHtfBars?: HtfBarLoader): Promise<ScriptRun> =>
+  toScriptRun(script, await runWithKnownInputs((bag) => script.run(bars, { inputs: bag, getHtfBars }), inputs));
 
 const toScriptRun = (script: IndicatorScript, output: ScriptOutput): ScriptRun => {
   const results = Object.fromEntries(Object.entries(output.values).map(([id, values]) => [id, [...values]]));
@@ -89,9 +89,9 @@ export const runWithKnownInputs = async <T>(run: (inputs: InputsBag) => Promise<
   }
 };
 
-export const runIndicatorCode = (userCode: string, bars: readonly Bar[], inputs: InputsBag = {}): Promise<ScriptRun> => {
+export const runIndicatorCode = (userCode: string, bars: readonly Bar[], inputs: InputsBag = {}, getHtfBars?: HtfBarLoader): Promise<ScriptRun> => {
   const loaded = loadScript<CalculateFn>(userCode, "calculate");
-  if (loaded.kind === "indicator") return runIndicator(loaded.script, bars, inputs);
+  if (loaded.kind === "indicator") return runIndicator(loaded.script, bars, inputs, getHtfBars);
   if (loaded.kind === "legacy") return runLegacy(loaded.fn, bars);
   throw new ScriptCompileError("This is a strategy; it runs in the Strategy Tester.", null);
 };
@@ -115,7 +115,7 @@ export type LiveRunner = (userCode: string, bars: readonly Bar[], inputs?: Input
  * the forming bar (or the bar that just closed and the new one) instead of all
  * history. Calls are queued, since a live run must see updates in order.
  */
-export const createLiveRunner = (): LiveRunner => {
+export const createLiveRunner = (getHtfBars?: HtfBarLoader): LiveRunner => {
   let key: string | undefined;
   let current: { script: IndicatorScript; live: LiveIndicator<ScriptOutput> } | undefined;
   let queue: Promise<unknown> = Promise.resolve();
@@ -126,8 +126,8 @@ export const createLiveRunner = (): LiveRunner => {
       key = undefined;
       current = undefined;
       const loaded = loadScript<CalculateFn>(userCode, "calculate");
-      if (loaded.kind !== "indicator") return runIndicatorCode(userCode, bars, inputs);
-      const live = await runWithKnownInputs((bag) => loaded.script.live(bars, { inputs: bag }), inputs);
+      if (loaded.kind !== "indicator") return runIndicatorCode(userCode, bars, inputs, getHtfBars);
+      const live = await runWithKnownInputs((bag) => loaded.script.live(bars, { inputs: bag, getHtfBars }), inputs);
       current = { script: loaded.script, live };
       key = nextKey;
     }

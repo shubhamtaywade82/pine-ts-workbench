@@ -46,6 +46,28 @@ describe("wall labels", () => {
   test("never uses the old 'stood' wording, which implied an order's age", () => {
     expect(wallLabel({ ...base, status: "live" })).not.toMatch(/stood|since|age/);
   });
+
+  test("shows dynamic liquidity statuses: absorbing, stacking, tested, absorbed, and pulled", () => {
+    const absorbingWall = { ...wall, status: "absorbing" as const, changePct: -35 };
+    expect(wallLabel({ ...base, wall: absorbingWall, status: "live" }))
+      .toContain("absorbing (-35%) · 3m");
+
+    const stackingWall = { ...wall, status: "stacking" as const, changePct: 40 };
+    expect(wallLabel({ ...base, wall: stackingWall, status: "live" }))
+      .toContain("stacking (+40%) · 3m");
+
+    const testedWall = { ...wall, status: "tested" as const };
+    expect(wallLabel({ ...base, wall: testedWall, status: "live" }))
+      .toContain("tested (holding) · 3m");
+
+    const absorbedWall = { ...wall, status: "absorbed" as const };
+    expect(wallLabel({ ...base, wall: absorbedWall, status: "live" }))
+      .toContain("absorbed (filled) · 3m");
+
+    const pulledWall = { ...wall, status: "pulled" as const };
+    expect(wallLabel({ ...base, wall: pulledWall, status: "live" }))
+      .toContain("pulled (cancelled)");
+  });
 });
 
 describe("formatting", () => {

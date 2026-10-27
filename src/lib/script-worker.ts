@@ -3,6 +3,8 @@ import type { Bar, InputsBag } from "@nemesis-oss/pine-ts";
 import { createLiveRunner, type LiveRunner, type ScriptRun } from "./indicator-runner";
 import { ScriptCompileError, type CodePosition } from "./script-loader";
 
+import { fetchHtfBars, type BinanceSymbol } from "./public-binance-feed";
+
 /**
  * Runs Pine Editor and saved scripts off the main thread, so a heavy indicator
  * never stalls chart animation. Each slot (the editor, a script on a chart)
@@ -10,7 +12,7 @@ import { ScriptCompileError, type CodePosition } from "./script-loader";
  */
 
 export type WorkerRequest =
-  | { readonly type: "run"; readonly id: number; readonly slot: number; readonly code: string; readonly bars: readonly Bar[]; readonly inputs: InputsBag }
+  | { readonly type: "run"; readonly id: number; readonly slot: number; readonly code: string; readonly bars: readonly Bar[]; readonly inputs: InputsBag; readonly symbol?: string }
   | { readonly type: "dispose"; readonly slot: number };
 
 export type WorkerReply =
@@ -28,7 +30,10 @@ scope.onmessage = async ({ data }: MessageEvent<WorkerRequest>) => {
     return;
   }
   let run = runners.get(data.slot);
-  if (run === undefined) runners.set(data.slot, (run = createLiveRunner()));
+  if (run === undefined) {
+    const symbol = (data.symbol ?? "BTCUSDT") as BinanceSymbol;
+    runners.set(data.slot, (run = createLiveRunner((tf) => fetchHtfBars(tf, symbol))));
+  }
   try {
     reply({ id: data.id, ok: true, run: await run(data.code, data.bars, data.inputs) });
   } catch (err) {

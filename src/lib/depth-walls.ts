@@ -28,6 +28,14 @@ export interface BookView {
   levels(side: BookSide): Iterable<readonly [number, number]>;
 }
 
+export type LiquidityStatus =
+  | "holding"
+  | "absorbing"
+  | "absorbed"
+  | "stacking"
+  | "tested"
+  | "pulled";
+
 export interface Wall {
   readonly side: BookSide;
   readonly price: number;
@@ -36,6 +44,14 @@ export interface Wall {
   readonly notional: number;
   /** When this client began continuously observing the wall at `price` (ms). */
   readonly observedSince: number;
+  /** Peak resting notional observed during this level's observation. */
+  readonly peakNotional?: number;
+  /** Initial notional when this level was first detected. */
+  readonly initialNotional?: number;
+  /** Real-time liquidity behavior status. */
+  readonly status?: LiquidityStatus;
+  /** Percentage change from peak (when absorbing) or initial (when stacking). */
+  readonly changePct?: number;
 }
 
 export interface WallOptions {
@@ -98,8 +114,8 @@ export class WallTracker {
     const bidLow = Math.max(mid * (1 - distance), coverage.bidFloor);
     const askHigh = Math.min(mid * (1 + distance), coverage.askCeiling);
 
-    const bid = this.next("bid", levelsWithin(book.levels("bid"), bidLow, Number.POSITIVE_INFINITY), now);
-    const ask = this.next("ask", levelsWithin(book.levels("ask"), 0, askHigh), now);
+    const bid = this.next("bid", levelsWithin(book.levels("bid"), bidLow, Number.POSITIVE_INFINITY), now, mid);
+    const ask = this.next("ask", levelsWithin(book.levels("ask"), 0, askHigh), now, mid);
     this.current = { bid, ask };
     const searchedPct = Math.max(0, Math.min((mid - bidLow) / mid, (askHigh - mid) / mid)) * 100;
     return {
@@ -117,7 +133,7 @@ export class WallTracker {
   }
 
   /** Hysteresis: keep the incumbent unless it is gone or clearly beaten, so near-equal levels don't flicker. */
-  private next(side: BookSide, levels: readonly Level[], now: number): Wall | undefined {
+  private next(side: BookSide, levels: readonly Level[], now: number, mid: number): Wall | undefined {
     const eligible = levels.filter((level) => level.notional >= this.options.minNotional);
     const strongest = eligible.reduce<Level | undefined>(
       (best, level) => (best === undefined || level.notional > best.notional ? level : best),
@@ -129,12 +145,59 @@ export class WallTracker {
     const held = incumbent === undefined ? undefined : eligible.find((level) => level.price === incumbent.price);
     if (incumbent !== undefined && held !== undefined) {
       const beaten = strongest.notional > held.notional * (1 + this.options.switchMarginPct / 100);
-      if (!beaten) return { side, ...held, observedSince: incumbent.observedSince };
+      if (!beaten) return this.evolveWall(side, held, incumbent, mid);
     }
     const sameLevel = incumbent !== undefined && incumbent.price === strongest.price;
-    return { side, ...strongest, observedSince: sameLevel ? incumbent.observedSince : now };
+    if (sameLevel && incumbent !== undefined) {
+      return this.evolveWall(side, strongest, incumbent, mid);
+    }
+    return {
+      side,
+      ...strongest,
+      observedSince: now,
+      peakNotional: strongest.notional,
+      initialNotional: strongest.notional,
+      status: "holding",
+      changePct: 0,
+    };
+  }
+
+  private evolveWall(side: BookSide, level: Level, incumbent: Wall, mid: number): Wall {
+    const peak = Math.max(incumbent.peakNotional ?? incumbent.notional, level.notional);
+    const initial = incumbent.initialNotional ?? incumbent.notional;
+    const isNearMid = Math.abs(mid - level.price) / mid <= 0.001;
+    const { status, changePct } = deriveLiquidityStatus(level.notional, peak, initial, isNearMid);
+    return {
+      side,
+      ...level,
+      observedSince: incumbent.observedSince,
+      peakNotional: peak,
+      initialNotional: initial,
+      status,
+      changePct,
+    };
   }
 }
+
+/** Classifies liquidity dynamics: absorbing (orders filled), stacking (orders added), tested, or holding. */
+export const deriveLiquidityStatus = (
+  currentNotional: number,
+  peakNotional: number,
+  initialNotional: number,
+  isNearMid: boolean,
+): { status: LiquidityStatus; changePct: number } => {
+  if (peakNotional > 0 && currentNotional <= peakNotional * 0.25) {
+    return { status: "absorbed", changePct: ((currentNotional - peakNotional) / peakNotional) * 100 };
+  }
+  if (peakNotional > 0 && currentNotional <= peakNotional * 0.85) {
+    return { status: "absorbing", changePct: ((currentNotional - peakNotional) / peakNotional) * 100 };
+  }
+  if (initialNotional > 0 && currentNotional >= initialNotional * 1.15) {
+    return { status: "stacking", changePct: ((currentNotional - initialNotional) / initialNotional) * 100 };
+  }
+  if (isNearMid) return { status: "tested", changePct: 0 };
+  return { status: "holding", changePct: 0 };
+};
 
 const levelsWithin = (levels: Iterable<readonly [number, number]>, low: number, high: number): Level[] => {
   const within: Level[] = [];

@@ -51,10 +51,10 @@ const runSavedScript = async (runLive: LiveRunner, scriptId: string, bars: reado
 };
 
 /** Runs one mounted indicator over `bars`: a registry built-in, or a saved "My scripts" indicator. */
-const runMounted = async (m: MountedIndicator, bars: readonly Bar[], runners: Map<string, ScriptRunner>): Promise<IndicatorRunResult | undefined> => {
+const runMounted = async (m: MountedIndicator, bars: readonly Bar[], runners: Map<string, ScriptRunner>, symbol?: string): Promise<IndicatorRunResult | undefined> => {
   if (m.scriptId !== undefined) {
     let runner = runners.get(m.instanceId);
-    if (runner === undefined) runners.set(m.instanceId, (runner = createScriptRunner()));
+    if (runner === undefined) runners.set(m.instanceId, (runner = createScriptRunner(symbol)));
     return runSavedScript(runner.run, m.scriptId, bars);
   }
   const meta = registry.metadata(m.indicatorId);
@@ -140,7 +140,7 @@ export function ChartCell({
       const out: Record<string, IndicatorRunResult> = {};
       for (const m of mounted) {
         try {
-          const result = await runMounted(m, bars, liveRunners);
+          const result = await runMounted(m, bars, liveRunners, symbol.binanceSymbol);
           if (result !== undefined) out[m.instanceId] = result;
         } catch {
           // A saved script that no longer compiles draws nothing; the Pine Editor reports the error.

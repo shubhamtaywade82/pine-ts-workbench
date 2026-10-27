@@ -109,11 +109,21 @@ describe("WallTracker: minimum notional", () => {
 });
 
 describe("WallTracker: observation time", () => {
-  test("keeps observedSince while the wall stays at its price", () => {
+  test("tracks liquidity dynamics as size evolves at the same price", () => {
     const walls = tracker();
-    walls.update(book([[100, 1], [99, 10]], [[101, 1]]), 1_000);
-    const later = walls.update(book([[100, 1], [99, 6]], [[101, 1]]), 9_000);
-    expect(later?.bid).toMatchObject({ price: 99, quantity: 6, observedSince: 1_000 });
+    // Initial wall: 10 units at 99 (notional = 990)
+    const initial = walls.update(book([[100, 1], [99, 10]], [[101, 1]]), 1_000);
+    expect(initial?.bid?.status).toBe("holding");
+
+    // Partial absorption: size shrinks to 6 units (-40%)
+    const absorbed = walls.update(book([[100, 1], [99, 6]], [[101, 1]]), 2_000);
+    expect(absorbed?.bid?.status).toBe("absorbing");
+    expect(absorbed?.bid?.changePct).toBeCloseTo(-40, 1);
+
+    // Stacking: size expands to 15 units (+50% from initial)
+    const stacked = walls.update(book([[100, 1], [99, 15]], [[101, 1]]), 3_000);
+    expect(stacked?.bid?.status).toBe("stacking");
+    expect(stacked?.bid?.changePct).toBeCloseTo(50, 1);
   });
 
   test("hysteresis keeps the incumbent unless a challenger beats it by the margin", () => {

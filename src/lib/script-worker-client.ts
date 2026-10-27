@@ -1,4 +1,5 @@
 import { createLiveRunner, type LiveRunner, type ScriptRun } from "@/lib/indicator-runner";
+import { fetchHtfBars, type BinanceSymbol } from "@/lib/public-binance-feed";
 import { ScriptCompileError } from "@/lib/script-loader";
 import type { WorkerReply, WorkerRequest } from "@/lib/script-worker";
 
@@ -37,14 +38,19 @@ const getScriptWorker = (): Worker => {
  * A live runner on the script Web Worker, so heavy scripts never stall chart
  * animation. Where Workers don't exist (server render, tests) it runs in-thread.
  */
-export const createScriptRunner = (): ScriptRunner => {
-  if (typeof Worker === "undefined") return { run: createLiveRunner(), dispose: () => undefined };
+export const createScriptRunner = (symbol?: string): ScriptRunner => {
+  if (typeof Worker === "undefined") {
+    return {
+      run: createLiveRunner(symbol ? (tf) => fetchHtfBars(tf, symbol as BinanceSymbol) : undefined),
+      dispose: () => undefined,
+    };
+  }
   const slot = nextSlot++;
   return {
     run: (userCode, bars, inputs = {}) => new Promise<ScriptRun>((resolve, reject) => {
       const id = nextRunId++;
       pendingRuns.set(id, { resolve, reject });
-      getScriptWorker().postMessage({ type: "run", id, slot, code: userCode, bars, inputs } satisfies WorkerRequest);
+      getScriptWorker().postMessage({ type: "run", id, slot, code: userCode, bars, inputs, symbol } satisfies WorkerRequest);
     }),
     dispose: () => scriptWorker?.postMessage({ type: "dispose", slot } satisfies WorkerRequest),
   };
