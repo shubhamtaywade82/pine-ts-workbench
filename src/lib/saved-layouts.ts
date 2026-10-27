@@ -72,7 +72,42 @@ export const saveLayouts = (layouts: SavedLayout[]): void => {
   try {
     const custom = layouts.filter((l) => !l.id.startsWith("default-"));
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(custom));
+    for (const l of custom) void syncLayoutToServer(l);
   } catch { /* ignore */ }
+};
+
+export const syncLayoutToServer = async (layout: SavedLayout): Promise<void> => {
+  if (typeof window === "undefined" || layout.id.startsWith("default-")) return;
+  try {
+    await fetch("/api/layouts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(layout),
+    });
+  } catch {
+    // Offline or server unreachable; local copy remains intact.
+  }
+};
+
+export const syncLayoutDeletionToServer = async (id: string): Promise<void> => {
+  if (typeof window === "undefined" || id.startsWith("default-")) return;
+  try {
+    await fetch(`/api/layouts?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+  } catch {
+    // Offline or server unreachable.
+  }
+};
+
+export const fetchRemoteLayouts = async (): Promise<SavedLayout[]> => {
+  if (typeof window === "undefined") return [];
+  try {
+    const res = await fetch("/api/layouts");
+    if (!res.ok) return [];
+    const data = (await res.json()) as { ok: boolean; layouts?: SavedLayout[] };
+    return data.ok && Array.isArray(data.layouts) ? data.layouts : [];
+  } catch {
+    return [];
+  }
 };
 
 export const saveCurrentLayout = (
@@ -94,6 +129,7 @@ export const saveCurrentLayout = (
 
 export const deleteLayout = (id: string): void => {
   if (id.startsWith("default-")) return;
+  void syncLayoutDeletionToServer(id);
   const all = loadLayouts();
   saveLayouts(all.filter((l) => l.id !== id));
 };

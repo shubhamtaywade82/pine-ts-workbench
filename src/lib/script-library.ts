@@ -109,7 +109,10 @@ export const markOpened = (library: ScriptLibrary, id: string, now: number): Scr
 export const updateSettings = (library: ScriptLibrary, id: string, settings: ScriptSettings): ScriptLibrary =>
   update(library, id, (script) => ({ ...script, settings }));
 
-export const deleteScript = (library: ScriptLibrary, id: string): ScriptLibrary => library.filter((s) => s.id !== id);
+export const deleteScript = (library: ScriptLibrary, id: string): ScriptLibrary => {
+  void syncScriptDeletionToServer(id);
+  return library.filter((s) => s.id !== id);
+};
 
 export const recentlyUsed = (library: ScriptLibrary): SavedScript[] =>
   [...library].sort((a, b) => b.openedAt - a.openedAt).slice(0, RECENT_COUNT);
@@ -127,8 +130,43 @@ export const loadLibrary = (): ScriptLibrary => {
 export const persistLibrary = (library: ScriptLibrary): boolean => {
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(library));
+    for (const s of library) void syncScriptToServer(s);
     return true;
   } catch {
     return false;
+  }
+};
+
+export const syncScriptToServer = async (script: SavedScript): Promise<void> => {
+  if (typeof window === "undefined") return;
+  try {
+    await fetch("/api/scripts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(script),
+    });
+  } catch {
+    // Offline or server unreachable; local copy remains intact.
+  }
+};
+
+export const syncScriptDeletionToServer = async (id: string): Promise<void> => {
+  if (typeof window === "undefined") return;
+  try {
+    await fetch(`/api/scripts?id=${encodeURIComponent(id)}`, { method: "DELETE" });
+  } catch {
+    // Offline or server unreachable.
+  }
+};
+
+export const fetchRemoteScripts = async (): Promise<SavedScript[]> => {
+  if (typeof window === "undefined") return [];
+  try {
+    const res = await fetch("/api/scripts");
+    if (!res.ok) return [];
+    const data = (await res.json()) as { ok: boolean; scripts?: SavedScript[] };
+    return data.ok && Array.isArray(data.scripts) ? data.scripts : [];
+  } catch {
+    return [];
   }
 };

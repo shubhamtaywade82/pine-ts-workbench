@@ -1,7 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
-  createScript, currentCode, deleteScript, describeCode, markOpened, recentlyUsed, renameScript,
-  saveVersion, toggleFavorite, uniqueName, updateSettings, type ScriptLibrary,
+  createScript, currentCode, deleteScript, describeCode, fetchRemoteScripts, markOpened,
+  recentlyUsed, renameScript, saveVersion, toggleFavorite, uniqueName, updateSettings,
+  type ScriptLibrary,
 } from "./script-library";
 
 const RSI = `indicator("RSI", ({ close, plot }) => { plot(ta.rsi(close, 14)); });`;
@@ -54,5 +55,17 @@ describe("script library", () => {
     const library = toggleFavorite(withScript(RSI), "a");
     expect(library[0]!.isFavorite).toBe(true);
     expect(deleteScript(library, "a")).toEqual([]);
+  });
+
+  test("should handle remote script fetch cleanly", async () => {
+    const originalFetch = globalThis.fetch;
+    try {
+      globalThis.fetch = (async () => new Response(JSON.stringify({ ok: true, scripts: [] }))) as never;
+      const remote = await fetchRemoteScripts();
+      expect(Array.isArray(remote)).toBe(true);
+      expect(remote).toHaveLength(0);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });
