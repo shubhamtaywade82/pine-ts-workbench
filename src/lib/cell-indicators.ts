@@ -22,6 +22,7 @@ export interface IndicatorRunResult {
   readonly plots: Record<string, Array<number | undefined>>;
   readonly meta: { readonly plots: readonly { id: string; kind: string; color?: string; isHidden?: boolean; display?: string }[] } | undefined;
   readonly drawings?: ScriptDrawings;
+  readonly alerts?: readonly { readonly message: string; readonly barIndex?: number; readonly barTime?: number }[];
   readonly visibleIntervals?: readonly ChartInterval[];
 }
 
@@ -40,7 +41,7 @@ export const runSavedScript = async (
     color: plotStyles[p.id]?.color ?? p.color,
     isHidden: plotStyles[p.id]?.isHidden === true,
   }));
-  return { plots: run.results, meta: { plots }, drawings: run.drawings, visibleIntervals };
+  return { plots: run.results, meta: { plots }, drawings: run.drawings, alerts: run.alerts, visibleIntervals };
 };
 
 export const runMounted = async (

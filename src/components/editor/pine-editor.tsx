@@ -65,6 +65,7 @@ export interface IndicatorRun {
   readonly results: Record<string, Array<number | undefined>>;
   readonly plots: PlotSpec[];
   readonly drawings: ScriptDrawings;
+  readonly alerts?: readonly { readonly message: string; readonly barIndex?: number; readonly barTime?: number }[];
   readonly isOverlay: boolean;
   readonly inputs: readonly InputConfig[];
 }

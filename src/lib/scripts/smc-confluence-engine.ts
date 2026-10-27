@@ -17,7 +17,7 @@ export const SMC_CONFLUENCE_ENGINE = String.raw`// SMC Confluence Engine v7.1 [n
 // ML shadow (XGBoost) and alert() payloads are not ported; everything else is.
 
 indicator("SMC Confluence Engine v7.1", { overlay: true }, (api) => {
-  const { ctx, ta, math, input, plot, draw, security, open, high, low, close, volume, hlc3, bar_index } = api;
+  const { ctx, ta, math, input, plot, draw, security, alert, open, high, low, close, volume, hlc3, bar_index } = api;
   const v = (name, init) => ctx.state.var(name, () => init);
   const val = (series, offset = 0) => { const x = series.at(offset); return x === undefined ? NaN : x; };
   const na = (x) => x === undefined || x === null || Number.isNaN(x);
@@ -536,11 +536,17 @@ indicator("SMC Confluence Engine v7.1", { overlay: true }, (api) => {
     side + " [" + qualityGrade + "]\nSetup: " + name + "\nEntry: " + fmt(c) + "\nSL:    " + fmt(sl)
     + "\nTP1:   " + fmt(tp1) + "\nTP2:   " + fmt(tp2) + " (" + fmt(rr, 1) + "R)\nTP3:   " + fmt(tp3)
     + (showScore ? "\nScore: " + score + "/100" : "");
-  if (showSignals && finalLong) {
-    draw.label({ x: bar, y: l - atr14 * 1.5, text: tradeText("LONG", setupNameLong, longSl, longTp1, longTp2, longTp3, longRr, longScore), color: "#ffffff", background: alpha("#00c87a", 10), position: "below" });
+  if (finalLong) {
+    if (showSignals) {
+      draw.label({ x: bar, y: l - atr14 * 1.5, text: tradeText("LONG", setupNameLong, longSl, longTp1, longTp2, longTp3, longRr, longScore), color: "#ffffff", background: alpha("#00c87a", 10), position: "below" });
+    }
+    alert(JSON.stringify({ event: "SMC_ENTRY", side: "LONG", setup: setupNameLong, entry: c, sl: longSl, tp1: longTp1, tp2: longTp2, tp3: longTp3, rr: longRr, score: longScore }));
   }
-  if (showSignals && finalShort) {
-    draw.label({ x: bar, y: h + atr14 * 1.5, text: tradeText("SHORT", setupNameShort, shortSl, shortTp1, shortTp2, shortTp3, shortRr, shortScore), color: "#ffffff", background: alpha(BEAR, 10), position: "above" });
+  if (finalShort) {
+    if (showSignals) {
+      draw.label({ x: bar, y: h + atr14 * 1.5, text: tradeText("SHORT", setupNameShort, shortSl, shortTp1, shortTp2, shortTp3, shortRr, shortScore), color: "#ffffff", background: alpha(BEAR, 10), position: "above" });
+    }
+    alert(JSON.stringify({ event: "SMC_ENTRY", side: "SHORT", setup: setupNameShort, entry: c, sl: shortSl, tp1: shortTp1, tp2: shortTp2, tp3: shortTp3, rr: shortRr, score: shortScore }));
   }
 
   const bg = aligned === 1 ? alpha(BULL, 95) : aligned === -1 ? alpha(BEAR, 95) : htfBias === 1 ? alpha(BULL, 98) : htfBias === -1 ? alpha(BEAR, 98) : null;

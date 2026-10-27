@@ -35,6 +35,7 @@ const CONDITION_LABELS: Record<AlertCondition, string> = {
   price_below_sma: "Price below SMA",
   macd_hist_positive: "MACD histogram >",
   macd_hist_negative: "MACD histogram <",
+  script_alert: "Script alert()",
 };
 
 export function AlertsPanel({

@@ -13,6 +13,9 @@ import { History, X } from "lucide-react";
 import { useLiveBars, type LiveStatus } from "@/hooks/use-live-bars";
 import { useBarReplay } from "@/hooks/use-bar-replay";
 import { ReplayControls } from "@/components/chart/replay-controls";
+import { buildSinks, dispatchScriptAlerts, formatScriptAlertMessage, loadAlertSettings } from "@/lib/alert-sinks";
+import { loadSettings as loadBinanceSettings } from "@/components/trading/settings-dialog";
+import { toast } from "@/hooks/use-toast";
 import {
   computeOverlays,
   runMounted,
@@ -112,6 +115,22 @@ export function ChartCell({
     () => [...(editorDrawings ?? []), ...scriptDrawings(visibleBars, mounted, runResults, interval)],
     [editorDrawings, visibleBars, mounted, runResults, interval],
   );
+
+  const dispatchedAlertKeysRef = useRef(new Set<string>());
+  useEffect(() => {
+    const sinks = buildSinks(loadAlertSettings(), loadBinanceSettings());
+    for (const [id, res] of Object.entries(runResults)) {
+      if (!res.alerts || res.alerts.length === 0) continue;
+      const lastAlert = res.alerts[res.alerts.length - 1]!;
+      const key = `${id}:${lastAlert.barIndex ?? visibleBars.length}:${lastAlert.message}`;
+      if (!dispatchedAlertKeysRef.current.has(key)) {
+        dispatchedAlertKeysRef.current.add(key);
+        void dispatchScriptAlerts([lastAlert], sinks, symbol.displayName);
+        const { message } = formatScriptAlertMessage(lastAlert.message);
+        toast({ title: `[${symbol.displayName}] Alert`, description: message });
+      }
+    }
+  }, [runResults, symbol.displayName, visibleBars.length]);
 
   const notifiedRef = useRef<string | null>(null);
   const wasActiveRef = useRef(false);

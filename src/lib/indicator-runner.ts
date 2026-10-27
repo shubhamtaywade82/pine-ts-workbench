@@ -20,6 +20,7 @@ export type ScriptRun = {
   results: Record<string, Array<number | undefined>>;
   plots: PlotSpec[];
   drawings: ScriptDrawings;
+  alerts?: readonly { readonly message: string; readonly barIndex?: number; readonly barTime?: number }[];
   /** `overlay: true` scripts plot on the price pane. */
   isOverlay: boolean;
   /** Inputs the script declared, for the settings dialog (none for legacy scripts). */
@@ -41,7 +42,7 @@ const toScriptRun = (script: IndicatorScript, output: ScriptOutput): ScriptRun =
     kind: plot.kind,
     color: plot.color ?? (plot.kind === "hline" ? LEVEL_COLOR : PLOT_COLORS[i % PLOT_COLORS.length]!),
   }));
-  return { results, plots, drawings: output.drawings, isOverlay: script.options.overlay === true, inputs: output.inputs, firstBarError: null };
+  return { results, plots, drawings: output.drawings, alerts: output.alerts, isOverlay: script.options.overlay === true, inputs: output.inputs, firstBarError: null };
 };
 
 /** Runs a legacy `calculate` function on every bar; collects plot values and the first per-bar error. */

@@ -47,6 +47,23 @@ export function AlertSettingsDialog({ onSaved }: { onSaved: (s: AlertSettings) =
         </DialogHeader>
 
         <div className="flex flex-col gap-4 py-2">
+          {/* Browser Notifications */}
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Badge variant="outline" className="text-[10px]">Browser Notifications</Badge>
+              <span className="text-xs text-muted-foreground">Desktop popups when alerts trigger</span>
+            </div>
+            <Switch
+              checked={settings.browserNotificationsEnabled}
+              onCheckedChange={(v) => {
+                if (v && typeof window !== "undefined" && "Notification" in window && Notification.permission === "default") {
+                  void Notification.requestPermission();
+                }
+                setSettings({ ...settings, browserNotificationsEnabled: v });
+              }}
+            />
+          </div>
+
           {/* Webhook */}
           <div className="flex flex-col gap-2">
             <div className="flex items-center gap-2">
