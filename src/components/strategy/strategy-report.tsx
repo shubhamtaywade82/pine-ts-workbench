@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { usePersistedState } from "@/hooks/use-persisted-state";
 import { ChartLine, List, Settings, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AiAuditDialog } from "@/components/strategy/ai-audit-dialog";
@@ -31,7 +32,7 @@ export interface StrategyReportProps extends ReportData {
 
 /** TradingView-style Strategy Tester: the metrics report or the list of trades. */
 export function StrategyReport({ onOpenSettings, strategyCode, onApplyCode, ...data }: StrategyReportProps) {
-  const [view, setView] = useState<"metrics" | "trades">("metrics");
+  const [view, setView] = usePersistedState<"metrics" | "trades">("tester-view", "metrics");
   const [isAuditOpen, setIsAuditOpen] = useState(false);
 
   const summary = useMemo((): BacktestSummary => {
@@ -90,8 +91,8 @@ export function StrategyReport({ onOpenSettings, strategyCode, onApplyCode, ...d
 }
 
 function Metrics(data: ReportData) {
-  const [showBuyHold, setShowBuyHold] = useState(false);
-  const [showExcursions, setShowExcursions] = useState(true);
+  const [showBuyHold, setShowBuyHold] = usePersistedState("tester-buy-hold", false);
+  const [showExcursions, setShowExcursions] = usePersistedState("tester-excursions", true);
   const points = useMemo(() => performancePoints(data), [data]);
   return (
     <div className="flex flex-col gap-8 px-5 py-4">
@@ -131,7 +132,7 @@ function KeyStats({ trades, equity, initialCapital, currency }: ReportData) {
 const TABS = ["Breakdown", "Periodical", "Benchmarking", "Margin usage", "Growth and decline"] as const;
 
 function PerformanceAnalysis(data: ReportData) {
-  const [tab, setTab] = useState<(typeof TABS)[number]>("Breakdown");
+  const [tab, setTab] = usePersistedState<(typeof TABS)[number]>("tester-performance-tab", "Breakdown");
   return (
     <div className="flex flex-col gap-6">
       <Pills options={TABS.map((t) => [t, t] as const)} value={tab} onChange={setTab} />
@@ -184,7 +185,7 @@ function Breakdown({ trades, initialCapital, currency }: ReportData) {
 const PERIODS: readonly (readonly [Period, string])[] = [["day", "Daily"], ["week", "Weekly"], ["quarter", "Quarterly"], ["year", "Yearly"]];
 
 function usePeriodPnl({ trades, equity, initialCapital }: ReportData) {
-  const [period, setPeriod] = useState<Period>("day");
+  const [period, setPeriod] = usePersistedState<Period>("tester-period", "day");
   const periods = useMemo(() => periodPnl(trades, equity, initialCapital, period), [trades, equity, initialCapital, period]);
   return { periods, picker: <Pills options={PERIODS} value={period} onChange={setPeriod} /> };
 }

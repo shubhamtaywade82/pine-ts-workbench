@@ -27,6 +27,7 @@ import {
 } from "@/lib/saved-layouts";
 import { useIsMobile } from "@/hooks/use-is-mobile";
 import { Button } from "@/components/ui/button";
+import { usePersistedState } from "@/hooks/use-persisted-state";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Code2, FlaskConical } from "lucide-react";
 
@@ -71,11 +72,11 @@ export default function Home() {
   const openChartSettings = useCallback(() => setIsChartSettingsOpen(true), []);
   // The right panel (Pine Editor or Technicals); `isEditorOpen` is whether it is expanded.
   const [isEditorOpen, setIsEditorOpen] = useState(false);
-  const [rightPanel, setRightPanel] = useState<RightPanel>("editor");
+  const [rightPanel, setRightPanel] = usePersistedState<RightPanel>("right-panel", "editor");
   const onSelectRightPanel = useCallback((panel: RightPanel) => {
     setIsEditorOpen((isOpen) => !(isOpen && panel === rightPanel));
     setRightPanel(panel);
-  }, [rightPanel]);
+  }, [rightPanel, setRightPanel]);
   const [isTesterOpen, setIsTesterOpen] = useState(false);
   // Cells render only after the saved workspace is applied, so a reload doesn't
   // load BTC 1m first and then jump to the saved symbol.
@@ -90,7 +91,7 @@ export default function Home() {
   const [alertSettings, setAlertSettings] = useState<AlertSettings>(DEFAULT_ALERT_SETTINGS);
   useEffect(() => setAlertSettings(loadAlertSettings()), []);
 
-  const editor = useEditorScript(useCallback(() => { setIsEditorOpen(true); setRightPanel("editor"); }, []), useCallback(() => setIsTesterOpen(true), []));
+  const editor = useEditorScript(useCallback(() => { setIsEditorOpen(true); setRightPanel("editor"); }, [setRightPanel]), useCallback(() => setIsTesterOpen(true), []));
   const { scripts } = editor;
   const { addToActiveCell } = grid;
   const onAddScript = useCallback((scriptId: string) => {

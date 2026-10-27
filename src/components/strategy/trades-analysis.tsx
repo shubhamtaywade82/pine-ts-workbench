@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { usePersistedState } from "@/hooks/use-persisted-state";
 import { returnHistogram, streaks, timePatterns, tradeReturnPercent, type ReportTrade } from "@/lib/backtest-report";
 import { PatternBars, ReturnsHistogram, TradesDonut } from "@/components/strategy/report-charts";
 import { formatMoney, formatPercent } from "@/components/strategy/report-format";
@@ -14,7 +14,7 @@ const average = (values: readonly number[]): number =>
 
 /** "Trades analysis": distribution, streaks and time patterns of closed trades. */
 export function TradesAnalysis({ trades, currency }: { trades: readonly ReportTrade[]; currency: string }) {
-  const [tab, setTab] = useState<(typeof TABS)[number]>("Distribution");
+  const [tab, setTab] = usePersistedState<(typeof TABS)[number]>("tester-trades-tab", "Distribution");
   return (
     <div className="flex flex-col gap-6">
       <Pills options={TABS.map((t) => [t, t] as const)} value={tab} onChange={setTab} />

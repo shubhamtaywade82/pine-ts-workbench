@@ -7,6 +7,7 @@ import { SCRIPT_TEMPLATES, legacyScripts, type IndicatorRun } from "@/components
 import type { ScriptSettingsDialogProps } from "@/components/editor/script-settings-dialog";
 import { useBacktest } from "@/components/strategy/strategy-panel";
 import { useScriptLibrary } from "@/hooks/use-script-library";
+import { usePersistedState } from "@/hooks/use-persisted-state";
 import { NO_DRAWINGS, toChartDrawings, toEditorOverlays } from "@/lib/editor-output";
 import type { ChartInterval } from "@/lib/public-binance-feed";
 import type { ScriptSettings } from "@/lib/script-library";
@@ -22,8 +23,8 @@ export function useEditorScript(onOpenEditor: () => void, onOpenTester: () => vo
   const { settings } = scripts;
   const [editorBars, setEditorBars] = useState<readonly Bar[]>([]);
   const [run, setRun] = useState<IndicatorRun | null>(null);
-  const [isHidden, setIsHidden] = useState(false);
-  const [isOnChart, setIsOnChart] = useState(true);
+  const [isHidden, setIsHidden] = usePersistedState("editor-script-hidden", false);
+  const [isOnChart, setIsOnChart] = usePersistedState("editor-script-on-chart", true);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   // Strategy code from the Pine Editor; null until the editor opens a strategy.
   const [strategyCode, setStrategyCode] = useState<string | null>(null);
@@ -52,7 +53,7 @@ export function useEditorScript(onOpenEditor: () => void, onOpenTester: () => vo
     if (action === "toggle-visibility") setIsHidden((hidden) => !hidden);
     else if (action === "remove") setIsOnChart(false);
     else setIsSettingsOpen(true);
-  }, []);
+  }, [setIsHidden, setIsOnChart]);
 
   /** What the active chart shows of the script, honouring the legend and the Visibility tab. */
   const chartOutput = (interval: ChartInterval) => {

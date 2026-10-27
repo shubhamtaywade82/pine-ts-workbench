@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   createScript, currentCode, deleteScript, loadLibrary, markOpened, persistLibrary, renameScript,
   saveVersion, toggleFavorite, updateSettings, EMPTY_SETTINGS,
@@ -9,6 +9,23 @@ import {
 
 /** Code a "Create new" script starts from, per kind. */
 export type ScriptTemplates = Readonly<Record<ScriptKind, string>>;
+
+// Unsaved editor contents, so a reload or restart doesn't lose typing that was never saved.
+const DRAFT_KEY = "pine-ts-workbench-editor-draft";
+type StoredDraft = { readonly scriptId: string | null; readonly code: string };
+
+const loadDraft = (): StoredDraft | null => {
+  try {
+    const raw = window.localStorage.getItem(DRAFT_KEY);
+    return raw === null ? null : (JSON.parse(raw) as StoredDraft);
+  } catch {
+    return null;
+  }
+};
+
+const persistDraft = (draft: StoredDraft): void => {
+  try { window.localStorage.setItem(DRAFT_KEY, JSON.stringify(draft)); } catch { /* session-only */ }
+};
 
 const newId = () => `script-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 
@@ -38,8 +55,18 @@ export interface ScriptLibraryState {
  */
 export function useScriptLibrary(templates: ScriptTemplates, seed: () => readonly string[]): ScriptLibraryState {
   const [library, setLibrary] = useState<ScriptLibrary>([]);
-  const [activeId, setActiveId] = useState<string | undefined>(undefined);
-  const [draft, setDraft] = useState("");
+  const [activeId, setActiveIdState] = useState<string | undefined>(undefined);
+  const [draft, setDraftState] = useState("");
+  // Handlers switch script and set its code in one go; the draft must be stored under the new id.
+  const activeIdRef = useRef<string | undefined>(undefined);
+  const setActiveId = useCallback((id: string | undefined) => {
+    activeIdRef.current = id;
+    setActiveIdState(id);
+  }, []);
+  const setDraft = useCallback((code: string) => {
+    setDraftState(code);
+    persistDraft({ scriptId: activeIdRef.current ?? null, code });
+  }, []);
   /** Returns false when browser storage refused the write. */
   const commit = useCallback((next: ScriptLibrary): boolean => {
     setLibrary(next);
@@ -57,7 +84,9 @@ export function useScriptLibrary(templates: ScriptTemplates, seed: () => readonl
     const latest = [...loaded].sort((a, b) => b.openedAt - a.openedAt)[0];
     setLibrary(loaded);
     setActiveId(latest?.id);
-    setDraft(latest === undefined ? templates.indicator : currentCode(latest));
+    const stored = loadDraft();
+    const restoresDraft = stored !== null && stored.scriptId === (latest?.id ?? null);
+    setDraftState(restoresDraft ? stored.code : latest === undefined ? templates.indicator : currentCode(latest));
     // Load once on mount; templates and seed are static.
   }, []);
 
