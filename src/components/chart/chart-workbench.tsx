@@ -12,7 +12,9 @@ import {
 import type { Bar } from "@nemesis-oss/pine-ts";
 import { ChartLegend, writeLiveOhlc } from "@/components/chart/chart-legend";
 import { useCandleSeries, type CandleFrame } from "@/hooks/use-candle-series";
-import { INTERVAL_MS, type ChartInterval } from "@/lib/public-binance-feed";
+import { INTERVAL_MS, type BinanceSymbol, type ChartInterval } from "@/lib/public-binance-feed";
+import { subscribeDepthWalls } from "@/lib/depth-feed";
+import { DepthWallsPrimitive } from "@/components/chart/depth-walls-primitive";
 import { ScriptDrawingsPrimitive, type ChartDrawing } from "@/components/chart/script-drawings-primitive";
 import { PriceScaleMenu } from "@/components/chart/price-scale-menu";
 import { useOverlaySeries } from "@/hooks/use-overlay-series";
@@ -105,6 +107,8 @@ export interface ChartWorkbenchProps {
   readonly onNeedOlderBars?: () => void;
   /** Eye / gear / × clicked on an indicator's legend row (`ownerId` of its overlays). */
   readonly onIndicatorAction?: (ownerId: string, action: IndicatorAction) => void;
+  /** Binance Spot symbol of the candles; its live order-book walls are drawn when enabled. */
+  readonly depthSymbol?: BinanceSymbol;
 }
 
 /**
@@ -115,7 +119,7 @@ export interface ChartWorkbenchProps {
  * `chart.addLineSeries`).
  */
 export function ChartWorkbench({
-  bars, subscribeBars, mainOverlays, subPanes, tradeMarkers, drawings, settings = DEFAULT_CHART_SETTINGS, onSettingsChange, onOpenSettings, title, interval, onNeedOlderBars, onIndicatorAction,
+  bars, subscribeBars, mainOverlays, subPanes, tradeMarkers, drawings, settings = DEFAULT_CHART_SETTINGS, onSettingsChange, onOpenSettings, title, interval, onNeedOlderBars, onIndicatorAction, depthSymbol,
 }: ChartWorkbenchProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -124,6 +128,7 @@ export function ChartWorkbench({
   // LWC v5 markers plugin, bound to the candle series it was created on.
   const markersRef = useRef<{ series: ISeriesApi<"Candlestick">; plugin: ISeriesMarkersPluginApi<Time> } | null>(null);
   const drawingsRef = useRef<{ series: ISeriesApi<"Candlestick">; primitive: ScriptDrawingsPrimitive } | null>(null);
+  const depthWallsRef = useRef<{ series: ISeriesApi<"Candlestick">; primitive: DepthWallsPrimitive } | null>(null);
   const [hoverTime, setHoverTime] = useState<number | null>(null);
   const [paneHeights, setPaneHeights] = useState<number[]>([]);
   // With the price scale on the left, the legend starts after it instead of under it.
@@ -187,6 +192,8 @@ export function ChartWorkbench({
       // A primitive left attached would request redraws of the removed chart ("Object is disposed").
       drawingsRef.current?.series.detachPrimitive(drawingsRef.current.primitive);
       drawingsRef.current = null;
+      depthWallsRef.current?.series.detachPrimitive(depthWallsRef.current.primitive);
+      depthWallsRef.current = null;
       chart.remove();
       chartRef.current = null;
       markersRef.current = null;
@@ -266,6 +273,29 @@ export function ChartWorkbench({
     }
     drawingsRef.current.primitive.setDrawings(drawings ?? []);
   }, [drawings, candlestickRef]);
+
+  // Depth updates (~10/s) go straight to the primitive, never through React state.
+  const showOrderBookWalls = settings.trading.showOrderBookWalls;
+  useEffect(() => {
+    const candle = candlestickRef.current;
+    if (candle === null) return;
+    if (depthWallsRef.current?.series !== candle) {
+      const primitive = new DepthWallsPrimitive();
+      candle.attachPrimitive(primitive);
+      depthWallsRef.current = { series: candle, primitive };
+    }
+    const { primitive } = depthWallsRef.current;
+    if (!showOrderBookWalls || depthSymbol === undefined) {
+      primitive.setUpdate(undefined);
+      return;
+    }
+    const unsubscribe = subscribeDepthWalls(depthSymbol, (update) => primitive.setUpdate(update));
+    return () => {
+      unsubscribe();
+      // Never leave one symbol's walls on another symbol's chart.
+      primitive.setUpdate(undefined);
+    };
+  }, [candlestickRef, depthSymbol, showOrderBookWalls]);
 
   useOverlaySeries(
     chartRef,

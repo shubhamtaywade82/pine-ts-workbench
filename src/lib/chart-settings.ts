@@ -36,6 +36,8 @@ export interface ChartSettings {
     readonly showExecutionMarks: boolean;
     /** "Long" / "Short" / "Close" text on those arrows ("Execution labels"). */
     readonly showExecutionLabels: boolean;
+    /** Live bubbles at the largest resting bid/ask near price, beside the forming candle. */
+    readonly showOrderBookWalls: boolean;
   };
   readonly canvas: {
     readonly background: string;
@@ -56,7 +58,7 @@ export const DEFAULT_CHART_SETTINGS: ChartSettings = {
   candles: { upColor: "#089981", downColor: "#f23645", showBody: true, showBorders: true, showWick: true },
   statusLine: { showTitle: true, showOhlc: true, showIndicatorTitles: true, showIndicatorValues: true },
   scales: { mode: "regular", autoScale: true, invert: false, showLastPriceLine: true, placement: "right" },
-  trading: { showExecutionMarks: true, showExecutionLabels: true },
+  trading: { showExecutionMarks: true, showExecutionLabels: true, showOrderBookWalls: true },
   canvas: {
     background: "#131722", showVertGrid: true, showHorzGrid: true, gridColor: "#1e222d", crosshairColor: "#9598a1",
     textColor: "#b2b5be", fontSize: 11, marginTopPercent: 10, marginBottomPercent: 10, rightOffsetBars: 10,

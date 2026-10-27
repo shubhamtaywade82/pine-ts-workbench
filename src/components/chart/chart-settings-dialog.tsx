@@ -164,6 +164,7 @@ function TradingTab(props: TabProps) {
     <Group title="Appearance">
       <Check label="Execution marks (strategy entries and exits)" checked={trading.showExecutionMarks} onChange={(showExecutionMarks) => patch("trading", { showExecutionMarks })} />
       <Check label="Execution labels" checked={trading.showExecutionLabels} onChange={(showExecutionLabels) => patch("trading", { showExecutionLabels })} />
+      <Check label="Order book walls (largest resting bid / ask within 0.5% of price)" checked={trading.showOrderBookWalls} onChange={(showOrderBookWalls) => patch("trading", { showOrderBookWalls })} />
     </Group>
   );
 }

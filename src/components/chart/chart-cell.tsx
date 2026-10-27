@@ -195,7 +195,7 @@ export function ChartCell({
             {error ?? `Loading ${symbol.displayName} from Binance…`}
           </div>
         ) : (
-          <ChartWorkbench title={`${symbol.displayName} · ${interval} · Binance`} interval={interval} bars={bars} subscribeBars={subscribe} onNeedOlderBars={loadOlder} onIndicatorAction={onIndicatorAction} mainOverlays={allMainOverlays} subPanes={allSubPanes} tradeMarkers={tradeMarkers} drawings={drawings} settings={chartSettings} onSettingsChange={onChartSettingsChange} onOpenSettings={onOpenChartSettings} />
+          <ChartWorkbench title={`${symbol.displayName} · ${interval} · Binance`} interval={interval} bars={bars} subscribeBars={subscribe} onNeedOlderBars={loadOlder} onIndicatorAction={onIndicatorAction} mainOverlays={allMainOverlays} subPanes={allSubPanes} tradeMarkers={tradeMarkers} drawings={drawings} depthSymbol={symbol.binanceSymbol} settings={chartSettings} onSettingsChange={onChartSettingsChange} onOpenSettings={onOpenChartSettings} />
         )}
       </div>
       <IndicatorSettingsDialog
