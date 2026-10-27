@@ -19,7 +19,6 @@ const getScriptWorker = (): Worker => {
   if (scriptWorker !== undefined) return scriptWorker;
   const worker = new Worker(new URL("./script-worker.ts", import.meta.url), { type: "module" });
   worker.onmessage = ({ data }: MessageEvent<WorkerReply>) => {
-    console.info("[worker-probe]", data.ok ? "run ok" : data.message, data.ok ? Object.keys(data.run.results) : null);
     const pending = pendingRuns.get(data.id);
     pendingRuns.delete(data.id);
     if (data.ok) pending?.resolve(data.run);
