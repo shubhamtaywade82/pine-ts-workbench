@@ -6,6 +6,7 @@ A complete TradingView replacement for Binance (and DhanHQ), built on [pine-ts](
 
 - **Interactive charting** — lightweight-charts v5 with pan/zoom/crosshair, multi-pane oscillators, candlestick + line series, trade markers (entry/exit arrows)
 - **Real-time streaming** — Binance WebSocket kline stream + Coinbase REST historical candles (no API key needed for market data)
+- **Order book walls** — live bubbles beside the forming candle at the largest resting bid (green) and ask (red) within 0.5% of price, sized by USDT notional and labelled with price, size and how long the wall has stood. The local book follows Binance's snapshot + diff-depth sync rules (`data-stream.binance.vision` / `data-api.binance.vision`), resyncs on gaps, and greys the bubbles out when the feed is stale. A wall is displayed liquidity that can be pulled at any time, not traded volume. Toggle: Settings → Trading → Order book walls
 - **Multi-chart grid** — 1/2/4/6 independent charts, each with its own symbol, timeframe, bars, indicators, and overlays
 - **Indicator registry** — 6 built-in indicators (SMA, EMA, RSI, MACD, Bollinger Bands, OBV) + custom indicators authored in TypeScript via the Pine editor with live preview
 - **Pine editor** — write custom indicators in TypeScript using the pine-ts API (`ta.*`, `ctx.*`) with sucrase transpilation + hot-reload + live preview on the chart
