@@ -3,9 +3,9 @@
   "version": "0.2.1",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 3100 2>&1 | tee dev.log",
+    "dev": "next dev -p 3417 2>&1 | tee dev.log",
     "build": "next build && cp -r .next/static .next/standalone/.next/ && cp -r public .next/standalone/",
-    "start": "NODE_ENV=production PORT=3100 bun .next/standalone/server.js 2>&1 | tee server.log",
+    "start": "NODE_ENV=production PORT=3417 bun .next/standalone/server.js 2>&1 | tee server.log",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "bun test src",

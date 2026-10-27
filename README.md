@@ -66,7 +66,7 @@ bun run db:push
 bun run dev
 ```
 
-Open http://localhost:3100
+Open http://localhost:3417
 
 ## Usage
 
