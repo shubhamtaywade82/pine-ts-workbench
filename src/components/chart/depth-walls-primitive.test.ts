@@ -1,10 +1,19 @@
 import { describe, expect, test } from "bun:test";
-import { bubbleCenterX, formatAge, formatPct, wallLabel } from "./depth-walls-primitive";
+import { bubbleCenterX, formatAge, formatPct, separateLabels, wallLabel } from "./depth-walls-primitive";
 
 const wall = { side: "bid" as const, price: 79_500, quantity: 25.76, notional: 2_048_054, observedSince: 0 };
 const base = { wall, quoteAsset: "USDT", searchedPct: 0.5, clippedByCoverage: false, observedMs: 180_000 };
 
 describe("depth wall bubbles", () => {
+  test("labels spread one line apart around close walls, ask above bid", () => {
+    expect(separateLabels(100, 102, 14)).toEqual({ ask: 94, bid: 108 });
+  });
+
+  test("labels stay on walls that are already far enough apart", () => {
+    expect(separateLabels(100, 140, 14)).toEqual({ ask: 100, bid: 140 });
+    expect(separateLabels(null, 102, 14)).toEqual({ ask: null, bid: 102 });
+  });
+
   test("sit just right of the forming candle", () => {
     // half a bar (5) + gap (3) + radius (10)
     expect(bubbleCenterX(100, 10, 10, 800)).toBe(118);

@@ -21,6 +21,8 @@ const REFERENCE_HALF_LIFE_MS = 60_000;
 const ANIMATION_TAU_MS = 150;
 const SETTLE_EPSILON = 0.01;
 const GAP_PX = 3;
+// 10px label text plus breathing room.
+const LABEL_LINE_PX = 14;
 const LABEL_FONT = "10px -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, sans-serif";
 
 interface Bubble {
@@ -146,47 +148,70 @@ export class DepthWallsPrimitive implements ISeriesPrimitive<Time> {
     const formingX = attached.chart.timeScale().timeToCoordinate(forming.time);
     if (formingX === null) return; // Forming candle scrolled out of view.
     const barSpacing = attached.chart.timeScale().options().barSpacing ?? 6;
-    const { status, quoteAsset, frame, observedUntil } = this.update;
-    const isCurrent = status === "live";
-    // Observation stops advancing when the feed is not live, so the age freezes there.
-    const observationEnd = isCurrent ? Date.now() : observedUntil;
+    const ys = {
+      ask: this.bubbleY("ask", (price) => attached.series.priceToCoordinate(price)),
+      bid: this.bubbleY("bid", (price) => attached.series.priceToCoordinate(price)),
+    };
+    const labelYs = separateLabels(ys.ask, ys.bid, LABEL_LINE_PX);
     context.font = LABEL_FONT;
-
     for (const [side, bubble] of this.bubbles) {
-      const y = attached.series.priceToCoordinate(bubble.price);
+      const y = ys[side];
       if (y === null || bubble.wall === undefined) continue;
       const x = bubbleCenterX(formingX, barSpacing, bubble.radius, paneWidth);
-      const color = isCurrent ? (side === "bid" ? BID_COLOR : ASK_COLOR) : STALE_COLOR;
-
-      context.globalAlpha = bubble.alpha;
-      context.beginPath();
-      context.arc(x, y, bubble.radius, 0, Math.PI * 2);
-      context.fillStyle = `${color}4d`; // ~30%
-      context.fill();
-      context.setLineDash(isCurrent ? [] : [3, 2]);
-      context.lineWidth = 1.5;
-      context.strokeStyle = color;
-      context.stroke();
-      context.setLineDash([]);
-
-      const label = wallLabel({
-        wall: bubble.wall,
-        status,
-        quoteAsset,
-        searchedPct: frame?.searchedPct ?? 0,
-        clippedByCoverage: frame?.clippedByCoverage ?? false,
-        observedMs: observationEnd - bubble.wall.observedSince,
-      });
-      const labelWidth = context.measureText(label).width;
-      const fitsRight = x + bubble.radius + GAP_PX + labelWidth <= paneWidth;
-      context.textAlign = fitsRight ? "left" : "right";
-      context.textBaseline = "middle";
-      context.fillStyle = color;
-      context.fillText(label, fitsRight ? x + bubble.radius + GAP_PX : x - bubble.radius - GAP_PX, y);
+      this.paintBubble(context, { side, bubble, wall: bubble.wall, x, y, labelY: labelYs[side] ?? y, paneWidth });
     }
     context.globalAlpha = 1;
   }
+
+  private bubbleY(side: BookSide, toY: (price: number) => number | null): number | null {
+    const bubble = this.bubbles.get(side);
+    return bubble?.wall === undefined ? null : toY(bubble.price);
+  }
+
+  private paintBubble(
+    context: CanvasRenderingContext2D,
+    { side, bubble, wall, x, y, labelY, paneWidth }: { side: BookSide; bubble: Bubble; wall: Wall; x: number; y: number; labelY: number; paneWidth: number },
+  ): void {
+    const { status, quoteAsset, frame, observedUntil } = this.update!;
+    const isCurrent = status === "live";
+    const color = isCurrent ? (side === "bid" ? BID_COLOR : ASK_COLOR) : STALE_COLOR;
+    context.globalAlpha = bubble.alpha;
+    context.beginPath();
+    context.arc(x, y, bubble.radius, 0, Math.PI * 2);
+    context.fillStyle = `${color}4d`; // ~30%
+    context.fill();
+    context.setLineDash(isCurrent ? [] : [3, 2]);
+    context.lineWidth = 1.5;
+    context.strokeStyle = color;
+    context.stroke();
+    context.setLineDash([]);
+
+    // Observation stops advancing when the feed is not live, so the age freezes there.
+    const observationEnd = isCurrent ? Date.now() : observedUntil;
+    const label = wallLabel({
+      wall, status, quoteAsset,
+      searchedPct: frame?.searchedPct ?? 0,
+      clippedByCoverage: frame?.clippedByCoverage ?? false,
+      observedMs: observationEnd - wall.observedSince,
+    });
+    const fitsRight = x + bubble.radius + GAP_PX + context.measureText(label).width <= paneWidth;
+    context.textAlign = fitsRight ? "left" : "right";
+    context.textBaseline = "middle";
+    context.fillStyle = color;
+    context.fillText(label, fitsRight ? x + bubble.radius + GAP_PX : x - bubble.radius - GAP_PX, labelY);
+  }
 }
+
+/**
+ * Label heights for the two walls. On wide (higher-timeframe) scales the walls can sit
+ * a pixel apart; the labels then spread around their midpoint to one line apart, ask
+ * above bid, while the bubbles stay on their true prices.
+ */
+export const separateLabels = (askY: number | null, bidY: number | null, lineHeight: number): { ask: number | null; bid: number | null } => {
+  if (askY === null || bidY === null || bidY - askY >= lineHeight) return { ask: askY, bid: bidY };
+  const middle = (askY + bidY) / 2;
+  return { ask: middle - lineHeight / 2, bid: middle + lineHeight / 2 };
+};
 
 /** Just right of the forming candle's body, pulled back inside the pane when there is no room. */
 export const bubbleCenterX = (formingX: number, barSpacing: number, radius: number, paneWidth: number): number => {
