@@ -7,7 +7,7 @@ import type {
 } from "lightweight-charts";
 import type { CanvasRenderingTarget2D } from "fancy-canvas";
 import type { BoxShape, LabelShape, LineShape, ScriptTable } from "@nemesis-oss/pine-ts";
-import { paintBgcolor, paintLabel, paintShapeBox, paintShapeLine, paintTable, type Projection } from "./script-shape-painters";
+import { paintBgcolor, paintLabels, paintShapeBox, paintShapeLine, paintTable, type Projection } from "./script-shape-painters";
 
 /** A script drawing in chart time (ms), as `ScriptDrawings` resolved against the bars it ran on. */
 export type ChartDrawing =
@@ -17,6 +17,7 @@ export type ChartDrawing =
   | (Omit<BoxShape, "kind"> & { readonly kind: "shape-box"; readonly from: number; readonly to: number })
   | (LabelShape & { readonly time: number })
   | { readonly kind: "bgcolor"; readonly time: number; readonly color: string }
+  | { readonly kind: "barcolor"; readonly time: number; readonly color: string }
   | { readonly kind: "table"; readonly table: ScriptTable };
 
 // TradingView's up/down colours; boxes use them translucent, as SMC scripts do.
@@ -94,8 +95,9 @@ export class ScriptDrawingsPrimitive implements ISeriesPrimitive<Time> {
       else if (drawing.kind === "shape-line") paintShapeLine(context, projection, drawing);
       else if (drawing.kind === "shape-box") paintShapeBox(context, projection, drawing);
     }
-    // Labels over lines and boxes, the dashboard over everything.
-    for (const drawing of this.drawings) if (drawing.kind === "label") paintLabel(context, projection, drawing);
+    // Labels over lines and boxes, separated to prevent collisions.
+    const labels = this.drawings.filter((d): d is Extract<ChartDrawing, { kind: "label" }> => d.kind === "label");
+    if (labels.length > 0) paintLabels(context, projection, labels);
     for (const drawing of this.drawings) if (drawing.kind === "table") paintTable(context, drawing.table, size);
   }
 

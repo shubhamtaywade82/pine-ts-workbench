@@ -10,7 +10,9 @@ import { AlertSettingsDialog } from "@/components/alerts/alert-settings-dialog";
 import type { AlertSettings } from "@/lib/alert-sinks";
 import { loadLayouts, type SavedLayout } from "@/lib/saved-layouts";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { SymbolSearchDialog } from "@/components/chart/symbol-search-dialog";
 import { ChartLine, LayoutGrid, Maximize, Plus, Sun, Moon, Save, Settings } from "lucide-react";
 
 export type GridLayout = 1 | 2 | 4 | 6;
@@ -53,20 +55,31 @@ const toggleFullscreen = () => {
 export function TopToolbar(props: TopToolbarProps) {
   const { activeCell, onActiveCellChange, layout, onLayoutChange, theme } = props;
   const [isIndicatorsDialogOpen, setIsIndicatorsDialogOpen] = useState(false);
+  const [isSymbolSearchOpen, setIsSymbolSearchOpen] = useState(false);
 
   return (
     <header className="flex h-11 shrink-0 items-center gap-0.5 overflow-x-auto [scrollbar-width:none] border-b border-border bg-card px-2 text-sm">
-      <Select
-        value={activeCell.symbol.binanceSymbol}
-        onValueChange={(v) => { const o = SUPPORTED_SYMBOLS.find((s) => s.binanceSymbol === v); if (o) onActiveCellChange({ symbol: o }); }}
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => setIsSymbolSearchOpen(true)}
+        className="h-8 gap-2 rounded-full border border-border bg-muted/60 px-3 font-semibold text-xs hover:bg-muted"
+        title="Search symbol"
       >
-        <SelectTrigger className="h-8 w-auto gap-2 rounded-full border-0 bg-muted px-3 font-semibold [&>svg:last-child]:hidden">
-          <SelectValue>{activeCell.symbol.binanceSymbol}</SelectValue>
-        </SelectTrigger>
-        <SelectContent>
-          {SUPPORTED_SYMBOLS.map((s) => <SelectItem key={s.binanceSymbol} value={s.binanceSymbol}>{s.displayName}</SelectItem>)}
-        </SelectContent>
-      </Select>
+        <span>{activeCell.symbol.displayName}</span>
+        <Badge
+          variant="secondary"
+          className="px-1.5 py-0 text-[9px] uppercase font-normal tracking-wide"
+        >
+          {activeCell.symbol.exchange ?? "BINANCE"}
+        </Badge>
+      </Button>
+      <SymbolSearchDialog
+        open={isSymbolSearchOpen}
+        onOpenChange={setIsSymbolSearchOpen}
+        onSelect={(symbol) => onActiveCellChange({ symbol })}
+        currentSymbol={activeCell.symbol.ticker ?? activeCell.symbol.binanceSymbol}
+      />
       <ToolbarSeparator />
       {SUPPORTED_INTERVALS.map((i) => (
         <Button

@@ -584,3 +584,33 @@ indicator("SMC Confluence Engine v7.1", { overlay: true }, (api) => {
   }
 });
 `;
+
+/** Converts the SMC Confluence Engine indicator into a backtestable strategy with entry and exit bracket orders. */
+export const toSmcStrategy = (code: string): string =>
+  code
+    .replace("// SMC Confluence Engine v7.1 [nemesis] — pine-ts port of the Pine Script v6 indicator.", "// SMC Confluence Strategy v7.1 [nemesis] — strategy template with automated backtest execution.")
+    .replace(
+      'indicator("SMC Confluence Engine v7.1", { overlay: true }, (api) => {',
+      `defineStrategy("SMC Confluence Strategy v7.1", {
+  initial_capital: 10_000,
+  default_qty_value: 0.01,
+  default_qty_type: "fixed",
+  commission_type: "percent",
+  commission_value: 0.05,
+}, (api) => {`,
+    )
+    .replace(
+      "const { ctx, ta, math, input, plot, draw, security, alert, open",
+      "const { ctx, ta, math, input, plot, draw, security, alert, strategy, open",
+    )
+    .replace(
+      'alert(JSON.stringify({ event: "SMC_ENTRY", side: "LONG", setup: setupNameLong, entry: c, sl: longSl, tp1: longTp1, tp2: longTp2, tp3: longTp3, rr: longRr, score: longScore }));',
+      'alert(JSON.stringify({ event: "SMC_ENTRY", side: "LONG", setup: setupNameLong, entry: c, sl: longSl, tp1: longTp1, tp2: longTp2, tp3: longTp3, rr: longRr, score: longScore }));\n    strategy.entry("Long", "long");\n    strategy.exit("Exit Long", { from_entry: "Long", limit: longTp2, stop: longSl });',
+    )
+    .replace(
+      'alert(JSON.stringify({ event: "SMC_ENTRY", side: "SHORT", setup: setupNameShort, entry: c, sl: shortSl, tp1: shortTp1, tp2: shortTp2, tp3: shortTp3, rr: shortRr, score: shortScore }));',
+      'alert(JSON.stringify({ event: "SMC_ENTRY", side: "SHORT", setup: setupNameShort, entry: c, sl: shortSl, tp1: shortTp1, tp2: shortTp2, tp3: shortTp3, rr: shortRr, score: shortScore }));\n    strategy.entry("Short", "short");\n    strategy.exit("Exit Short", { from_entry: "Short", limit: shortTp2, stop: shortSl });',
+    );
+
+export const SMC_CONFLUENCE_STRATEGY = toSmcStrategy(SMC_CONFLUENCE_ENGINE);
+

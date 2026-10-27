@@ -18,6 +18,7 @@ import { isOverlayScript } from "@/lib/indicator-runner";
 import { StrategyTester } from "@/components/strategy/strategy-panel";
 import { RightSidebar, type RightPanel } from "@/components/chart/right-sidebar";
 import { TechnicalsPanel } from "@/components/technicals/technicals-panel";
+import { WatchlistPanel } from "@/components/chart/watchlist-panel";
 import type { ChartOverlay, TradeMarker } from "@/components/chart/chart-workbench";
 import { loadSettings, type BinanceSettings, DEFAULT_SETTINGS } from "@/components/trading/settings-dialog";
 import { loadAlertSettings, type AlertSettings, DEFAULT_ALERT_SETTINGS } from "@/lib/alert-sinks";
@@ -228,6 +229,13 @@ export default function Home() {
                 </div>
                 {rightPanel === "technicals" && (
                   <TechnicalsPanel key={grid.activeCell.symbol.binanceSymbol} symbol={grid.activeCell.symbol.binanceSymbol} initialInterval={grid.activeCell.interval} />
+                )}
+                {rightPanel === "watchlist" && (
+                  <WatchlistPanel
+                    currentSymbol={grid.activeCell.symbol.binanceSymbol}
+                    onSelectSymbol={(sym) => onCellChange(activeCellId, { symbol: sym })}
+                    onClose={() => setIsEditorOpen(false)}
+                  />
                 )}
               </div>
             </ResizablePanel>

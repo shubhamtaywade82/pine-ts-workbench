@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { recentlyUsed, type SavedScript } from "@/lib/script-library";
 import type { ScriptLibraryState } from "@/hooks/use-script-library";
-import { SMC_CONFLUENCE_ENGINE } from "@/lib/scripts/smc-confluence-engine";
+import { SMC_CONFLUENCE_ENGINE, SMC_CONFLUENCE_STRATEGY } from "@/lib/scripts/smc-confluence-engine";
 
 type Modal = "rename" | "copy" | "history" | null;
 
@@ -55,6 +55,7 @@ export function ScriptMenu({ scripts, onSaved, onOpenScripts }: {
               <DropdownMenuItem onSelect={() => scripts.createNew("strategy")}>Strategy</DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={() => scripts.createNew("indicator", SMC_CONFLUENCE_ENGINE)}>SMC Confluence Engine v7.1</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => scripts.createNew("strategy", SMC_CONFLUENCE_STRATEGY)}>SMC Confluence Strategy v7.1</DropdownMenuItem>
             </DropdownMenuSubContent>
           </DropdownMenuSub>
           <DropdownMenuSeparator />

@@ -44,17 +44,8 @@ export type BinanceSymbol = "BTCUSDT" | "ETHUSDT" | "SOLUSDT" | "BNBUSDT";
 /** Workbench intervals — the strings are valid Binance kline intervals as-is. */
 export type ChartInterval = "1m" | "3m" | "5m" | "15m" | "30m" | "1h" | "2h" | "4h" | "1d" | "1w" | "1M";
 
-export interface SymbolOption {
-  readonly binanceSymbol: BinanceSymbol;
-  readonly displayName: string;
-}
-
-export const SUPPORTED_SYMBOLS: readonly SymbolOption[] = [
-  { binanceSymbol: "BTCUSDT", displayName: "BTC / USDT" },
-  { binanceSymbol: "ETHUSDT", displayName: "ETH / USDT" },
-  { binanceSymbol: "SOLUSDT", displayName: "SOL / USDT" },
-  { binanceSymbol: "BNBUSDT", displayName: "BNB / USDT" },
-];
+export type { SymbolOption } from "./symbol-catalog";
+export { SYMBOL_CATALOG as SUPPORTED_SYMBOLS } from "./symbol-catalog";
 
 /**
  * Quote asset of each supported market. The table is typed over every

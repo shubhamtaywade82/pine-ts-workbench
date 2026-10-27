@@ -1,11 +1,12 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Code2, Gauge } from "lucide-react";
+import { Bookmark, Code2, Gauge } from "lucide-react";
 
-export type RightPanel = "editor" | "technicals";
+export type RightPanel = "watchlist" | "editor" | "technicals";
 
 const ITEMS: readonly { id: RightPanel; label: string; icon: ReactNode }[] = [
+  { id: "watchlist", label: "Watchlist", icon: <Bookmark className="h-5 w-5" /> },
   { id: "editor", label: "Pine Editor", icon: <Code2 className="h-5 w-5" /> },
   { id: "technicals", label: "Technicals", icon: <Gauge className="h-5 w-5" /> },
 ];

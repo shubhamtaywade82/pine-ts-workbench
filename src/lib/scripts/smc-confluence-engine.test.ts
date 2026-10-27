@@ -1,7 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import type { Bar } from "@nemesis-oss/pine-ts";
 import { createLiveRunner, runIndicatorCode } from "@/lib/indicator-runner";
-import { SMC_CONFLUENCE_ENGINE } from "./smc-confluence-engine";
+import { toChartDrawings } from "@/lib/editor-output";
+import { runBacktest } from "@/lib/strategy-runner";
+import { SMC_CONFLUENCE_ENGINE, SMC_CONFLUENCE_STRATEGY } from "./smc-confluence-engine";
 
 const FIVE_MINUTES = 300_000;
 
@@ -28,6 +30,11 @@ describe("SMC Confluence Engine template", () => {
     expect(run.drawings.shapes.length).toBeGreaterThan(10);
     expect(run.drawings.table?.rows.length).toBe(16);
     expect(run.drawings.bgcolors.length).toBeGreaterThan(0);
+    expect(run.drawings.barcolors.length).toBeGreaterThan(0);
+    const chartDrawings = toChartDrawings(run.drawings, syntheticBars(3000));
+    const barcolorDrawings = chartDrawings.filter((d) => d.kind === "barcolor");
+    expect(barcolorDrawings.length).toBeGreaterThan(0);
+    expect(barcolorDrawings[0]?.color).toBeDefined();
     expect(run.inputs.length).toBeGreaterThan(40);
   });
 });
@@ -44,3 +51,14 @@ describe("SMC Confluence Engine on a live runner", () => {
     expect(await runLive(SMC_CONFLUENCE_ENGINE, next)).toEqual(await runIndicatorCode(SMC_CONFLUENCE_ENGINE, next));
   });
 });
+
+describe("SMC Confluence Strategy template", () => {
+  it("runs backtest cleanly on bars producing performance metrics and equity curve", async () => {
+    const res = await runBacktest(SMC_CONFLUENCE_STRATEGY, syntheticBars(1000));
+    expect(res.ok).toBe(true);
+    expect(res.summary?.initialCapital).toBe(10_000);
+    expect(res.equityCurve?.length).toBe(1000);
+    expect(Array.isArray(res.trades)).toBe(true);
+  });
+});
+

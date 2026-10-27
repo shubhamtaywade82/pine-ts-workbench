@@ -21,6 +21,42 @@ const TABLE_MARGIN_PX = 8;
 const LEGEND_CLEARANCE_PX = 24;
 const DASHES = { solid: [], dashed: [5, 4], dotted: [1, 3] } as const;
 
+export interface PlacedBox {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+}
+
+const overlaps = (a: PlacedBox, b: PlacedBox): boolean =>
+  !(a.right < b.left || a.left > b.right || a.bottom < b.top || a.top > b.bottom);
+
+export const LABEL_SIZES: Record<string, { font: string; lineHeight: number; pad: number }> = {
+  tiny: { font: "9px -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, sans-serif", lineHeight: 11, pad: 2 },
+  small: { font: "10px -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, sans-serif", lineHeight: 12, pad: 3 },
+  normal: { font: "11px -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, sans-serif", lineHeight: 14, pad: 4 },
+  large: { font: "13px -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, sans-serif", lineHeight: 16, pad: 5 },
+  huge: { font: "16px -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, sans-serif", lineHeight: 20, pad: 6 },
+  auto: { font: "11px -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, sans-serif", lineHeight: 14, pad: 4 },
+};
+
+export const resolveLabelBox = (initial: PlacedBox, position: string, placed: readonly PlacedBox[]): PlacedBox => {
+  const box = { ...initial };
+  const height = initial.bottom - initial.top;
+  for (let iter = 0; iter < 5; iter++) {
+    const collidee = placed.find((p) => overlaps(box, p));
+    if (!collidee) break;
+    if (position === "above") {
+      box.top = collidee.top - height - 2;
+      box.bottom = box.top + height;
+    } else {
+      box.top = collidee.bottom + 2;
+      box.bottom = box.top + height;
+    }
+  }
+  return box;
+};
+
 export const paintBgcolor = (context: CanvasRenderingContext2D, { x, barWidth }: Projection, bg: Extract<ChartDrawing, { kind: "bgcolor" }>, height: number): void => {
   const center = x(bg.time);
   if (center === null) return;
@@ -54,25 +90,45 @@ export const paintShapeBox = (context: CanvasRenderingContext2D, { x, y }: Proje
   context.strokeRect(left, upper, width, height);
 };
 
-/** Text block anchored at (x, y): above/below put it over/under the point, left/right beside it. */
-export const paintLabel = (context: CanvasRenderingContext2D, { x, y }: Projection, label: Extract<ChartDrawing, { kind: "label" }>): void => {
-  const [px, py] = [x(label.time), y(label.y)];
-  if (px === null || py === null) return;
-  const lines = label.text.split("\n");
-  const width = Math.max(...lines.map((line) => context.measureText(line).width)) + LABEL_PAD_PX * 2;
-  const height = lines.length * LINE_HEIGHT_PX + LABEL_PAD_PX;
-  const position = label.position ?? "center";
-  const left = position === "left" ? px - width : position === "right" ? px : px - width / 2;
-  const top = position === "above" ? py - height - LABEL_PAD_PX : position === "below" ? py + LABEL_PAD_PX : py - height / 2;
-  if (label.background !== undefined) {
-    context.fillStyle = label.background;
-    context.fillRect(left, top, width, height);
+/** Text blocks anchored at (x, y) with font sizing and collision separation. */
+export const paintLabels = (
+  context: CanvasRenderingContext2D,
+  projection: Projection,
+  labels: readonly Extract<ChartDrawing, { kind: "label" }>[],
+): void => {
+  const placed: PlacedBox[] = [];
+  for (const label of labels) {
+    const [px, py] = [projection.x(label.time), projection.y(label.y)];
+    if (px === null || py === null) continue;
+    const style = LABEL_SIZES[label.size ?? "normal"] ?? LABEL_SIZES.normal!;
+    context.font = style.font;
+    const lines = label.text.split("\n");
+    const width = Math.max(...lines.map((l) => context.measureText(l).width)) + style.pad * 2;
+    const height = lines.length * style.lineHeight + style.pad;
+    const pos = label.position ?? "center";
+    const left = pos === "left" ? px - width : pos === "right" ? px : px - width / 2;
+    const top = pos === "above" ? py - height - style.pad : pos === "below" ? py + style.pad : py - height / 2;
+    const resolved = resolveLabelBox({ left, top, right: left + width, bottom: top + height }, pos, placed);
+    placed.push(resolved);
+
+    if (label.background !== undefined) {
+      context.fillStyle = label.background;
+      context.fillRect(resolved.left, resolved.top, width, height);
+    }
+    context.fillStyle = label.color ?? DEFAULT_TEXT;
+    context.textAlign = "left";
+    context.textBaseline = "top";
+    lines.forEach((line, i) =>
+      context.fillText(line, resolved.left + style.pad, resolved.top + style.pad / 2 + i * style.lineHeight),
+    );
   }
-  context.fillStyle = label.color ?? DEFAULT_TEXT;
-  context.textAlign = "left";
-  context.textBaseline = "top";
-  lines.forEach((line, i) => context.fillText(line, left + LABEL_PAD_PX, top + LABEL_PAD_PX / 2 + i * LINE_HEIGHT_PX));
 };
+
+export const paintLabel = (
+  context: CanvasRenderingContext2D,
+  projection: Projection,
+  label: Extract<ChartDrawing, { kind: "label" }>,
+): void => paintLabels(context, projection, [label]);
 
 /** The script's dashboard in a pane corner; columns size to their widest cell. */
 export const paintTable = (context: CanvasRenderingContext2D, table: ScriptTable, size: { width: number; height: number }): void => {

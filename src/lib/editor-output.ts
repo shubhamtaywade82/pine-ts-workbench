@@ -60,7 +60,10 @@ const shapeDrawings = (drawings: ScriptDrawings, bars: readonly Bar[]): ChartDra
   const last = bars.length - 1;
   const step = last > 0 ? bars[last]!.time - bars[last - 1]!.time : 60_000;
   const time = (index: number) => (index <= last ? bars[Math.max(0, Math.round(index))]!.time : bars[last]!.time + (index - last) * step);
-  const resolved: ChartDrawing[] = drawings.bgcolors.map(({ bar, color }) => ({ kind: "bgcolor", time: time(bar), color }));
+  const resolved: ChartDrawing[] = [
+    ...drawings.bgcolors.map(({ bar, color }) => ({ kind: "bgcolor" as const, time: time(bar), color })),
+    ...drawings.barcolors.map(({ bar, color }) => ({ kind: "barcolor" as const, time: time(bar), color })),
+  ];
   for (const shape of drawings.shapes) {
     if (shape.kind === "line") resolved.push({ ...shape, kind: "shape-line", from: time(shape.x1), to: time(shape.x2) });
     else if (shape.kind === "box") resolved.push({ ...shape, kind: "shape-box", from: time(shape.left), to: time(shape.right) });

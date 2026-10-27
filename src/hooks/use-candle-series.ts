@@ -32,9 +32,10 @@ interface CandleSeries {
   readonly volume: ISeriesApi<"Histogram">;
 }
 
-const toCandle = (bar: Bar) => ({
+const toCandle = (bar: Bar, color?: string) => ({
   time: Math.floor(bar.time / 1000) as Time,
   open: bar.open, high: bar.high, low: bar.low, close: bar.close,
+  ...(color !== undefined ? { color, borderColor: color, wickColor: color } : {}),
 });
 
 const toVolume = (bar: Bar) => ({
@@ -96,6 +97,7 @@ export function useCandleSeries(
   barDurationMs: number,
   onFrame?: (frame: CandleFrame) => void,
   subscribeBars?: (listener: (bars: readonly Bar[]) => void) => () => void,
+  barColors?: ReadonlyMap<number, string>,
 ): RefObject<ISeriesApi<"Candlestick"> | null> {
   const seriesRef = useRef<CandleSeries | null>(null);
   const candleRef = useRef<ISeriesApi<"Candlestick"> | null>(null);
@@ -104,11 +106,18 @@ export function useCandleSeries(
   const targetRef = useRef<Bar | null>(null);
   const animationRef = useRef<number | null>(null);
   const onFrameRef = useRef(onFrame);
+  const barColorsRef = useRef(barColors);
   useEffect(() => { onFrameRef.current = onFrame; }, [onFrame]);
+  useEffect(() => { barColorsRef.current = barColors; }, [barColors]);
 
   const draw = (series: CandleSeries, target: Bar, frame: Ohlc) => {
     const ohlc = { open: frame.open, high: frame.high, low: frame.low, close: frame.close };
-    series.candle.update({ time: toCandle(target).time, ...ohlc });
+    const color = barColorsRef.current?.get(Math.floor(target.time / 1000));
+    series.candle.update({
+      time: toCandle(target).time,
+      ...ohlc,
+      ...(color !== undefined ? { color, borderColor: color, wickColor: color } : {}),
+    });
     displayedRef.current = ohlc;
     onFrameRef.current?.({ ...ohlc, time: target.time, volume: target.volume });
   };
@@ -150,7 +159,8 @@ export function useCandleSeries(
   const resetAll = (series: CandleSeries, nextBars: readonly Bar[], previous: readonly Bar[]) => {
     const timeScale = series.chart.timeScale();
     const visible = timeScale.getVisibleLogicalRange();
-    series.candle.setData(nextBars.map(toCandle));
+    const colors = barColorsRef.current;
+    series.candle.setData(nextBars.map((b) => toCandle(b, colors?.get(Math.floor(b.time / 1000)))));
     series.volume.setData(nextBars.map(toVolume));
     shownBarsRef.current = nextBars;
     const previousFirst = previous[0];
@@ -185,7 +195,8 @@ export function useCandleSeries(
       stopAnimation();
       // Settle the closed candle and its volume at their final values before the new one opens.
       const closed = nextBars[nextBars.length - 2]!;
-      series.candle.update(toCandle(closed));
+      const closedColor = barColorsRef.current?.get(Math.floor(closed.time / 1000));
+      series.candle.update(toCandle(closed, closedColor));
       series.volume.update(toVolume(closed));
       series.volume.update(toVolume(nextLast));
       shownBarsRef.current = nextBars;
@@ -237,6 +248,15 @@ export function useCandleSeries(
     }
     reconcile(series, bars);
   }, [bars]);
+
+  useEffect(() => {
+    const series = seriesRef.current;
+    if (series === null || shownBarsRef.current.length === 0) return;
+    const colors = barColorsRef.current;
+    series.candle.setData(
+      shownBarsRef.current.map((b) => toCandle(b, colors?.get(Math.floor(b.time / 1000)))),
+    );
+  }, [barColors]);
 
   useEffect(() => stopAnimation, []);
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   createChart,
   type IChartApi,
@@ -142,7 +142,13 @@ export function ChartWorkbench({
     if (liveOhlcRef.current !== null) writeLiveOhlc(liveOhlcRef.current, frame);
     lastPriceRef.current?.primitive.setFrame(frame);
   }, []);
-  const candlestickRef = useCandleSeries(chartRef, bars, INTERVAL_MS[interval], onCandleFrame, subscribeBars);
+  const barColors = useMemo(() => {
+    const map = new Map<number, string>();
+    if (!drawings) return map;
+    for (const d of drawings) if (d.kind === "barcolor") map.set(Math.floor(d.time / 1000), d.color);
+    return map;
+  }, [drawings]);
+  const candlestickRef = useCandleSeries(chartRef, bars, INTERVAL_MS[interval], onCandleFrame, subscribeBars, barColors);
 
   const onNeedOlderRef = useRef(onNeedOlderBars);
   useEffect(() => { onNeedOlderRef.current = onNeedOlderBars; }, [onNeedOlderBars]);
