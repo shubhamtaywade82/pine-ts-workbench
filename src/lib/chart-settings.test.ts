@@ -11,6 +11,7 @@ describe("normalizeChartSettings: defaults and migration", () => {
       showExecutionMarks: false,
       showExecutionLabels: true,
       showOrderBookWalls: false,
+      depthWallStyle: "shelf",
       wallWindowPct: 0.5,
       minWallNotional: 0,
     });
@@ -62,6 +63,13 @@ describe("normalizeChartSettings: validation", () => {
 
   test("boolean flags with a wrong type fall back to their defaults", () => {
     expect(trading({ showOrderBookWalls: "no" }).showOrderBookWalls).toBe(true);
+  });
+
+  test("depthWallStyle keeps valid options and falls back to shelf on invalid", () => {
+    expect(trading({ depthWallStyle: "dom" }).depthWallStyle).toBe("dom");
+    expect(trading({ depthWallStyle: "bracket" }).depthWallStyle).toBe("bracket");
+    expect(trading({ depthWallStyle: "bubbles" }).depthWallStyle).toBe("bubbles");
+    expect(trading({ depthWallStyle: "invalid" }).depthWallStyle).toBe("shelf");
   });
 
   test("a trading section that is not an object yields the defaults", () => {

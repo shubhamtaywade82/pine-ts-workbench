@@ -29,6 +29,7 @@ export function useDepthWalls(
     if (candle === null) return;
     if (depthWallsRef.current?.series !== candle) {
       const primitive = new DepthWallsPrimitive();
+      primitive.setStyle(tradingSettings.depthWallStyle);
       candle.attachPrimitive(primitive);
       depthWallsRef.current = { series: candle, primitive };
     }
@@ -52,4 +53,9 @@ export function useDepthWalls(
     wallOptionsRef.current = wallOptions;
     wallsSubscriptionRef.current?.setOptions(wallOptions);
   }, [wallOptions]);
+
+  // Display style (shelf, dom, bracket, bubbles) updates immediately.
+  useEffect(() => {
+    depthWallsRef.current?.primitive.setStyle(tradingSettings.depthWallStyle);
+  }, [tradingSettings.depthWallStyle]);
 }

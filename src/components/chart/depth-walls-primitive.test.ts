@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { bubbleCenterX, formatAge, formatPct, separateLabels, wallLabel } from "./depth-walls-primitive";
+import { bubbleCenterX, DepthWallsPrimitive, formatAge, formatPct, separateLabels, wallLabel } from "./depth-walls-primitive";
+import { paintWallByStyle } from "./depth-wall-painters";
+import type { DepthWallStyle } from "@/lib/chart-settings";
 
 const wall = { side: "bid" as const, price: 79_500, quantity: 25.76, notional: 2_048_054, observedSince: 0 };
 const base = { wall, quoteAsset: "USDT", searchedPct: 0.5, clippedByCoverage: false, observedMs: 180_000 };
@@ -84,5 +86,70 @@ describe("formatting", () => {
     expect(formatPct(0.9)).toBe("0.9");
     expect(formatPct(1.25)).toBe("1.25");
     expect(formatPct(0.2985)).toBe("0.3");
+  });
+});
+
+describe("depth wall visual styles and painters", () => {
+  const createMockContext = () =>
+    ({
+      save: () => {},
+      restore: () => {},
+      beginPath: () => {},
+      arc: () => {},
+      fill: () => {},
+      stroke: () => {},
+      rect: () => {},
+      fillRect: () => {},
+      strokeRect: () => {},
+      moveTo: () => {},
+      lineTo: () => {},
+      fillText: () => {},
+      setLineDash: () => {},
+      measureText: (text: string) => ({ width: text.length * 6 }),
+      globalAlpha: 1,
+      lineWidth: 1,
+      fillStyle: "",
+      strokeStyle: "",
+      textAlign: "left",
+      textBaseline: "middle",
+    }) as unknown as CanvasRenderingContext2D;
+
+  const styles: DepthWallStyle[] = ["shelf", "dom", "bracket", "bubbles"];
+
+  test("all 4 styles paint without throwing", () => {
+    const ctx = createMockContext();
+    const fullLabel = wallLabel({ ...base, status: "live" });
+
+    for (const style of styles) {
+      expect(() => {
+        paintWallByStyle(style, {
+          context: ctx,
+          side: "bid",
+          wall,
+          x: 100,
+          y: 200,
+          labelY: 200,
+          alpha: 1,
+          radius: 12,
+          paneWidth: 800,
+          status: "live",
+          quoteAsset: "USDT",
+          searchedPct: 0.5,
+          clippedByCoverage: false,
+          observedMs: 60_000,
+          fullLabel,
+        });
+      }).not.toThrow();
+    }
+  });
+
+  test("DepthWallsPrimitive accepts style changes via setStyle", () => {
+    const primitive = new DepthWallsPrimitive();
+    expect(() => {
+      primitive.setStyle("shelf");
+      primitive.setStyle("dom");
+      primitive.setStyle("bracket");
+      primitive.setStyle("bubbles");
+    }).not.toThrow();
   });
 });

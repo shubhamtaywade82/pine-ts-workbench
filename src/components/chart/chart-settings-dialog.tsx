@@ -5,7 +5,7 @@ import { CandlestickChart, Rows3, MoveVertical, Paintbrush, TrendingUp } from "l
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { DEFAULT_CHART_SETTINGS, type ChartSettings, type ScaleMode } from "@/lib/chart-settings";
+import { DEFAULT_CHART_SETTINGS, type ChartSettings, type DepthWallStyle, type ScaleMode } from "@/lib/chart-settings";
 import { WALL_WINDOW_LIMITS_PCT } from "@/lib/depth-walls";
 
 type Tab = "symbol" | "statusLine" | "scales" | "canvas" | "trading";
@@ -172,6 +172,18 @@ function TradingTab(props: TabProps & { readonly quoteAsset: string }) {
       </Group>
       <Group title="Order book walls">
         <Check label="Show the largest resting bid and ask" checked={trading.showOrderBookWalls} onChange={(showOrderBookWalls) => patch("trading", { showOrderBookWalls })} />
+        <Row label="Display style">
+          <select
+            value={trading.depthWallStyle}
+            onChange={(e) => patch("trading", { depthWallStyle: e.target.value as DepthWallStyle })}
+            className="h-8 rounded border border-border bg-background px-2 text-xs text-foreground focus:outline-none"
+          >
+            <option value="shelf">Horizontal Shelf & Ray</option>
+            <option value="dom">Right-Margin DOM Shelf</option>
+            <option value="bracket">Micro-DOM Bracket</option>
+            <option value="bubbles">Floating Bubbles</option>
+          </select>
+        </Row>
         <Row label="Search window (±)">
           <ValidatedNumber value={wallWindowPct} min={WALL_WINDOW_LIMITS_PCT.min} max={WALL_WINDOW_LIMITS_PCT.max} unit="%"
             onChange={(next) => patch("trading", { wallWindowPct: next })} />

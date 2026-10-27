@@ -9,6 +9,8 @@ import { DEFAULT_MIN_WALL_NOTIONAL, DEFAULT_WALL_WINDOW_PCT, WALL_WINDOW_LIMITS_
 
 export type ScaleMode = "regular" | "percent" | "indexed" | "logarithmic";
 export type ScalePlacement = "left" | "right";
+export type DepthWallStyle = "shelf" | "dom" | "bracket" | "bubbles";
+export const DEPTH_WALL_STYLES: readonly DepthWallStyle[] = ["shelf", "dom", "bracket", "bubbles"] as const;
 
 export interface ChartSettings {
   readonly candles: {
@@ -37,8 +39,10 @@ export interface ChartSettings {
     readonly showExecutionMarks: boolean;
     /** "Long" / "Short" / "Close" text on those arrows ("Execution labels"). */
     readonly showExecutionLabels: boolean;
-    /** Live bubbles at the largest resting bid/ask near price, beside the forming candle. */
+    /** Live order book depth walls visualization. */
     readonly showOrderBookWalls: boolean;
+    /** Visual representation style for depth walls. */
+    readonly depthWallStyle: DepthWallStyle;
     /** Half-width of the wall search around mid, in percent. Clipped to the snapshot's verified coverage. */
     readonly wallWindowPct: number;
     /** Smallest wall, in the chart's quote currency. */
@@ -67,6 +71,7 @@ export const DEFAULT_CHART_SETTINGS: ChartSettings = {
     showExecutionMarks: true,
     showExecutionLabels: true,
     showOrderBookWalls: true,
+    depthWallStyle: "shelf",
     wallWindowPct: DEFAULT_WALL_WINDOW_PCT,
     minWallNotional: DEFAULT_MIN_WALL_NOTIONAL,
   },
@@ -88,6 +93,9 @@ const booleanOr = (value: unknown, fallback: boolean): boolean =>
 const numberIn = (value: unknown, min: number, max: number, fallback: number): number =>
   typeof value === "number" && Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback;
 
+const isDepthWallStyle = (val: unknown): val is DepthWallStyle =>
+  typeof val === "string" && (DEPTH_WALL_STYLES as readonly string[]).includes(val);
+
 const normalizeTrading = (stored: unknown): ChartSettings["trading"] => {
   const raw = isRecord(stored) ? stored : {};
   const defaults = DEFAULT_CHART_SETTINGS.trading;
@@ -95,6 +103,7 @@ const normalizeTrading = (stored: unknown): ChartSettings["trading"] => {
     showExecutionMarks: booleanOr(raw["showExecutionMarks"], defaults.showExecutionMarks),
     showExecutionLabels: booleanOr(raw["showExecutionLabels"], defaults.showExecutionLabels),
     showOrderBookWalls: booleanOr(raw["showOrderBookWalls"], defaults.showOrderBookWalls),
+    depthWallStyle: isDepthWallStyle(raw["depthWallStyle"]) ? raw["depthWallStyle"] : defaults.depthWallStyle,
     wallWindowPct: numberIn(raw["wallWindowPct"], WALL_WINDOW_LIMITS_PCT.min, WALL_WINDOW_LIMITS_PCT.max, defaults.wallWindowPct),
     minWallNotional: numberIn(raw["minWallNotional"], 0, Number.POSITIVE_INFINITY, defaults.minWallNotional),
   };

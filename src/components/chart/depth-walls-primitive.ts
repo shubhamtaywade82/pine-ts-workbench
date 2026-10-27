@@ -9,11 +9,9 @@ import type { CanvasRenderingTarget2D } from "fancy-canvas";
 import type { DepthStatus, DepthWallsUpdate } from "@/lib/depth-feed";
 import { bubbleRadius, decayedReference, type Wall } from "@/lib/depth-walls";
 import type { BookSide } from "@/lib/order-book";
+import type { DepthWallStyle } from "@/lib/chart-settings";
+import { paintWallByStyle } from "./depth-wall-painters";
 
-const BID_COLOR = "#089981";
-const ASK_COLOR = "#f23645";
-// Not current (syncing / stale): grey and dashed, so it never reads as live liquidity.
-const STALE_COLOR = "#787b86";
 const RADIUS = { min: 5, max: 24 };
 // Bubble size is relative to a recent peak that halves every minute without a new one.
 const REFERENCE_HALF_LIFE_MS = 60_000;
@@ -45,6 +43,7 @@ export class DepthWallsPrimitive implements ISeriesPrimitive<Time> {
   private attachedTo: SeriesAttachedParameter<Time> | null = null;
   private update: DepthWallsUpdate | undefined;
   private readonly bubbles = new Map<BookSide, Bubble>();
+  private style: DepthWallStyle = "shelf";
   private reference = 0;
   private referenceAt = 0;
   private frame: number | null = null;
@@ -66,6 +65,12 @@ export class DepthWallsPrimitive implements ISeriesPrimitive<Time> {
 
   public paneViews(): readonly IPrimitivePaneView[] {
     return [this.view];
+  }
+
+  public setStyle(style: DepthWallStyle): void {
+    if (this.style === style) return;
+    this.style = style;
+    this.attachedTo?.requestUpdate();
   }
 
   /** The latest subscription update, or `undefined` to clear (overlay off / symbol switched). */
@@ -158,11 +163,33 @@ export class DepthWallsPrimitive implements ISeriesPrimitive<Time> {
     };
     const labelYs = separateLabels(ys.ask, ys.bid, LABEL_LINE_PX);
     context.font = LABEL_FONT;
+    const { status, quoteAsset, frame, observedUntil } = this.update;
+    const isCurrent = status === "live";
+    const observationEnd = isCurrent ? Date.now() : observedUntil;
+
     for (const [side, bubble] of this.bubbles) {
       const y = ys[side];
       if (y === null || bubble.wall === undefined) continue;
       const x = bubbleCenterX(formingX, barSpacing, bubble.radius, paneWidth);
-      this.paintBubble(context, { side, bubble, wall: bubble.wall, x, y, labelY: labelYs[side] ?? y, paneWidth });
+      const wall = bubble.wall;
+      const fullLabel = wallLabel({
+        wall, status, quoteAsset,
+        searchedPct: frame?.searchedPct ?? 0,
+        clippedByCoverage: frame?.clippedByCoverage ?? false,
+        observedMs: observationEnd - wall.observedSince,
+      });
+
+      paintWallByStyle(this.style, {
+        context, side, wall, x, y,
+        labelY: labelYs[side] ?? y,
+        alpha: bubble.alpha,
+        radius: bubble.radius,
+        paneWidth, status, quoteAsset,
+        searchedPct: frame?.searchedPct ?? 0,
+        clippedByCoverage: frame?.clippedByCoverage ?? false,
+        observedMs: observationEnd - wall.observedSince,
+        fullLabel,
+      });
     }
     context.globalAlpha = 1;
   }
@@ -170,41 +197,6 @@ export class DepthWallsPrimitive implements ISeriesPrimitive<Time> {
   private bubbleY(side: BookSide, toY: (price: number) => number | null): number | null {
     const bubble = this.bubbles.get(side);
     return bubble?.wall === undefined ? null : toY(bubble.price);
-  }
-
-  private paintBubble(
-    context: CanvasRenderingContext2D,
-    { side, bubble, wall, x, y, labelY, paneWidth }: { side: BookSide; bubble: Bubble; wall: Wall; x: number; y: number; labelY: number; paneWidth: number },
-  ): void {
-    const { status, quoteAsset, frame, observedUntil } = this.update!;
-    const isCurrent = status === "live";
-    const color = isCurrent ? (side === "bid" ? BID_COLOR : ASK_COLOR) : STALE_COLOR;
-    const isAbsorbing = wall.status === "absorbing";
-    const isDashed = !isCurrent || isAbsorbing || wall.status === "pulled";
-    context.globalAlpha = bubble.alpha;
-    context.beginPath();
-    context.arc(x, y, bubble.radius, 0, Math.PI * 2);
-    context.fillStyle = `${color}4d`; // ~30%
-    context.fill();
-    context.setLineDash(isDashed ? [3, 2] : []);
-    context.lineWidth = wall.status === "tested" || isAbsorbing ? 2 : 1.5;
-    context.strokeStyle = isAbsorbing ? "#f59e0b" : color;
-    context.stroke();
-    context.setLineDash([]);
-
-    // Observation stops advancing when the feed is not live, so the age freezes there.
-    const observationEnd = isCurrent ? Date.now() : observedUntil;
-    const label = wallLabel({
-      wall, status, quoteAsset,
-      searchedPct: frame?.searchedPct ?? 0,
-      clippedByCoverage: frame?.clippedByCoverage ?? false,
-      observedMs: observationEnd - wall.observedSince,
-    });
-    const fitsRight = x + bubble.radius + GAP_PX + context.measureText(label).width <= paneWidth;
-    context.textAlign = fitsRight ? "left" : "right";
-    context.textBaseline = "middle";
-    context.fillStyle = color;
-    context.fillText(label, fitsRight ? x + bubble.radius + GAP_PX : x - bubble.radius - GAP_PX, labelY);
   }
 }
 
