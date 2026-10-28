@@ -59,6 +59,16 @@ describe("SMC Confluence Strategy template", () => {
     expect(res.summary?.initialCapital).toBe(10_000);
     expect(res.equityCurve?.length).toBe(1000);
     expect(Array.isArray(res.trades)).toBe(true);
+    expect(res.trades?.length).toBeGreaterThan(0);
+    expect(res.summary?.totalTrades).toBeGreaterThan(0);
+  });
+
+  it("executes profitable confluence trades over multi-swing cycles", async () => {
+    const res = await runBacktest(SMC_CONFLUENCE_STRATEGY, syntheticBars(3000));
+    expect(res.ok).toBe(true);
+    expect(res.trades?.length).toBeGreaterThanOrEqual(5);
+    expect(res.summary?.winRate).toBeGreaterThanOrEqual(40);
+    expect(res.summary?.profitFactor).toBeGreaterThan(1.0);
   });
 });
 

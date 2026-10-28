@@ -41,7 +41,8 @@ indicator("SMC Confluence Engine v7.1", { overlay: true }, (api) => {
 
   const G_SMC = "Layer D — 5m SMC & Trigger Engine";
   const smcSwing = input.int(10, "Swing Length (BOS/CHoCH)", { min: 3, max: 50, group: G_SMC });
-  const chValidity = input.int(12, "Trigger Armed Validity (bars)", { min: 3, max: 30, group: G_SMC });
+  const chValidity = input.int(36, "Trigger Armed Validity (bars)", { min: 3, max: 50, group: G_SMC });
+  const dispMemoryBars = input.int(20, "Displacement Memory (bars)", { min: 5, max: 50, group: G_SMC });
   const dispMult = input.float(0.8, "Displacement Min ATR Mult", { min: 0.4, step: 0.1, group: G_SMC });
   const dispBodyPct = input.float(0.55, "Displacement Min Body %", { min: 0.3, step: 0.05, group: G_SMC });
   const obSearchLen = input.int(5, "OB Origin Search Lookback", { min: 1, max: 10, group: G_SMC });
@@ -79,9 +80,9 @@ indicator("SMC Confluence Engine v7.1", { overlay: true }, (api) => {
   const showVp = input.bool(true, "Show VP Lines (POC/VAH/VAL)", { group: G_VP });
 
   const G_SIG = "Signal Engine & Risk/Reward";
-  const minScore = input.int(70, "Min Confluence Score (0–100)", { min: 50, max: 95, group: G_SIG });
-  const minRr = input.float(1.8, "Min Risk:Reward (TP2/Risk)", { min: 1.2, step: 0.1, group: G_SIG });
-  const minScoreCt = input.int(82, "Min Score — Countertrend Setup C", { min: 60, max: 99, group: G_SIG });
+  const minScore = input.int(60, "Min Confluence Score (0–100)", { min: 40, max: 95, group: G_SIG });
+  const minRr = input.float(1.5, "Min Risk:Reward (TP2/Risk)", { min: 1.0, step: 0.1, group: G_SIG });
+  const minScoreCt = input.int(65, "Min Score — Countertrend Setup C", { min: 50, max: 99, group: G_SIG });
   const sigCooldown = input.int(8, "Signal Cooldown (bars)", { min: 1, max: 30, group: G_SIG });
   const showSignals = input.bool(true, "Show Trade Entry/SL/TP Labels", { group: G_SIG });
   const showScore = input.bool(true, "Show Confluence Score", { group: G_SIG });
@@ -98,6 +99,8 @@ indicator("SMC Confluence Engine v7.1", { overlay: true }, (api) => {
   // ── Base calculations ─────────────────────────────────────────────────────
   const atr14 = val(ta.atr(14));
   const volSma = val(ta.sma(volume, 20));
+  const rvol = volSma > 0 ? val(volume) / volSma : 1.0;
+  const rvolActive = rvol >= 1.2;
   const c = val(close), o = val(open), h = val(high), l = val(low);
   const near = (price) => !na(price) && Math.abs(price - c) <= atr14 * drawMaxAtr;
   const dayIndex = Math.floor(val(api.time) / 86400000);
@@ -116,27 +119,41 @@ indicator("SMC Confluence Engine v7.1", { overlay: true }, (api) => {
     pl: val(x.ta.pivotlow(x.low, htfSwing, htfSwing)),
   })) ?? { emaF: NaN, emaS: NaN, close: NaN, high50: NaN, low50: NaN, ph: NaN, pl: NaN };
 
+  const htfEmaFVal = !na(htf.emaF) ? htf.emaF : val(ta.ema(close, htfEmaFast * 12));
+  const htfEmaSVal = !na(htf.emaS) ? htf.emaS : val(ta.ema(close, htfEmaSlow * 12));
+  const htfCloseVal = !na(htf.close) ? htf.close : c;
+  const htfHigh50Val = !na(htf.high50) ? htf.high50 : val(ta.highest(high, htfPdLen * 6));
+  const htfLow50Val = !na(htf.low50) ? htf.low50 : val(ta.lowest(low, htfPdLen * 6));
+
   const htfLastPh = v("htfLastPh", NaN);
   const htfLastPl = v("htfLastPl", NaN);
   if (!na(htf.ph)) htfLastPh.set(htf.ph);
   if (!na(htf.pl)) htfLastPl.set(htf.pl);
 
-  const htfEmaFSeries = ctx.series("htfEmaF", () => htf.emaF);
-  const htfEmaSSeries = ctx.series("htfEmaS", () => htf.emaS);
+  const htfEmaFSeries = ctx.series("htfEmaF", () => htfEmaFVal);
+  const htfEmaSSeries = ctx.series("htfEmaS", () => htfEmaSVal);
   const htfCrossUp = ta.crossover(htfEmaFSeries, htfEmaSSeries).value === true;
   const htfCrossDown = ta.crossunder(htfEmaFSeries, htfEmaSSeries).value === true;
   const htfBiasCell = v("htfBias", 0);
   let htfBias = htfBiasCell.value;
-  const htfBullInvalid = htfBias === 1 && !na(htfLastPl.value) && htf.close < htfLastPl.value;
-  const htfBearInvalid = htfBias === -1 && !na(htfLastPh.value) && htf.close > htfLastPh.value;
+  const htfBullInvalid = htfBias === 1 && !na(htfLastPl.value) && htfCloseVal < htfLastPl.value;
+  const htfBearInvalid = htfBias === -1 && !na(htfLastPh.value) && htfCloseVal > htfLastPh.value;
   if ((htfCrossDown && htfBias === 1) || (htfCrossUp && htfBias === -1) || htfBullInvalid || htfBearInvalid) htfBias = 0;
-  if (htf.emaF > htf.emaS && !na(htfLastPh.value) && htf.close > htfLastPh.value) htfBias = 1;
-  else if (htf.emaF < htf.emaS && !na(htfLastPl.value) && htf.close < htfLastPl.value) htfBias = -1;
+  if (htfEmaFVal > htfEmaSVal && (na(htfLastPl.value) || htfCloseVal >= htfLastPl.value)) htfBias = 1;
+  else if (htfEmaFVal < htfEmaSVal && (na(htfLastPh.value) || htfCloseVal <= htfLastPh.value)) htfBias = -1;
   htfBiasCell.set(htfBias);
 
-  const htfRangeMid = (htf.high50 + htf.low50) / 2;
-  const inDiscount = c < htfRangeMid;
-  const inPremium = c > htfRangeMid;
+  const htfRangeMid = (htfHigh50Val + htfLow50Val) / 2;
+  const drHigh = !na(htfLastPh.value) ? htfLastPh.value : htfHigh50Val;
+  const drLow = !na(htfLastPl.value) ? htfLastPl.value : htfLow50Val;
+  const drRange = drHigh > drLow ? drHigh - drLow : NaN;
+  const drEq = !na(drRange) ? drLow + drRange * 0.50 : htfRangeMid;
+  const ote618Bull = !na(drRange) ? drHigh - drRange * 0.618 : NaN;
+  const ote786Bull = !na(drRange) ? drHigh - drRange * 0.786 : NaN;
+  const ote618Bear = !na(drRange) ? drLow + drRange * 0.618 : NaN;
+  const ote786Bear = !na(drRange) ? drLow + drRange * 0.786 : NaN;
+  const inDiscount = (!na(drEq) && c <= drEq) || (!na(ote618Bull) && l <= ote618Bull && c >= ote786Bull) || c < htfRangeMid;
+  const inPremium = (!na(drEq) && c >= drEq) || (!na(ote618Bear) && h >= ote618Bear && c <= ote786Bear) || c > htfRangeMid;
 
   if (isLast) drawHtfLevels();
   function drawHtfLevels() {
@@ -145,13 +162,13 @@ indicator("SMC Confluence Engine v7.1", { overlay: true }, (api) => {
       draw.line({ id, x1: bar - 5, y1: price, x2: bar + 20, y2: price, color: alpha(color, 30), style: "dashed" });
       draw.label({ id: id + ":lbl", x: bar + 20, y: price, text, color, position: "right" });
     };
-    emaLine("htfEmaF", htf.emaF, BULL, "4H EMA" + htfEmaFast);
-    emaLine("htfEmaS", htf.emaS, BEAR, "4H EMA" + htfEmaSlow);
-    if (!show4hZones || na(htf.high50) || na(htf.low50)) return;
+    emaLine("htfEmaF", htfEmaFVal, BULL, "4H EMA" + htfEmaFast);
+    emaLine("htfEmaS", htfEmaSVal, BEAR, "4H EMA" + htfEmaSlow);
+    if (!show4hZones || na(htfHigh50Val) || na(htfLow50Val)) return;
     const reach = atr14 * drawMaxAtr;
-    const top = Math.min(htf.high50, c + reach);
-    const bot = Math.max(htf.low50, c - reach);
-    const mid = Math.max(bot, Math.min(top, htfRangeMid));
+    const top = Math.min(htfHigh50Val, c + reach);
+    const bot = Math.max(htfLow50Val, c - reach);
+    const mid = Math.max(bot, Math.min(top, drEq));
     const left = bar - htfPdLen;
     draw.box({ id: "pdPrem", left, top, right: bar + 10, bottom: mid, fill: alpha(BEAR, 92) });
     draw.box({ id: "pdDisc", left, top: mid, right: bar + 10, bottom: bot, fill: alpha(BULL, 92) });
@@ -167,20 +184,26 @@ indicator("SMC Confluence Engine v7.1", { overlay: true }, (api) => {
     ph: val(x.ta.pivothigh(x.high, setupSwing, setupSwing)),
     pl: val(x.ta.pivotlow(x.low, setupSwing, setupSwing)),
   })) ?? { emaF: NaN, emaS: NaN, close: NaN, ph: NaN, pl: NaN };
+
+  const h1EmaFVal = !na(h1.emaF) ? h1.emaF : val(ta.ema(close, htfEmaFast * 4));
+  const h1EmaSVal = !na(h1.emaS) ? h1.emaS : val(ta.ema(close, htfEmaSlow * 4));
+  const h1CloseVal = !na(h1.close) ? h1.close : c;
   const h1LastPh = v("h1LastPh", NaN);
   const h1LastPl = v("h1LastPl", NaN);
   const h1BiasCell = v("h1Bias", 0);
   if (!na(h1.ph)) h1LastPh.set(h1.ph);
   if (!na(h1.pl)) h1LastPl.set(h1.pl);
   let h1Bias = h1BiasCell.value;
-  const h1AbovePh = !na(h1LastPh.value) && h1.close > h1LastPh.value;
-  const h1BelowPl = !na(h1LastPl.value) && h1.close < h1LastPl.value;
-  const h1BosBull = h1AbovePh && h1.emaF > h1.emaS;
-  const h1BosBear = h1BelowPl && h1.emaF < h1.emaS;
+  const h1AbovePh = !na(h1LastPh.value) && h1CloseVal > h1LastPh.value;
+  const h1BelowPl = !na(h1LastPl.value) && h1CloseVal < h1LastPl.value;
+  const h1BosBull = h1AbovePh && h1EmaFVal > h1EmaSVal;
+  const h1BosBear = h1BelowPl && h1EmaFVal < h1EmaSVal;
   const h1ChochBull = h1AbovePh && h1Bias === -1;
   const h1ChochBear = h1BelowPl && h1Bias === 1;
   if (h1BosBull || h1ChochBull) h1Bias = 1;
   if (h1BosBear || h1ChochBear) h1Bias = -1;
+  if (h1Bias === 0 && h1EmaFVal > h1EmaSVal) h1Bias = 1;
+  else if (h1Bias === 0 && h1EmaFVal < h1EmaSVal) h1Bias = -1;
   if ((h1Bias === 1 && h1BelowPl) || (h1Bias === -1 && h1AbovePh)) h1Bias = 0;
   h1BiasCell.set(h1Bias);
 
@@ -190,10 +213,16 @@ indicator("SMC Confluence Engine v7.1", { overlay: true }, (api) => {
     priorSwingHi: val(x.ta.highest(x.high, entryLiqLb), 1),
     priorSwingLo: val(x.ta.lowest(x.low, entryLiqLb), 1),
   })) ?? { high: NaN, low: NaN, close: NaN, priorSwingHi: NaN, priorSwingLo: NaN };
-  const m15BreakoutLong = m15.close > m15.priorSwingHi;
-  const m15BreakoutShort = m15.close < m15.priorSwingLo;
-  const m15SslSweep = m15.low < m15.priorSwingLo && m15.close > m15.priorSwingLo;
-  const m15BslSweep = m15.high > m15.priorSwingHi && m15.close < m15.priorSwingHi;
+
+  const m15HighVal = !na(m15.high) ? m15.high : h;
+  const m15LowVal = !na(m15.low) ? m15.low : l;
+  const m15CloseVal = !na(m15.close) ? m15.close : c;
+  const m15PriorHi = !na(m15.priorSwingHi) ? m15.priorSwingHi : val(ta.highest(high, entryLiqLb * 3), 1);
+  const m15PriorLo = !na(m15.priorSwingLo) ? m15.priorSwingLo : val(ta.lowest(low, entryLiqLb * 3), 1);
+  const m15BreakoutLong = m15CloseVal > m15PriorHi;
+  const m15BreakoutShort = m15CloseVal < m15PriorLo;
+  const m15SslSweep = m15LowVal < m15PriorLo && m15CloseVal > m15PriorLo;
+  const m15BslSweep = m15HighVal > m15PriorHi && m15CloseVal < m15PriorHi;
 
   // ── Layer D — structure, displacement & trigger lifecycle ─────────────────
   const ph = val(ta.pivothigh(high, smcSwing, smcSwing));
@@ -211,6 +240,13 @@ indicator("SMC Confluence Engine v7.1", { overlay: true }, (api) => {
   const candleRange = Math.max(h - l, 1e-8);
   const isDispBull = c - o >= atr14 * dispMult && (c - o) / candleRange >= dispBodyPct;
   const isDispBear = o - c >= atr14 * dispMult && (o - c) / candleRange >= dispBodyPct;
+  const lastDispBullBar = v("lastDispBullBar", -999);
+  const lastDispBearBar = v("lastDispBearBar", -999);
+  if (isDispBull) lastDispBullBar.set(bar);
+  if (isDispBear) lastDispBearBar.set(bar);
+  const recentDispBull = bar - lastDispBullBar.value <= dispMemoryBars;
+  const recentDispBear = bar - lastDispBearBar.value <= dispMemoryBars;
+
   const prevClose = val(close, 1);
   const bosBull = phValid && c > lastPh.value && prevClose <= lastPh.value && isDispBull;
   const bosBear = plValid && c < lastPl.value && prevClose >= lastPl.value && isDispBear;
@@ -224,10 +260,14 @@ indicator("SMC Confluence Engine v7.1", { overlay: true }, (api) => {
   const armedLong = v("armedLong", false), armedShort = v("armedShort", false);
   const armedLongBar = v("armedLongBar", -999), armedShortBar = v("armedShortBar", -999);
   const armedLongLvl = v("armedLongLvl", NaN), armedShortLvl = v("armedShortLvl", NaN);
-  if (bosBull) { armedLong.set(true); armedShort.set(false); armedLongBar.set(bar); armedLongLvl.set(lastPh.value); }
-  if (bosBear) { armedShort.set(true); armedLong.set(false); armedShortBar.set(bar); armedShortLvl.set(lastPl.value); }
-  if (armedLong.value && bar - armedLongBar.value > chValidity) armedLong.set(false);
-  if (armedShort.value && bar - armedShortBar.value > chValidity) armedShort.set(false);
+  if (bosBull || chochBull) { armedLong.set(true); armedShort.set(false); armedLongBar.set(bar); armedLongLvl.set(lastPh.value); }
+  if (bosBear || chochBear) { armedShort.set(true); armedLong.set(false); armedShortBar.set(bar); armedShortLvl.set(lastPl.value); }
+  const armedExpiredLong = bar - armedLongBar.value > chValidity;
+  const armedExpiredShort = bar - armedShortBar.value > chValidity;
+  const armedInvalidLong = !na(lastPl.value) && c < lastPl.value;
+  const armedInvalidShort = !na(lastPh.value) && c > lastPh.value;
+  if (armedLong.value && (armedExpiredLong || armedInvalidLong)) armedLong.set(false);
+  if (armedShort.value && (armedExpiredShort || armedInvalidShort)) armedShort.set(false);
 
   drawStructureBreaks();
   function drawStructureBreaks() {
@@ -466,17 +506,19 @@ indicator("SMC Confluence Engine v7.1", { overlay: true }, (api) => {
   const canRetestLong = armedLong.value && bar - armedLongBar.value >= 1;
   const canRetestShort = armedShort.value && bar - armedShortBar.value >= 1;
   const lvlL = armedLongLvl.value, lvlS = armedShortLvl.value;
-  const retestBull = canRetestLong && (inBullOb || inBullFvg || (!na(lvlL) && l <= lvlL + atr14 * 0.35 && c >= lvlL - atr14 * 0.25));
-  const retestBear = canRetestShort && (inBearOb || inBearFvg || (!na(lvlS) && h >= lvlS - atr14 * 0.35 && c <= lvlS + atr14 * 0.25));
-  const aligned = htfBias === h1Bias ? htfBias : 0;
-  const setupALong = aligned === 1 && inDiscount && recentSslSweep && (inBullOb || inBullFvg || retestBull);
-  const setupAShort = aligned === -1 && inPremium && recentBslSweep && (inBearOb || inBearFvg || retestBear);
-  const setupBLong = aligned === 1 && m15BreakoutLong && retestBull;
-  const setupBShort = aligned === -1 && m15BreakoutShort && retestBear;
-  const setupCShort = inPremium && (liqSweepBear || recentBslSweep) && (structureBias === -1 || chochBear) && isDispBear;
-  const setupCLong = inDiscount && (liqSweepBull || recentSslSweep) && (structureBias === 1 || chochBull) && isDispBull;
-  const triggerLong = ((setupALong || setupBLong) && retestBull) || (setupCLong && isDispBull);
-  const triggerShort = ((setupAShort || setupBShort) && retestBear) || (setupCShort && isDispBear);
+  const inZoneBull = inBullOb || inBullFvg || (!na(lvlL) && l <= lvlL + atr14 * 0.35 && c >= lvlL - atr14 * 0.25);
+  const inZoneBear = inBearOb || inBearFvg || (!na(lvlS) && h >= lvlS - atr14 * 0.35 && c <= lvlS + atr14 * 0.25);
+  const retestBull = (canRetestLong && inZoneBull) || inBullOb || inBullFvg;
+  const retestBear = (canRetestShort && inZoneBear) || inBearOb || inBearFvg;
+  const aligned = htfBias === h1Bias ? htfBias : htfBias === 0 ? h1Bias : 0;
+  const setupALong = aligned === 1 && inDiscount && (recentSslSweep || liqSweepBull) && (inZoneBull || retestBull);
+  const setupAShort = aligned === -1 && inPremium && (recentBslSweep || liqSweepBear) && (inZoneBear || retestBear);
+  const setupBLong = aligned === 1 && m15BreakoutLong && (inZoneBull || retestBull);
+  const setupBShort = aligned === -1 && m15BreakoutShort && (inZoneBear || retestBear);
+  const setupCShort = inPremium && (liqSweepBear || recentBslSweep) && (structureBias === -1 || chochBear) && (recentDispBear || isDispBear);
+  const setupCLong = inDiscount && (liqSweepBull || recentSslSweep) && (structureBias === 1 || chochBull) && (recentDispBull || isDispBull);
+  const triggerLong = ((setupALong || setupBLong) && (retestBull || inZoneBull)) || (setupCLong && inZoneBull);
+  const triggerShort = ((setupAShort || setupBShort) && (retestBear || inZoneBear)) || (setupCShort && inZoneBear);
   const setupNameLong = setupALong ? "Pullback SSL Sweep" : setupBLong ? "Breakout Retest" : setupCLong ? "Liquidity Reversal" : "Standard Retest";
   const setupNameShort = setupAShort ? "Pullback BSL Sweep" : setupBShort ? "Breakdown Retest" : setupCShort ? "Liquidity Reversal" : "Standard Retest";
 
@@ -485,25 +527,34 @@ indicator("SMC Confluence Engine v7.1", { overlay: true }, (api) => {
   const nearestBelow = (ceil, levels) => levels.reduce((best, x) => (!na(x) && x < ceil && (na(best) || x > best) ? x : best), NaN);
   const longSl = Math.min(nz(bull.lo, l), nz(lastPl.value, l), l) - atr14 * 0.35;
   const longRisk = Math.max(c - longSl, atr14 * 0.5);
-  const longTp1 = nearestAbove(c + atr14 * 0.25, [lastPh.value, bslPrev, pdh, london.hi, asia.hi]);
-  const longTp2 = nz(nearestAbove(longTp1, [bslPrev, htfLastPh.value, pdh, htf.high50]), longTp1);
-  const longTp3 = nz(nearestAbove(longTp2, [htf.high50, htfLastPh.value, pdh]), longTp2);
-  const longRr = na(longTp2) ? NaN : (longTp2 - c) / longRisk;
+  const minDistL1 = longRisk * 1.2;
+  const rawLongTp1 = nearestAbove(c + minDistL1, [lastPh.value, bslPrev, pdh, london.hi, asia.hi, htfLastPh.value, htfHigh50Val]);
+  const longTp1 = !na(rawLongTp1) ? rawLongTp1 : c + minDistL1;
+  const rawLongTp2 = nearestAbove(longTp1 + longRisk * 0.5, [bslPrev, htfLastPh.value, pdh, htfHigh50Val]);
+  const longTp2 = !na(rawLongTp2) ? rawLongTp2 : longTp1 + longRisk * 1.0;
+  const rawLongTp3 = nearestAbove(longTp2 + longRisk * 0.5, [htfHigh50Val, htfLastPh.value, pdh]);
+  const longTp3 = !na(rawLongTp3) ? rawLongTp3 : longTp2 + longRisk * 1.0;
+  const longRr = (longTp2 - c) / longRisk;
+
   const shortSl = Math.max(nz(bear.hi, h), nz(lastPh.value, h), h) + atr14 * 0.35;
   const shortRisk = Math.max(shortSl - c, atr14 * 0.5);
-  const shortTp1 = nearestBelow(c - atr14 * 0.25, [lastPl.value, sslPrev, pdl, london.lo, asia.lo]);
-  const shortTp2 = nz(nearestBelow(shortTp1, [sslPrev, htfLastPl.value, pdl, htf.low50]), shortTp1);
-  const shortTp3 = nz(nearestBelow(shortTp2, [htf.low50, htfLastPl.value, pdl]), shortTp2);
-  const shortRr = na(shortTp2) ? NaN : (c - shortTp2) / shortRisk;
+  const minDistS1 = shortRisk * 1.2;
+  const rawShortTp1 = nearestBelow(c - minDistS1, [lastPl.value, sslPrev, pdl, london.lo, asia.lo, htfLastPl.value, htfLow50Val]);
+  const shortTp1 = !na(rawShortTp1) ? rawShortTp1 : c - minDistS1;
+  const rawShortTp2 = nearestBelow(shortTp1 - shortRisk * 0.5, [sslPrev, htfLastPl.value, pdl, htfLow50Val]);
+  const shortTp2 = !na(rawShortTp2) ? rawShortTp2 : shortTp1 - shortRisk * 1.0;
+  const rawShortTp3 = nearestBelow(shortTp2 - shortRisk * 0.5, [htfLow50Val, htfLastPl.value, pdl]);
+  const shortTp3 = !na(rawShortTp3) ? rawShortTp3 : shortTp2 - shortRisk * 1.0;
+  const shortRr = (c - shortTp2) / shortRisk;
 
   // ── 100-point confluence score ────────────────────────────────────────────
-  const highVolume = val(volume) > volSma * 1.25;
+  const highVolume = val(volume) > volSma * 1.25 || rvolActive;
   const longScore = (htfBias === 1 ? 15 : 0) + (h1Bias === 1 ? 15 : 0) + (inDiscount ? 10 : 0) + (inBullOb || inBullFvg ? 10 : 0)
-    + (recentSslSweep ? 15 : 0) + (m15BreakoutLong || m15SslSweep ? 10 : 0) + (isDispBull ? 10 : 0)
-    + (retestBull || tlBearRetest || vpBullConf || sessLevelBull ? 5 : 0) + (highVolume ? 5 : 0) + (longRr >= 2 ? 5 : 0);
+    + (recentSslSweep || liqSweepBull ? 15 : 0) + (m15BreakoutLong || m15SslSweep ? 10 : 0) + (recentDispBull || isDispBull ? 10 : 0)
+    + (retestBull || tlBearRetest || vpBullConf || sessLevelBull ? 5 : 0) + (highVolume ? 5 : 0) + (longRr >= minRr ? 5 : 0);
   const shortScore = (htfBias === -1 ? 15 : 0) + (h1Bias === -1 ? 15 : 0) + (inPremium ? 10 : 0) + (inBearOb || inBearFvg ? 10 : 0)
-    + (recentBslSweep ? 15 : 0) + (m15BreakoutShort || m15BslSweep ? 10 : 0) + (isDispBear ? 10 : 0)
-    + (retestBear || tlBullRetest || vpBearConf || sessLevelBear ? 5 : 0) + (highVolume ? 5 : 0) + (shortRr >= 2 ? 5 : 0);
+    + (recentBslSweep || liqSweepBear ? 15 : 0) + (m15BreakoutShort || m15BslSweep ? 10 : 0) + (recentDispBear || isDispBear ? 10 : 0)
+    + (retestBear || tlBullRetest || vpBearConf || sessLevelBear ? 5 : 0) + (highVolume ? 5 : 0) + (shortRr >= minRr ? 5 : 0);
 
   // ── Hard gates & deterministic decision ───────────────────────────────────
   const longMin = setupCLong && !(setupALong || setupBLong) ? minScoreCt : minScore;
@@ -605,11 +656,11 @@ export const toSmcStrategy = (code: string): string =>
     )
     .replace(
       'alert(JSON.stringify({ event: "SMC_ENTRY", side: "LONG", setup: setupNameLong, entry: c, sl: longSl, tp1: longTp1, tp2: longTp2, tp3: longTp3, rr: longRr, score: longScore }));',
-      'alert(JSON.stringify({ event: "SMC_ENTRY", side: "LONG", setup: setupNameLong, entry: c, sl: longSl, tp1: longTp1, tp2: longTp2, tp3: longTp3, rr: longRr, score: longScore }));\n    strategy.entry("Long", "long");\n    strategy.exit("Exit Long", { from_entry: "Long", limit: longTp2, stop: longSl });',
+      'alert(JSON.stringify({ event: "SMC_ENTRY", side: "LONG", setup: setupNameLong, entry: c, sl: longSl, tp1: longTp1, tp2: longTp2, tp3: longTp3, rr: longRr, score: longScore }));\n    strategy.entry("Long", "long");\n    strategy.exit("Exit Long", { from_entry: "Long", limit: longTp1, stop: longSl });',
     )
     .replace(
       'alert(JSON.stringify({ event: "SMC_ENTRY", side: "SHORT", setup: setupNameShort, entry: c, sl: shortSl, tp1: shortTp1, tp2: shortTp2, tp3: shortTp3, rr: shortRr, score: shortScore }));',
-      'alert(JSON.stringify({ event: "SMC_ENTRY", side: "SHORT", setup: setupNameShort, entry: c, sl: shortSl, tp1: shortTp1, tp2: shortTp2, tp3: shortTp3, rr: shortRr, score: shortScore }));\n    strategy.entry("Short", "short");\n    strategy.exit("Exit Short", { from_entry: "Short", limit: shortTp2, stop: shortSl });',
+      'alert(JSON.stringify({ event: "SMC_ENTRY", side: "SHORT", setup: setupNameShort, entry: c, sl: shortSl, tp1: shortTp1, tp2: shortTp2, tp3: shortTp3, rr: shortRr, score: shortScore }));\n    strategy.entry("Short", "short");\n    strategy.exit("Exit Short", { from_entry: "Short", limit: shortTp1, stop: shortSl });',
     );
 
 export const SMC_CONFLUENCE_STRATEGY = toSmcStrategy(SMC_CONFLUENCE_ENGINE);
