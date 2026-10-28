@@ -14,6 +14,10 @@ import {
 export interface CandleSettingsInput {
   readonly upColor: string;
   readonly downColor: string;
+  readonly borderUpColor?: string;
+  readonly borderDownColor?: string;
+  readonly wickUpColor?: string;
+  readonly wickDownColor?: string;
   readonly showBody?: boolean;
   readonly showBorders?: boolean;
   readonly showWick?: boolean;
@@ -100,23 +104,48 @@ export const toHeikinAshi = (bars: readonly Bar[]): readonly Bar[] => {
   return result;
 };
 
+/** Adds ~50% translucency (0x80) to hex or rgb colors for matching volume bars. */
+export const toTranslucentColor = (color: string, alphaHex = "80"): string => {
+  if (color.startsWith("#")) {
+    const hex = color.slice(1);
+    const full = hex.length === 3 ? hex.split("").map((c) => c + c).join("") : hex.slice(0, 6);
+    return `#${full}${alphaHex}`;
+  }
+  if (color.startsWith("rgb")) {
+    const m = color.match(/\d+(\.\d+)?/g);
+    if (m && m.length >= 3) return `rgba(${m[0]}, ${m[1]}, ${m[2]}, 0.5)`;
+  }
+  return color;
+};
+
+/** Formats a single bar into a volume histogram point matching candle up/down colors. */
+export const toVolumePoint = (bar: Bar, upColor: string, downColor: string) => ({
+  time: Math.floor(bar.time / 1000) as Time,
+  value: bar.volume,
+  color: bar.close >= bar.open ? toTranslucentColor(upColor) : toTranslucentColor(downColor),
+});
+
 /** TradingView hollow candle style: transparent body on close >= open, solid on close < open. */
 export const resolveHollowCandleColors = (
   bar: Bar,
   prevBar: Bar | undefined,
-  upColor: string,
-  downColor: string,
+  upOrSettings: string | CandleSettingsInput,
+  downColorArg?: string,
 ): { color: string; borderColor: string; wickColor: string } => {
-  // Outline color is determined by direction against previous close (or open for bar 0).
-  const referenceClose = prevBar?.close ?? bar.open;
-  const outlineColor = bar.close >= referenceClose ? upColor : downColor;
-  const isUpClose = bar.close >= bar.open;
+  const isSettings = typeof upOrSettings !== "string";
+  const upColor = isSettings ? upOrSettings.upColor : upOrSettings;
+  const downColor = isSettings ? upOrSettings.downColor : (downColorArg ?? upColor);
+  const borderUp = isSettings ? (upOrSettings.borderUpColor ?? upColor) : upColor;
+  const borderDown = isSettings ? (upOrSettings.borderDownColor ?? downColor) : downColor;
+  const wickUp = isSettings ? (upOrSettings.wickUpColor ?? upColor) : upColor;
+  const wickDown = isSettings ? (upOrSettings.wickDownColor ?? downColor) : downColor;
+  const refClose = prevBar?.close ?? bar.open;
+  const isUp = bar.close >= refClose;
 
   return {
-    // Transparent body gives hollow appearance while keeping borders and wicks colored.
-    color: isUpClose ? "transparent" : outlineColor,
-    borderColor: outlineColor,
-    wickColor: outlineColor,
+    color: bar.close >= bar.open ? "transparent" : (isUp ? upColor : downColor),
+    borderColor: isUp ? borderUp : borderDown,
+    wickColor: isUp ? wickUp : wickDown,
   };
 };
 
@@ -158,11 +187,11 @@ export const getSeriesOptions = (
     upColor: candles.showBody !== false ? candles.upColor : "rgba(0,0,0,0)",
     downColor: candles.showBody !== false ? candles.downColor : "rgba(0,0,0,0)",
     borderVisible: candles.showBorders !== false,
-    borderUpColor: candles.upColor,
-    borderDownColor: candles.downColor,
+    borderUpColor: candles.borderUpColor ?? candles.upColor,
+    borderDownColor: candles.borderDownColor ?? candles.downColor,
     wickVisible: candles.showWick !== false,
-    wickUpColor: candles.upColor,
-    wickDownColor: candles.downColor,
+    wickUpColor: candles.wickUpColor ?? candles.upColor,
+    wickDownColor: candles.wickDownColor ?? candles.downColor,
   };
 };
 
@@ -201,7 +230,7 @@ export const formatSeriesData = (
   if (type === "hollow") {
     return displayBars.map((b, i) => {
       const color = barColors?.get(Math.floor(b.time / 1000));
-      const hollow = resolveHollowCandleColors(b, displayBars[i - 1], candles.upColor, candles.downColor);
+      const hollow = resolveHollowCandleColors(b, displayBars[i - 1], candles);
       return {
         time: Math.floor(b.time / 1000) as Time,
         open: b.open, high: b.high, low: b.low, close: b.close,
@@ -239,7 +268,7 @@ export const formatSeriesPoint = (
     };
   }
   if (type === "hollow") {
-    const hollow = resolveHollowCandleColors(bar, prevBar, candles.upColor, candles.downColor);
+    const hollow = resolveHollowCandleColors(bar, prevBar, candles);
     return {
       time, open: bar.open, high: bar.high, low: bar.low, close: bar.close,
       color: hollow.color,

@@ -122,8 +122,9 @@ export function TopToolbar(props: TopToolbarProps) {
                 candles: {
                   ...props.chartSettings!.candles,
                   theme: themeId,
-                  upColor: themeDef.upColor,
-                  downColor: themeDef.downColor,
+                  upColor: themeDef.upColor, downColor: themeDef.downColor,
+                  borderUpColor: themeDef.upColor, borderDownColor: themeDef.downColor,
+                  wickUpColor: themeDef.upColor, wickDownColor: themeDef.downColor,
                 },
               });
             }}

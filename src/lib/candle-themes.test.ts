@@ -9,6 +9,8 @@ import {
   getSeriesOptions,
   resolveHollowCandleColors,
   toHeikinAshi,
+  toTranslucentColor,
+  toVolumePoint,
 } from "./candle-themes";
 
 describe("candle themes definitions", () => {
@@ -162,5 +164,42 @@ describe("formatSeriesData and formatSeriesPoint", () => {
     const hollowData = formatSeriesData(bars, "hollow", candles) as { color: string }[];
     expect(hollowData[0]!.color).toBe("transparent"); // bar 0 is bull: close 14 > open 10
     expect(hollowData[1]!.color).toBe("#f23645"); // bar 1 is bear: close 12 < open 14
+  });
+});
+
+describe("toTranslucentColor", () => {
+  test("adds 50% opacity hex suffix to 6-char hex colors", () => {
+    expect(toTranslucentColor("#089981")).toBe("#08998180");
+    expect(toTranslucentColor("#2dd4bf")).toBe("#2dd4bf80");
+  });
+
+  test("expands 3-char shorthand hex colors before appending alpha", () => {
+    expect(toTranslucentColor("#abc")).toBe("#aabbcc80");
+  });
+
+  test("clamps 8-char hex colors to standard 50% alpha", () => {
+    expect(toTranslucentColor("#089981ff")).toBe("#08998180");
+  });
+
+  test("converts rgb and rgba color strings to 50% alpha rgba", () => {
+    expect(toTranslucentColor("rgb(8, 153, 129)")).toBe("rgba(8, 153, 129, 0.5)");
+    expect(toTranslucentColor("rgba(8, 153, 129, 1)")).toBe("rgba(8, 153, 129, 0.5)");
+  });
+});
+
+describe("toVolumePoint", () => {
+  test("maps bar to volume point with color matching candle up and down themes", () => {
+    const bullBar: Bar = { time: 1000, open: 10, high: 20, low: 8, close: 14, volume: 500 };
+    const bearBar: Bar = { time: 2000, open: 14, high: 18, low: 10, close: 11, volume: 800 };
+    const bullPt = toVolumePoint(bullBar, "#2dd4bf", "#fb7185"); // Frosted Glass theme
+    const bearPt = toVolumePoint(bearBar, "#2dd4bf", "#fb7185");
+
+    expect(bullPt.time as number).toBe(1);
+    expect(bullPt.value).toBe(500);
+    expect(bullPt.color).toBe("#2dd4bf80");
+
+    expect(bearPt.time as number).toBe(2);
+    expect(bearPt.value).toBe(800);
+    expect(bearPt.color).toBe("#fb718580");
   });
 });

@@ -20,6 +20,10 @@ export interface ChartSettings {
     readonly theme: CandleThemeId;
     readonly upColor: string;
     readonly downColor: string;
+    readonly borderUpColor: string;
+    readonly borderDownColor: string;
+    readonly wickUpColor: string;
+    readonly wickDownColor: string;
     readonly showBody: boolean;
     readonly showBorders: boolean;
     readonly showWick: boolean;
@@ -73,6 +77,10 @@ export const DEFAULT_CHART_SETTINGS: ChartSettings = {
     theme: "tradingview",
     upColor: "#089981",
     downColor: "#f23645",
+    borderUpColor: "#089981",
+    borderDownColor: "#f23645",
+    wickUpColor: "#089981",
+    wickDownColor: "#f23645",
     showBody: true,
     showBorders: true,
     showWick: true,
@@ -117,11 +125,17 @@ const isCandleTheme = (val: unknown): val is CandleThemeId =>
 const normalizeCandles = (stored: unknown): ChartSettings["candles"] => {
   const raw = isRecord(stored) ? stored : {};
   const defaults = DEFAULT_CHART_SETTINGS.candles;
+  const upColor = typeof raw["upColor"] === "string" ? raw["upColor"] : defaults.upColor;
+  const downColor = typeof raw["downColor"] === "string" ? raw["downColor"] : defaults.downColor;
   return {
     type: isCandleType(raw["type"]) ? raw["type"] : defaults.type,
     theme: isCandleTheme(raw["theme"]) ? raw["theme"] : defaults.theme,
-    upColor: typeof raw["upColor"] === "string" ? raw["upColor"] : defaults.upColor,
-    downColor: typeof raw["downColor"] === "string" ? raw["downColor"] : defaults.downColor,
+    upColor,
+    downColor,
+    borderUpColor: typeof raw["borderUpColor"] === "string" ? raw["borderUpColor"] : upColor,
+    borderDownColor: typeof raw["borderDownColor"] === "string" ? raw["borderDownColor"] : downColor,
+    wickUpColor: typeof raw["wickUpColor"] === "string" ? raw["wickUpColor"] : upColor,
+    wickDownColor: typeof raw["wickDownColor"] === "string" ? raw["wickDownColor"] : downColor,
     showBody: booleanOr(raw["showBody"], defaults.showBody),
     showBorders: booleanOr(raw["showBorders"], defaults.showBorders),
     showWick: booleanOr(raw["showWick"], defaults.showWick),
@@ -208,11 +222,11 @@ export const toCandleOptions = ({ candles, scales }: ChartSettings): DeepPartial
   upColor: candles.showBody ? candles.upColor : TRANSPARENT,
   downColor: candles.showBody ? candles.downColor : TRANSPARENT,
   borderVisible: candles.showBorders,
-  borderUpColor: candles.upColor,
-  borderDownColor: candles.downColor,
+  borderUpColor: candles.borderUpColor,
+  borderDownColor: candles.borderDownColor,
   wickVisible: candles.showWick,
-  wickUpColor: candles.upColor,
-  wickDownColor: candles.downColor,
+  wickUpColor: candles.wickUpColor,
+  wickDownColor: candles.wickDownColor,
   // LastPricePrimitive draws it from the forming candle only; LWC's line spans the whole pane.
   priceLineVisible: false,
   priceScaleId: scales.placement,

@@ -21,12 +21,8 @@ const TABS: readonly { id: Tab; label: string; icon: ReactNode }[] = [
 
 /** TradingView's chart Settings dialog. Edits a draft; Ok applies it, Cancel discards it. */
 export function ChartSettingsDialog({ open, settings, quoteAsset, onOpenChange, onApply }: {
-  open: boolean;
-  settings: ChartSettings;
-  /** Quote currency of the active chart; shown as the unit of the minimum wall size. */
-  quoteAsset: string;
-  onOpenChange: (open: boolean) => void;
-  onApply: (settings: ChartSettings) => void;
+  open: boolean; settings: ChartSettings; quoteAsset: string;
+  onOpenChange: (open: boolean) => void; onApply: (settings: ChartSettings) => void;
 }) {
   const [tab, setTab] = useState<Tab>("symbol");
   const [draft, setDraft] = useState(settings);
@@ -79,9 +75,16 @@ function SymbolTab(props: TabProps) {
   const { candles } = props.draft;
   const patch = patcher(props);
   const onThemeChange = (id: CandleThemeId) => {
-    const theme = findCandleTheme(id);
-    if (theme) patch("candles", { theme: id, upColor: theme.upColor, downColor: theme.downColor });
-    else patch("candles", { theme: "custom" });
+    const t = findCandleTheme(id);
+    if (t) {
+      patch("candles", {
+        theme: id, upColor: t.upColor, downColor: t.downColor,
+        borderUpColor: t.upColor, borderDownColor: t.downColor,
+        wickUpColor: t.upColor, wickDownColor: t.downColor,
+      });
+    } else {
+      patch("candles", { theme: "custom" });
+    }
   };
   return (
     <Group title="Candles">
@@ -98,13 +101,15 @@ function SymbolTab(props: TabProps) {
           <option value="custom">Custom</option>
         </select>
       </Row>
-      <Row label="Colors">
-        <ColorInput value={candles.upColor} onChange={(upColor) => patch("candles", { upColor, theme: "custom" })} />
-        <ColorInput value={candles.downColor} onChange={(downColor) => patch("candles", { downColor, theme: "custom" })} />
-      </Row>
-      <Check label="Body" checked={candles.showBody} onChange={(showBody) => patch("candles", { showBody })} />
-      <Check label="Borders" checked={candles.showBorders} onChange={(showBorders) => patch("candles", { showBorders })} />
-      <Check label="Wick" checked={candles.showWick} onChange={(showWick) => patch("candles", { showWick })} />
+      <CandlePartRow label="Body" checked={candles.showBody} onCheck={(showBody) => patch("candles", { showBody })}
+        upColor={candles.upColor} onUpChange={(upColor) => patch("candles", { upColor, theme: "custom" })}
+        downColor={candles.downColor} onDownChange={(downColor) => patch("candles", { downColor, theme: "custom" })} />
+      <CandlePartRow label="Borders" checked={candles.showBorders} onCheck={(showBorders) => patch("candles", { showBorders })}
+        upColor={candles.borderUpColor} onUpChange={(borderUpColor) => patch("candles", { borderUpColor, theme: "custom" })}
+        downColor={candles.borderDownColor} onDownChange={(borderDownColor) => patch("candles", { borderDownColor, theme: "custom" })} />
+      <CandlePartRow label="Wick" checked={candles.showWick} onCheck={(showWick) => patch("candles", { showWick })}
+        upColor={candles.wickUpColor} onUpChange={(wickUpColor) => patch("candles", { wickUpColor, theme: "custom" })}
+        downColor={candles.wickDownColor} onDownChange={(wickDownColor) => patch("candles", { wickDownColor, theme: "custom" })} />
     </Group>
   );
 }
@@ -142,8 +147,7 @@ function ScalesTab(props: TabProps) {
       <Row label="Scales placement">
         <select className="h-8 rounded border border-border bg-background px-2 text-sm" value={scales.placement}
           onChange={(e) => patch("scales", { placement: e.target.value as ChartSettings["scales"]["placement"] })}>
-          <option value="right">Right</option>
-          <option value="left">Left</option>
+          <option value="right">Right</option><option value="left">Left</option>
         </select>
       </Row>
       <Check label="Auto (fits data to screen)" checked={scales.autoScale} onChange={(autoScale) => patch("scales", { autoScale })} />
@@ -193,11 +197,8 @@ function TradingTab(props: TabProps & { readonly quoteAsset: string }) {
       <Group title="Order book walls">
         <Check label="Show the largest resting bid and ask" checked={trading.showOrderBookWalls} onChange={(showOrderBookWalls) => patch("trading", { showOrderBookWalls })} />
         <Row label="Display style">
-          <select
-            value={trading.depthWallStyle}
-            onChange={(e) => patch("trading", { depthWallStyle: e.target.value as DepthWallStyle })}
-            className="h-8 rounded border border-border bg-background px-2 text-xs text-foreground focus:outline-none"
-          >
+          <select value={trading.depthWallStyle} onChange={(e) => patch("trading", { depthWallStyle: e.target.value as DepthWallStyle })}
+            className="h-8 rounded border border-border bg-background px-2 text-xs text-foreground focus:outline-none">
             <option value="shelf">Horizontal Shelf & Ray</option>
             <option value="dom">Right-Margin DOM Shelf</option>
             <option value="bracket">Micro-DOM Bracket</option>
@@ -205,12 +206,10 @@ function TradingTab(props: TabProps & { readonly quoteAsset: string }) {
           </select>
         </Row>
         <Row label="Search window (±)">
-          <ValidatedNumber value={wallWindowPct} min={WALL_WINDOW_LIMITS_PCT.min} max={WALL_WINDOW_LIMITS_PCT.max} unit="%"
-            onChange={(next) => patch("trading", { wallWindowPct: next })} />
+          <ValidatedNumber value={wallWindowPct} min={WALL_WINDOW_LIMITS_PCT.min} max={WALL_WINDOW_LIMITS_PCT.max} unit="%" onChange={(next) => patch("trading", { wallWindowPct: next })} />
         </Row>
         <Row label="Minimum wall size">
-          <ValidatedNumber value={minWallNotional} min={0} max={1_000_000_000} unit={props.quoteAsset}
-            onChange={(next) => patch("trading", { minWallNotional: next })} />
+          <ValidatedNumber value={minWallNotional} min={0} max={1_000_000_000} unit={props.quoteAsset} onChange={(next) => patch("trading", { minWallNotional: next })} />
         </Row>
         <p className="text-xs text-muted-foreground">
           Walls are the largest level inside the window. Each is labelled with the window actually searched:
@@ -221,38 +220,46 @@ function TradingTab(props: TabProps & { readonly quoteAsset: string }) {
   );
 }
 
-function Group({ title, children }: { title: string; children: ReactNode }) {
-  return (
-    <div className="flex flex-col gap-3 py-3">
-      <h4 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{title}</h4>
-      {children}
-    </div>
-  );
-}
+const Group = ({ title, children }: { title: string; children: ReactNode }) => (
+  <div className="flex flex-col gap-3 py-3">
+    <h4 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{title}</h4>
+    {children}
+  </div>
+);
 
-function Row({ label, children }: { label: string; children: ReactNode }) {
-  return (
-    <div className="grid grid-cols-[160px_1fr] items-center gap-3 text-sm">
-      <span>{label}</span>
-      <div className="flex items-center gap-2">{children}</div>
-    </div>
-  );
-}
+const Row = ({ label, children }: { label: string; children: ReactNode }) => (
+  <div className="grid grid-cols-[160px_1fr] items-center gap-3 text-sm">
+    <span>{label}</span><div className="flex items-center gap-2">{children}</div>
+  </div>
+);
 
-function Check({ label, checked, onChange }: { label: string; checked: boolean; onChange: (checked: boolean) => void }) {
-  return (
-    <label className="flex items-center gap-2 text-sm">
-      <Checkbox checked={checked} onCheckedChange={(value) => onChange(value === true)} />{label}
+const Check = ({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) => (
+  <label className="flex items-center gap-2 text-sm">
+    <Checkbox checked={checked} onCheckedChange={(v) => onChange(v === true)} />{label}
+  </label>
+);
+
+const CandlePartRow = ({
+  label, checked, onCheck, upColor, onUpChange, downColor, onDownChange,
+}: {
+  label: string; checked: boolean; onCheck: (v: boolean) => void;
+  upColor: string; onUpChange: (v: string) => void; downColor: string; onDownChange: (v: string) => void;
+}) => (
+  <div className="grid grid-cols-[160px_1fr] items-center gap-3 text-sm">
+    <label className="flex items-center gap-2">
+      <Checkbox checked={checked} onCheckedChange={(v) => onCheck(v === true)} />{label}
     </label>
-  );
-}
+    <div className="flex items-center gap-2">
+      <ColorInput value={upColor} onChange={onUpChange} />
+      <ColorInput value={downColor} onChange={onDownChange} />
+    </div>
+  </div>
+);
 
-function ColorInput({ value, onChange }: { value: string; onChange: (value: string) => void }) {
-  return (
-    <input type="color" value={value} onChange={(e) => onChange(e.target.value)}
-      className="h-8 w-8 cursor-pointer rounded border border-border bg-transparent p-0.5" />
-  );
-}
+const ColorInput = ({ value, onChange }: { value: string; onChange: (value: string) => void }) => (
+  <input type="color" value={value} onChange={(e) => onChange(e.target.value)}
+    className="h-8 w-8 cursor-pointer rounded border border-border bg-transparent p-0.5" />
+);
 
 /**
  * Number field that validates as you type. An invalid entry is flagged and not
@@ -261,24 +268,19 @@ function ColorInput({ value, onChange }: { value: string; onChange: (value: stri
 function ValidatedNumber({ value, min, max, unit, onChange }: { value: number; min: number; max: number; unit: string; onChange: (value: number) => void }) {
   const [text, setText] = useState(String(value));
   const [isValid, setIsValid] = useState(true);
-  // Follow external changes (Defaults), but keep "1." while typing "1.5".
-  useEffect(() => {
-    setText((current) => (Number(current) === value ? current : String(value)));
-    setIsValid(true);
-  }, [value]);
+  useEffect(() => { setText((c) => (Number(c) === value ? c : String(value))); setIsValid(true); }, [value]);
   const onType = (raw: string) => {
     setText(raw);
-    const parsed = raw.trim() === "" ? Number.NaN : Number(raw);
-    const valid = Number.isFinite(parsed) && parsed >= min && parsed <= max;
+    const p = raw.trim() === "" ? Number.NaN : Number(raw);
+    const valid = Number.isFinite(p) && p >= min && p <= max;
     setIsValid(valid);
-    if (valid) onChange(parsed);
+    if (valid) onChange(p);
   };
   return (
     <span className="flex flex-col gap-1">
       <span className="flex items-center gap-2">
         <input type="number" step="any" value={text} aria-invalid={!isValid}
-          onChange={(e) => onType(e.target.value)}
-          onBlur={() => { setText(String(value)); setIsValid(true); }}
+          onChange={(e) => onType(e.target.value)} onBlur={() => { setText(String(value)); setIsValid(true); }}
           className={`h-8 w-24 rounded border bg-background px-2 text-sm ${isValid ? "border-border" : "border-red-500"}`} />
         <span className="text-sm text-muted-foreground">{unit}</span>
       </span>
@@ -287,13 +289,11 @@ function ValidatedNumber({ value, min, max, unit, onChange }: { value: number; m
   );
 }
 
-function NumberInput({ value, min, max, unit, onChange }: { value: number; min: number; max: number; unit?: string; onChange: (value: number) => void }) {
-  return (
-    <span className="flex items-center gap-2">
-      <input type="number" value={value} min={min} max={max}
-        onChange={(e) => { const next = Number(e.target.value); if (Number.isFinite(next)) onChange(Math.min(max, Math.max(min, next))); }}
-        className="h-8 w-20 rounded border border-border bg-background px-2 text-sm" />
-      {unit !== undefined && <span className="text-sm text-muted-foreground">{unit}</span>}
-    </span>
-  );
-}
+const NumberInput = ({ value, min, max, unit, onChange }: { value: number; min: number; max: number; unit?: string; onChange: (value: number) => void }) => (
+  <span className="flex items-center gap-2">
+    <input type="number" value={value} min={min} max={max}
+      onChange={(e) => { const n = Number(e.target.value); if (Number.isFinite(n)) onChange(Math.min(max, Math.max(min, n))); }}
+      className="h-8 w-20 rounded border border-border bg-background px-2 text-sm" />
+    {unit !== undefined && <span className="text-sm text-muted-foreground">{unit}</span>}
+  </span>
+);

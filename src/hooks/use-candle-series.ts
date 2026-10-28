@@ -14,14 +14,13 @@ import {
   formatSeriesData,
   formatSeriesPoint,
   getSeriesOptions,
+  toVolumePoint,
   type CandleSettingsInput,
   type CandleType,
 } from "@/lib/candle-themes";
 
 const UP_COLOR = "#089981";
 const DOWN_COLOR = "#f23645";
-const VOLUME_UP_COLOR = "#08998180";
-const VOLUME_DOWN_COLOR = "#f2364580";
 export const SMOOTHING_TAU_MS = 120;
 const SETTLE_EPSILON = 1e-7;
 const COUNTDOWN_REFRESH_MS = 1_000;
@@ -47,12 +46,6 @@ export interface UseCandleSeriesOptions {
   readonly subscribeBars?: (listener: (bars: readonly Bar[]) => void) => () => void;
   readonly barColors?: ReadonlyMap<number, string>;
 }
-
-const toVolume = (bar: Bar) => ({
-  time: Math.floor(bar.time / 1000) as Time,
-  value: bar.volume,
-  color: bar.close >= bar.open ? VOLUME_UP_COLOR : VOLUME_DOWN_COLOR,
-});
 
 const lerp = (from: number, to: number, t: number): number => from + (to - from) * t;
 
@@ -158,9 +151,10 @@ export function useCandleSeries(
     const timeScale = series.chart.timeScale();
     const visible = timeScale.getVisibleLogicalRange();
     const colors = barColorsRef.current;
+    const { upColor, downColor } = candleSettingsRef.current;
     const data = formatSeriesData(nextBars, series.type, candleSettingsRef.current, colors);
     series.candle.setData(data as never);
-    series.volume.setData(nextBars.map(toVolume));
+    series.volume.setData(nextBars.map((b) => toVolumePoint(b, upColor, downColor)));
     shownBarsRef.current = nextBars;
     const previousFirst = previous[0];
     if (previousFirst === undefined || visible === null) {
@@ -179,6 +173,7 @@ export function useCandleSeries(
     const shownLast = shown[shown.length - 1];
     const isTick = shownLast !== undefined && nextLast.time === shownLast.time && nextBars.length === shown.length;
     const isAppend = shownLast !== undefined && nextLast.time > shownLast.time && nextBars.length === shown.length + 1;
+    const { upColor, downColor } = candleSettingsRef.current;
     if (!isTick && !isAppend) {
       stopAnimation();
       resetAll(series, nextBars, shown);
@@ -194,8 +189,8 @@ export function useCandleSeries(
       const beforeClosed = nextBars[nextBars.length - 3];
       const point = formatSeriesPoint(closed, beforeClosed, series.type, candleSettingsRef.current, closedColor);
       series.candle.update(point as never);
-      series.volume.update(toVolume(closed));
-      series.volume.update(toVolume(nextLast));
+      series.volume.update(toVolumePoint(closed, upColor, downColor));
+      series.volume.update(toVolumePoint(nextLast, upColor, downColor));
       shownBarsRef.current = nextBars;
       targetRef.current = nextLast;
       draw(series, nextLast, nextLast);
@@ -203,7 +198,7 @@ export function useCandleSeries(
     }
     shownBarsRef.current = nextBars;
     targetRef.current = nextLast;
-    series.volume.update(toVolume(nextLast));
+    series.volume.update(toVolumePoint(nextLast, upColor, downColor));
     if (displayedRef.current === null) {
       draw(series, nextLast, nextLast);
     } else if (!isSameOhlc(nextLast, displayedRef.current)) {
@@ -254,7 +249,20 @@ export function useCandleSeries(
     const colors = barColorsRef.current;
     const data = formatSeriesData(shownBarsRef.current, series.type, candleSettingsRef.current, colors);
     series.candle.setData(data as never);
-  }, [barColors, candleSettings.upColor, candleSettings.downColor, candleSettings.showBody, candleSettings.showBorders, candleSettings.showWick]);
+    const { upColor, downColor } = candleSettingsRef.current;
+    series.volume.setData(shownBarsRef.current.map((b) => toVolumePoint(b, upColor, downColor)));
+  }, [
+    barColors,
+    candleSettings.upColor,
+    candleSettings.downColor,
+    candleSettings.borderUpColor,
+    candleSettings.borderDownColor,
+    candleSettings.wickUpColor,
+    candleSettings.wickDownColor,
+    candleSettings.showBody,
+    candleSettings.showBorders,
+    candleSettings.showWick,
+  ]);
 
   useEffect(() => stopAnimation, []);
 

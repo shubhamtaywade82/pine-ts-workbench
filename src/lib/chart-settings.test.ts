@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { DEFAULT_CHART_SETTINGS, normalizeChartSettings } from "./chart-settings";
+import { DEFAULT_CHART_SETTINGS, normalizeChartSettings, toCandleOptions } from "./chart-settings";
 
 describe("normalizeChartSettings: defaults and migration", () => {
   test("settings saved before the wall options existed load with the defaults", () => {
@@ -91,6 +91,26 @@ describe("normalizeChartSettings: validation", () => {
     expect(fallback.type).toBe("candles");
     expect(fallback.theme).toBe("tradingview");
   });
+
+  test("candles section normalizes independent body, border, and wick colors with fallbacks", () => {
+    const legacy = normalizeChartSettings({ candles: { upColor: "#111111", downColor: "#222222" } }).candles;
+    expect(legacy.borderUpColor).toBe("#111111");
+    expect(legacy.borderDownColor).toBe("#222222");
+    expect(legacy.wickUpColor).toBe("#111111");
+    expect(legacy.wickDownColor).toBe("#222222");
+
+    const custom = normalizeChartSettings({
+      candles: {
+        upColor: "#111111", downColor: "#222222",
+        borderUpColor: "#333333", borderDownColor: "#444444",
+        wickUpColor: "#555555", wickDownColor: "#666666",
+      },
+    }).candles;
+    expect(custom.borderUpColor).toBe("#333333");
+    expect(custom.borderDownColor).toBe("#444444");
+    expect(custom.wickUpColor).toBe("#555555");
+    expect(custom.wickDownColor).toBe("#666666");
+  });
 });
 
 describe("normalizeChartSettings: persistence round trip", () => {
@@ -101,5 +121,29 @@ describe("normalizeChartSettings: persistence round trip", () => {
     };
     const reloaded = normalizeChartSettings(JSON.parse(JSON.stringify(settings)));
     expect(reloaded).toEqual(settings);
+  });
+});
+
+describe("toCandleOptions", () => {
+  test("maps independent body, border, wick colors and visibility", () => {
+    const settings = {
+      ...DEFAULT_CHART_SETTINGS,
+      candles: {
+        ...DEFAULT_CHART_SETTINGS.candles,
+        upColor: "#111111", downColor: "#222222",
+        borderUpColor: "#333333", borderDownColor: "#444444",
+        wickUpColor: "#555555", wickDownColor: "#666666",
+        showBody: false, showBorders: true, showWick: false,
+      },
+    };
+    const opts = toCandleOptions(settings);
+    expect(opts.upColor).toBe("rgba(0,0,0,0)");
+    expect(opts.downColor).toBe("rgba(0,0,0,0)");
+    expect(opts.borderVisible).toBe(true);
+    expect(opts.borderUpColor).toBe("#333333");
+    expect(opts.borderDownColor).toBe("#444444");
+    expect(opts.wickVisible).toBe(false);
+    expect(opts.wickUpColor).toBe("#555555");
+    expect(opts.wickDownColor).toBe("#666666");
   });
 });
