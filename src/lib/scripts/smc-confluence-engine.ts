@@ -137,24 +137,24 @@ indicator("SMC Confluence Engine v7.1", { overlay: true }, (api) => {
   const htfCrossDown = ta.crossunder(htfEmaFSeries, htfEmaSSeries).value === true;
   const htfBiasCell = v("htfBias", 0);
   let htfBias = htfBiasCell.value;
+  const htfBosBull = !na(htfLastPh.value) && htfCloseVal > htfLastPh.value;
+  const htfBosBear = !na(htfLastPl.value) && htfCloseVal < htfLastPl.value;
   const htfBullInvalid = htfBias === 1 && !na(htfLastPl.value) && htfCloseVal < htfLastPl.value;
   const htfBearInvalid = htfBias === -1 && !na(htfLastPh.value) && htfCloseVal > htfLastPh.value;
   if ((htfCrossDown && htfBias === 1) || (htfCrossUp && htfBias === -1) || htfBullInvalid || htfBearInvalid) htfBias = 0;
-  if (htfEmaFVal > htfEmaSVal && (na(htfLastPl.value) || htfCloseVal >= htfLastPl.value)) htfBias = 1;
-  else if (htfEmaFVal < htfEmaSVal && (na(htfLastPh.value) || htfCloseVal <= htfLastPh.value)) htfBias = -1;
+  if (htfEmaFVal > htfEmaSVal && (htfBosBull || htfCloseVal > htfEmaFVal)) htfBias = 1;
+  else if (htfEmaFVal < htfEmaSVal && (htfBosBear || htfCloseVal < htfEmaFVal)) htfBias = -1;
   htfBiasCell.set(htfBias);
 
-  const htfRangeMid = (htfHigh50Val + htfLow50Val) / 2;
-  const drHigh = !na(htfLastPh.value) ? htfLastPh.value : htfHigh50Val;
-  const drLow = !na(htfLastPl.value) ? htfLastPl.value : htfLow50Val;
-  const drRange = drHigh > drLow ? drHigh - drLow : NaN;
-  const drEq = !na(drRange) ? drLow + drRange * 0.50 : htfRangeMid;
-  const ote618Bull = !na(drRange) ? drHigh - drRange * 0.618 : NaN;
-  const ote786Bull = !na(drRange) ? drHigh - drRange * 0.786 : NaN;
-  const ote618Bear = !na(drRange) ? drLow + drRange * 0.618 : NaN;
-  const ote786Bear = !na(drRange) ? drLow + drRange * 0.786 : NaN;
-  const inDiscount = (!na(drEq) && c <= drEq) || (!na(ote618Bull) && l <= ote618Bull && c >= ote786Bull) || c < htfRangeMid;
-  const inPremium = (!na(drEq) && c >= drEq) || (!na(ote618Bear) && h >= ote618Bear && c <= ote786Bear) || c > htfRangeMid;
+  const drHigh = htfHigh50Val;
+  const drLow = htfLow50Val;
+  const drRange = Math.max(drHigh - drLow, 1e-8);
+  const drEq = (drHigh + drLow) / 2.0;
+  const ote618Bull = drLow + drRange * (1.0 - 0.618);
+  const ote786Bull = drLow + drRange * (1.0 - 0.786);
+  const inDiscount = c <= drEq || (l <= ote618Bull && c >= ote786Bull);
+  const inPremium = c >= drEq || (h >= drHigh - drRange * 0.382);
+  const htfRangeMid = drEq;
 
   if (isLast) drawHtfLevels();
   function drawHtfLevels() {
@@ -203,8 +203,6 @@ indicator("SMC Confluence Engine v7.1", { overlay: true }, (api) => {
   const h1ChochBear = h1BelowPl && h1Bias === 1;
   if (h1BosBull || h1ChochBull) h1Bias = 1;
   if (h1BosBear || h1ChochBear) h1Bias = -1;
-  if (h1Bias === 0 && h1EmaFVal > h1EmaSVal) h1Bias = 1;
-  else if (h1Bias === 0 && h1EmaFVal < h1EmaSVal) h1Bias = -1;
   if ((h1Bias === 1 && h1BelowPl) || (h1Bias === -1 && h1AbovePh)) h1Bias = 0;
   h1BiasCell.set(h1Bias);
 
@@ -512,14 +510,14 @@ indicator("SMC Confluence Engine v7.1", { overlay: true }, (api) => {
   const retestBull = (canRetestLong && inZoneBull) || inBullOb || inBullFvg;
   const retestBear = (canRetestShort && inZoneBear) || inBearOb || inBearFvg;
   const aligned = htfBias === h1Bias ? htfBias : htfBias === 0 ? h1Bias : 0;
-  const setupALong = aligned === 1 && inDiscount && (recentSslSweep || liqSweepBull) && (inZoneBull || retestBull);
-  const setupAShort = aligned === -1 && inPremium && (recentBslSweep || liqSweepBear) && (inZoneBear || retestBear);
-  const setupBLong = aligned === 1 && m15BreakoutLong && (inZoneBull || retestBull);
-  const setupBShort = aligned === -1 && m15BreakoutShort && (inZoneBear || retestBear);
-  const setupCShort = inPremium && (liqSweepBear || recentBslSweep) && (structureBias === -1 || chochBear) && (recentDispBear || isDispBear);
-  const setupCLong = inDiscount && (liqSweepBull || recentSslSweep) && (structureBias === 1 || chochBull) && (recentDispBull || isDispBull);
-  const triggerLong = ((setupALong || setupBLong) && (retestBull || inZoneBull)) || (setupCLong && inZoneBull);
-  const triggerShort = ((setupAShort || setupBShort) && (retestBear || inZoneBear)) || (setupCShort && inZoneBear);
+  const setupALong = aligned >= 0 && inDiscount && (recentSslSweep || liqSweepBull) && (inZoneBull || retestBull);
+  const setupAShort = aligned <= 0 && inPremium && (recentBslSweep || liqSweepBear) && (inZoneBear || retestBear);
+  const setupBLong = aligned >= 0 && (m15BreakoutLong || bosBull) && (retestBull || inZoneBull);
+  const setupBShort = aligned <= 0 && (m15BreakoutShort || bosBear) && (retestBear || inZoneBear);
+  const setupCLong = (liqSweepBull || recentSslSweep) && (structureBias === 1 || chochBull || isDispBull) && (isDispBull || recentDispBull);
+  const setupCShort = (liqSweepBear || recentBslSweep) && (structureBias === -1 || chochBear || isDispBear) && (isDispBear || recentDispBear);
+  const triggerLong = (setupALong && (retestBull || isDispBull)) || (setupBLong && (retestBull || isDispBull)) || (setupCLong && (isDispBull || recentDispBull));
+  const triggerShort = (setupAShort && (retestBear || isDispBear)) || (setupBShort && (retestBear || isDispBear)) || (setupCShort && (isDispBear || recentDispBear));
   const setupNameLong = setupALong ? "Pullback SSL Sweep" : setupBLong ? "Breakout Retest" : setupCLong ? "Liquidity Reversal" : "Standard Retest";
   const setupNameShort = setupAShort ? "Pullback BSL Sweep" : setupBShort ? "Breakdown Retest" : setupCShort ? "Liquidity Reversal" : "Standard Retest";
 
@@ -528,34 +526,50 @@ indicator("SMC Confluence Engine v7.1", { overlay: true }, (api) => {
   const nearestBelow = (ceil, levels) => levels.reduce((best, x) => (!na(x) && x < ceil && (na(best) || x > best) ? x : best), NaN);
   const longSl = Math.min(nz(bull.lo, l), nz(lastPl.value, l), l) - atr14 * 0.35;
   const longRisk = Math.max(c - longSl, atr14 * 0.5);
-  const minDistL1 = longRisk * 1.2;
-  const rawLongTp1 = nearestAbove(c + minDistL1, [lastPh.value, bslPrev, pdh, london.hi, asia.hi, htfLastPh.value, htfHigh50Val]);
-  const longTp1 = !na(rawLongTp1) ? rawLongTp1 : c + minDistL1;
-  const rawLongTp2 = nearestAbove(longTp1 + longRisk * 0.5, [bslPrev, htfLastPh.value, pdh, htfHigh50Val]);
-  const longTp2 = !na(rawLongTp2) ? rawLongTp2 : longTp1 + longRisk * 1.0;
-  const rawLongTp3 = nearestAbove(longTp2 + longRisk * 0.5, [htfHigh50Val, htfLastPh.value, pdh]);
-  const longTp3 = !na(rawLongTp3) ? rawLongTp3 : longTp2 + longRisk * 1.0;
+  const minTargetLong = c + longRisk * 1.2;
+  const rawLongTp1 = nearestAbove(c + atr14 * 0.25, [lastPh.value, bslPrev, pdh, london.hi, asia.hi]);
+  const longTp1 = Math.max(nz(rawLongTp1, minTargetLong), minTargetLong);
+  const rawLongTp2 = nearestAbove(longTp1 + atr14 * 0.2, [bslPrev, htfLastPh.value, pdh, htfHigh50Val]);
+  const longTp2 = Math.max(nz(rawLongTp2, longTp1 + longRisk * 0.8), longTp1 + longRisk * 0.8);
+  const rawLongTp3 = nearestAbove(longTp2 + atr14 * 0.2, [htfHigh50Val, htfLastPh.value, pdh]);
+  const longTp3 = Math.max(nz(rawLongTp3, longTp2 + longRisk * 1.0), longTp2 + longRisk * 1.0);
   const longRr = (longTp2 - c) / longRisk;
 
   const shortSl = Math.max(nz(bear.hi, h), nz(lastPh.value, h), h) + atr14 * 0.35;
   const shortRisk = Math.max(shortSl - c, atr14 * 0.5);
-  const minDistS1 = shortRisk * 1.2;
-  const rawShortTp1 = nearestBelow(c - minDistS1, [lastPl.value, sslPrev, pdl, london.lo, asia.lo, htfLastPl.value, htfLow50Val]);
-  const shortTp1 = !na(rawShortTp1) ? rawShortTp1 : c - minDistS1;
-  const rawShortTp2 = nearestBelow(shortTp1 - shortRisk * 0.5, [sslPrev, htfLastPl.value, pdl, htfLow50Val]);
-  const shortTp2 = !na(rawShortTp2) ? rawShortTp2 : shortTp1 - shortRisk * 1.0;
-  const rawShortTp3 = nearestBelow(shortTp2 - shortRisk * 0.5, [htfLow50Val, htfLastPl.value, pdl]);
-  const shortTp3 = !na(rawShortTp3) ? rawShortTp3 : shortTp2 - shortRisk * 1.0;
+  const minTargetShort = c - shortRisk * 1.2;
+  const rawShortTp1 = nearestBelow(c - atr14 * 0.25, [lastPl.value, sslPrev, pdl, london.lo, asia.lo]);
+  const shortTp1 = Math.min(nz(rawShortTp1, minTargetShort), minTargetShort);
+  const rawShortTp2 = nearestBelow(shortTp1 - atr14 * 0.2, [sslPrev, htfLastPl.value, pdl, htfLow50Val]);
+  const shortTp2 = Math.min(nz(rawShortTp2, shortTp1 - shortRisk * 0.8), shortTp1 - shortRisk * 0.8);
+  const rawShortTp3 = nearestBelow(shortTp2 - atr14 * 0.2, [htfLow50Val, htfLastPl.value, pdl]);
+  const shortTp3 = Math.min(nz(rawShortTp3, shortTp2 - shortRisk * 1.0), shortTp2 - shortRisk * 1.0);
   const shortRr = (c - shortTp2) / shortRisk;
 
   // ── 100-point confluence score ────────────────────────────────────────────
-  const highVolume = val(volume) > volSma * 1.25 || rvolActive;
-  const longScore = (htfBias === 1 ? 15 : 0) + (h1Bias === 1 ? 15 : 0) + (inDiscount ? 10 : 0) + (inBullOb || inBullFvg ? 10 : 0)
-    + (recentSslSweep || liqSweepBull ? 15 : 0) + (m15BreakoutLong || m15SslSweep ? 10 : 0) + (recentDispBull || isDispBull ? 10 : 0)
-    + (retestBull || tlBearRetest || vpBullConf || sessLevelBull ? 5 : 0) + (highVolume ? 5 : 0) + (longRr >= minRr ? 5 : 0);
-  const shortScore = (htfBias === -1 ? 15 : 0) + (h1Bias === -1 ? 15 : 0) + (inPremium ? 10 : 0) + (inBearOb || inBearFvg ? 10 : 0)
-    + (recentBslSweep || liqSweepBear ? 15 : 0) + (m15BreakoutShort || m15BslSweep ? 10 : 0) + (recentDispBear || isDispBear ? 10 : 0)
-    + (retestBear || tlBullRetest || vpBearConf || sessLevelBear ? 5 : 0) + (highVolume ? 5 : 0) + (shortRr >= minRr ? 5 : 0);
+  const ls4h = htfBias === 1 ? 15 : htfBias === 0 ? 5 : 0;
+  const ls1h = h1Bias === 1 ? 15 : h1Bias === 0 ? 5 : 0;
+  const lsPd = inDiscount ? 10 : 0;
+  const lsOb = inBullOb || inBullFvg || inZoneBull ? 10 : 0;
+  const lsSw = recentSslSweep || liqSweepBull ? 15 : 0;
+  const ls15 = m15BreakoutLong || m15SslSweep ? 10 : 0;
+  const lsDisp = isDispBull ? 10 : recentDispBull ? 6 : 0;
+  const lsRet = retestBull || tlBearRetest || vpBullConf || sessLevelBull ? 5 : 0;
+  const lsVol = rvolActive ? 10 : val(volume) > volSma ? 5 : 0;
+  const lsRr = !na(longRr) && longRr >= 1.8 ? 10 : !na(longRr) && longRr >= 1.4 ? 5 : 0;
+  const longScore = ls4h + ls1h + lsPd + lsOb + lsSw + ls15 + lsDisp + lsRet + lsVol + lsRr;
+
+  const ss4h = htfBias === -1 ? 15 : htfBias === 0 ? 5 : 0;
+  const ss1h = h1Bias === -1 ? 15 : h1Bias === 0 ? 5 : 0;
+  const ssPd = inPremium ? 10 : 0;
+  const ssOb = inBearOb || inBearFvg || inZoneBear ? 10 : 0;
+  const ssSw = recentBslSweep || liqSweepBear ? 15 : 0;
+  const ss15 = m15BreakoutShort || m15BslSweep ? 10 : 0;
+  const ssDisp = isDispBear ? 10 : recentDispBear ? 6 : 0;
+  const ssRet = retestBear || tlBullRetest || vpBearConf || sessLevelBear ? 5 : 0;
+  const ssVol = rvolActive ? 10 : val(volume) > volSma ? 5 : 0;
+  const ssRr = !na(shortRr) && shortRr >= 1.8 ? 10 : !na(shortRr) && shortRr >= 1.4 ? 5 : 0;
+  const shortScore = ss4h + ss1h + ssPd + ssOb + ssSw + ss15 + ssDisp + ssRet + ssVol + ssRr;
 
   // ── Hard gates & deterministic decision ───────────────────────────────────
   const longMin = setupCLong && !(setupALong || setupBLong) ? minScoreCt : minScore;
