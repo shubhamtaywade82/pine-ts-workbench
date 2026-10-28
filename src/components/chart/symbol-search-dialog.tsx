@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
@@ -51,6 +52,9 @@ export function SymbolSearchDialog({
       <DialogContent className="max-w-md gap-0 border-[#2a2e39] bg-[#1e222d] p-0 text-white shadow-2xl">
         <DialogHeader className="border-b border-[#2a2e39] p-3 pb-2">
           <DialogTitle className="text-sm font-semibold text-white">Symbol Search</DialogTitle>
+          <DialogDescription className="sr-only">
+            Search for trading pairs, crypto, and equity symbols across supported markets.
+          </DialogDescription>
           <div className="relative mt-2">
             <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-[#787b86]" />
             <Input

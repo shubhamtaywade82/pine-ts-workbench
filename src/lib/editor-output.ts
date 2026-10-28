@@ -9,6 +9,7 @@ export const toEditorOverlays = (
   results: Record<string, Array<number | undefined>>,
   plots: { id: string; color: string; kind: string }[],
   bars: readonly Bar[],
+  scriptName = "Custom",
 ): ChartOverlay[] => plots.map((plot) => {
   const values = results[plot.id] ?? [];
   // na stays as a whitespace point, so the line breaks there as in Pine instead of bridging the gap.
@@ -19,7 +20,7 @@ export const toEditorOverlays = (
   return {
     instanceId: `editor:${plot.id}`,
     indicatorId: `editor.${plot.id}`,
-    indicatorName: `Custom (${plot.id})`,
+    indicatorName: scriptName,
     color: plot.color,
     isLevel: plot.kind === "hline",
     data,

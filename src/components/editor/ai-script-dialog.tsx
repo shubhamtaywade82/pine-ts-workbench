@@ -5,6 +5,7 @@ import { Sparkles, Loader2, Check, AlertCircle, Wand2 } from "lucide-react";
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -87,6 +88,9 @@ export function AiScriptDialog({
             <Sparkles className="h-5 w-5 text-indigo-400" />
             Pine Script AI Copilot & Self-Healing Agent
           </DialogTitle>
+          <DialogDescription className="text-xs text-muted-foreground">
+            Describe your script requirements or let the agent diagnose and repair runtime errors.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="flex flex-col gap-4 py-2">

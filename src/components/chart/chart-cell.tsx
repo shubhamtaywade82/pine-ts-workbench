@@ -148,7 +148,7 @@ export function ChartCell({
 
   const allMainOverlays = isEditorOverlay ? [...mainOverlays, ...editorOverlays] : mainOverlays;
   const allSubPanes = editorOverlays.length > 0 && !isEditorOverlay
-    ? [...subPanes, { paneId: EDITOR_PANE_ID, title: "Custom", overlays: editorOverlays }]
+    ? [...subPanes, { paneId: EDITOR_PANE_ID, title: editorOverlays[0]?.indicatorName ?? "Custom", overlays: editorOverlays }]
     : subPanes;
 
   return (

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import type { InputConfig, StrategyOptions } from "@nemesis-oss/pine-ts";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { EMPTY_SETTINGS, type InputValue, type ScriptKind, type ScriptSettings } from "@/lib/script-library";
@@ -37,6 +37,9 @@ export function ScriptSettingsDialog(props: ScriptSettingsDialogProps) {
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex max-h-[85vh] flex-col gap-0 p-0 sm:max-w-lg">
         <DialogTitle className="px-5 pt-5 pb-2 text-lg">{title}</DialogTitle>
+        <DialogDescription className="sr-only">
+          Configure inputs, properties, style, and visibility options for {title}.
+        </DialogDescription>
         <div className="flex gap-4 border-b border-border px-5">
           {tabs.map(([id, label]) => (
             <button key={id} type="button" onClick={() => setTab(id)}

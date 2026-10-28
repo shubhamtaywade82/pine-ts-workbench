@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { toEditorOverlays } from "./editor-output";
 import {
   createScript, currentCode, deleteScript, describeCode, fetchRemoteScripts, markOpened,
   recentlyUsed, renameScript, saveVersion, toggleFavorite, uniqueName, updateSettings,
@@ -67,5 +68,18 @@ describe("script library", () => {
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+
+  test("toEditorOverlays assigns the active script name to indicatorName", () => {
+    const bars = [{ time: 1000, open: 1, high: 2, low: 0.5, close: 1.5, volume: 100, isClosed: true }];
+    const plots = [
+      { id: "ST Bull", color: "#00c4ff", kind: "line" },
+      { id: "ST Bear", color: "#ff3d3d", kind: "line" },
+    ];
+    const results = { "ST Bull": [1.5], "ST Bear": [NaN] };
+    const overlays = toEditorOverlays(results, plots, bars, "SMC Confluence Engine v7.1 1");
+    expect(overlays).toHaveLength(2);
+    expect(overlays[0]!.indicatorName).toBe("SMC Confluence Engine v7.1 1");
+    expect(overlays[1]!.indicatorName).toBe("SMC Confluence Engine v7.1 1");
   });
 });

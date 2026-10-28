@@ -10,7 +10,7 @@ import { useScriptLibrary } from "@/hooks/use-script-library";
 import { usePersistedState } from "@/hooks/use-persisted-state";
 import { NO_DRAWINGS, toChartDrawings, toEditorOverlays } from "@/lib/editor-output";
 import type { ChartInterval } from "@/lib/public-binance-feed";
-import type { ScriptSettings } from "@/lib/script-library";
+import { describeCode, type ScriptSettings } from "@/lib/script-library";
 import type { BacktestTrade } from "@/lib/strategy-runner";
 
 /**
@@ -31,7 +31,11 @@ export function useEditorScript(onOpenEditor: () => void, onOpenTester: () => vo
   const [trades, setTrades] = useState<BacktestTrade[]>([]);
   const backtest = useBacktest(editorBars, strategyCode, settings, setTrades);
 
-  const overlays = useMemo(() => styledOverlays(run, editorBars, settings), [run, editorBars, settings]);
+  const activeScriptName = scripts.active?.name ?? describeCode(scripts.draft).title ?? "Custom";
+  const overlays = useMemo(
+    () => styledOverlays(run, editorBars, settings, activeScriptName),
+    [run, editorBars, settings, activeScriptName],
+  );
   const drawings = useMemo(() => (run === null ? NO_DRAWINGS : toChartDrawings(run.drawings, editorBars)), [run, editorBars]);
   const tradeMarkers = useMemo(() => toTradeMarkers(trades), [trades]);
 
@@ -95,10 +99,15 @@ export function useEditorScript(onOpenEditor: () => void, onOpenTester: () => vo
 const NO_INPUTS: readonly InputConfig[] = [];
 
 /** Editor overlays with the Style tab's colour and visibility per plot. */
-const styledOverlays = (run: IndicatorRun | null, bars: readonly Bar[], settings: ScriptSettings): ChartOverlay[] => {
+const styledOverlays = (
+  run: IndicatorRun | null,
+  bars: readonly Bar[],
+  settings: ScriptSettings,
+  scriptName?: string,
+): ChartOverlay[] => {
   if (run === null) return [];
   const plots = run.plots.map((plot) => ({ ...plot, color: settings.plotStyles[plot.id]?.color ?? plot.color }));
-  return toEditorOverlays(run.results, plots, bars).map((overlay, i) => ({
+  return toEditorOverlays(run.results, plots, bars, scriptName).map((overlay, i) => ({
     ...overlay,
     isHidden: settings.plotStyles[plots[i]!.id]?.isHidden === true,
   }));

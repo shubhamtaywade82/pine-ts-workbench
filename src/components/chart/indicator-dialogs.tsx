@@ -5,7 +5,7 @@ import { registry, type InputsBag } from "@nemesis-oss/pine-ts";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   Select,
   SelectContent,
@@ -88,7 +88,12 @@ export function IndicatorSettingsDialog({ indicator, onClose, onInputChange }: {
   return (
     <Dialog open={indicator !== undefined} onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent className="max-w-sm gap-3">
-        <DialogHeader><DialogTitle>{meta?.name ?? "Settings"}</DialogTitle></DialogHeader>
+        <DialogHeader>
+          <DialogTitle>{meta?.name ?? "Settings"}</DialogTitle>
+          <DialogDescription className="sr-only">
+            Configure parameters and inputs for {meta?.name ?? "indicator"}.
+          </DialogDescription>
+        </DialogHeader>
         {meta === undefined || indicator === undefined ? null : meta.inputs.length === 0 ? (
           <p className="text-xs text-muted-foreground">This indicator has no inputs.</p>
         ) : (

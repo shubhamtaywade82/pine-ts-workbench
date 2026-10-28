@@ -5,6 +5,7 @@ import { Sparkles, Loader2, Check, TrendingUp, ShieldAlert, Cpu } from "lucide-r
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogFooter,
@@ -84,6 +85,9 @@ export function AiAuditDialog({
             <Sparkles className="h-5 w-5 text-indigo-400" />
             Quant Strategy Auditor & Autonomous Optimizer
           </DialogTitle>
+          <DialogDescription className="text-xs text-muted-foreground">
+            Analyze backtest performance metrics and run AI strategy optimization.
+          </DialogDescription>
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto flex flex-col gap-4 py-2">

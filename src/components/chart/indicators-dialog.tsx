@@ -3,7 +3,7 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { BarChart3, ChartLine, FlaskConical, Search, Star, User } from "lucide-react";
 import { registry } from "@nemesis-oss/pine-ts";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import type { ScriptLibraryState } from "@/hooks/use-script-library";
 import type { ScriptKind } from "@/lib/script-library";
 
@@ -68,6 +68,9 @@ export function IndicatorsDialog({ open, onOpenChange, scripts, onAddBuiltin, on
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex h-[70vh] flex-col gap-3 sm:max-w-3xl">
         <DialogTitle>Indicators, metrics, and strategies</DialogTitle>
+        <DialogDescription className="sr-only">
+          Search and add technical indicators, metrics, and strategies to the chart.
+        </DialogDescription>
         <label className="flex items-center gap-2 rounded-md border border-border px-3">
           <Search className="h-4 w-4 text-muted-foreground" />
           <input autoFocus placeholder="Search" value={query} onChange={(e) => setQuery(e.target.value)} className="h-9 flex-1 bg-transparent text-sm outline-none" />

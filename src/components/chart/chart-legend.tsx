@@ -159,8 +159,13 @@ function OverlayLine({ row, hoverTime, onAction, statusLine }: {
       {statusLine.showIndicatorValues && row.overlays.filter((o) => !o.isLevel).map((overlay) => {
         const point = pointAt(overlay.data, hoverTime);
         if (point === undefined || point.value === undefined) return null;
+        const plotLabel = overlay.instanceId.replace(/^(editor|[^:]+):/, "");
         return (
-          <span key={overlay.instanceId} style={{ color: overlay.color }}>
+          <span
+            key={overlay.instanceId}
+            title={`${plotLabel}: ${formatPrice(point.value)}`}
+            style={{ color: overlay.color }}
+          >
             {formatPrice(point.value)}
           </span>
         );

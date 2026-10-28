@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { CandlestickChart, Rows3, MoveVertical, Paintbrush, TrendingUp } from "lucide-react";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { DEFAULT_CHART_SETTINGS, type ChartSettings, type DepthWallStyle, type ScaleMode } from "@/lib/chart-settings";
@@ -35,6 +35,7 @@ export function ChartSettingsDialog({ open, settings, quoteAsset, onOpenChange, 
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="flex max-h-[85vh] flex-col gap-0 p-0 sm:max-w-2xl">
         <DialogTitle className="px-6 pt-5 pb-3 text-lg">Settings</DialogTitle>
+        <DialogDescription className="sr-only">Customize chart settings, scales, canvas, and trading.</DialogDescription>
         <div className="flex min-h-0 flex-1">
           <nav className="flex w-48 shrink-0 flex-col gap-0.5 px-3">
             {TABS.map((t) => (

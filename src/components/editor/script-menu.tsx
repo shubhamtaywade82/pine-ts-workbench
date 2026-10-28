@@ -6,7 +6,7 @@ import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuLabel, DropdownMenuSeparator,
   DropdownMenuShortcut, DropdownMenuSub, DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { recentlyUsed, type SavedScript } from "@/lib/script-library";
@@ -92,6 +92,9 @@ export function OpenScriptDialog({ open, onClose, scripts }: { open: boolean; on
     <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose(); }}>
       <DialogContent className="flex max-h-[80vh] sm:max-w-md flex-col gap-3">
         <DialogTitle>Open my script</DialogTitle>
+        <DialogDescription className="sr-only">
+          Search and open saved scripts from your personal Pine Script library.
+        </DialogDescription>
         <Input placeholder="Search" value={query} onChange={(e) => setQuery(e.target.value)} autoFocus />
         <div className="min-h-0 flex-1 overflow-y-auto">
           {shown.length === 0 && <p className="py-6 text-center text-sm text-muted-foreground">No scripts.</p>}
@@ -126,6 +129,9 @@ function NameDialog({ open, onClose, title, initial, onSubmit }: {
     <Dialog open={open} onOpenChange={(isOpen) => { if (isOpen) setName(initial); else onClose(); }}>
       <DialogContent className="sm:max-w-sm">
         <DialogTitle>{title}</DialogTitle>
+        <DialogDescription className="sr-only">
+          Enter a name to save or duplicate this script.
+        </DialogDescription>
         <Input value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} autoFocus />
         <div className="flex justify-end gap-2">
           <Button variant="outline" size="sm" onClick={onClose}>Cancel</Button>
@@ -142,6 +148,9 @@ function VersionHistoryDialog({ open, onClose, scripts }: { open: boolean; onClo
     <Dialog open={open} onOpenChange={(isOpen) => { if (!isOpen) onClose(); }}>
       <DialogContent className="flex max-h-[80vh] sm:max-w-md flex-col gap-3">
         <DialogTitle>Version history</DialogTitle>
+        <DialogDescription className="sr-only">
+          Browse and restore saved version revisions for this script.
+        </DialogDescription>
         <div className="min-h-0 flex-1 overflow-y-auto">
           {versions.map((version, i) => ({ version, number: i + 1 })).reverse().map(({ version, number }) => (
             <div key={number} className="flex items-center justify-between rounded px-2 py-1.5 text-sm hover:bg-muted">
