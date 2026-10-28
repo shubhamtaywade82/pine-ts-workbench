@@ -49,8 +49,8 @@ export function SymbolSearchDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md gap-0 border-[#2a2e39] bg-[#1e222d] p-0 text-white shadow-2xl">
-        <DialogHeader className="border-b border-[#2a2e39] p-3 pb-2">
+      <DialogContent className="max-w-md gap-0 border-border bg-popover p-0 text-white shadow-2xl">
+        <DialogHeader className="border-b border-border p-3 pb-2">
           <DialogTitle className="text-sm font-semibold text-white">Symbol Search</DialogTitle>
           <DialogDescription className="sr-only">
             Search for trading pairs, crypto, and equity symbols across supported markets.
@@ -61,7 +61,7 @@ export function SymbolSearchDialog({
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search symbol, name or exchange…"
-              className="h-9 border-[#2a2e39] bg-[#131722] pl-8 pr-8 text-xs text-white placeholder:text-[#787b86] focus-visible:ring-1 focus-visible:ring-[#2962ff]"
+              className="h-9 border-border bg-background pl-8 pr-8 text-xs text-white placeholder:text-[#787b86] focus-visible:ring-1 focus-visible:ring-[#2962ff]"
               autoFocus
             />
             {query && (
@@ -86,7 +86,7 @@ export function SymbolSearchDialog({
                   className={`rounded-full px-2.5 py-0.5 text-[11px] font-medium transition-colors ${
                     isActive
                       ? "bg-[#2962ff] text-white"
-                      : "bg-[#131722] text-[#b2b5be] hover:bg-[#2a2e39] hover:text-white"
+                      : "bg-background text-muted-foreground hover:bg-muted hover:text-white"
                   }`}
                 >
                   {label}
@@ -108,7 +108,7 @@ export function SymbolSearchDialog({
                   type="button"
                   onClick={() => handleSelect(item)}
                   className={`flex w-full items-center justify-between rounded px-3 py-2 text-left transition-colors ${
-                    isSelected ? "bg-[#2a2e39]" : "hover:bg-[#131722]"
+                    isSelected ? "bg-muted" : "hover:bg-background"
                   }`}
                 >
                   <div className="flex flex-col">

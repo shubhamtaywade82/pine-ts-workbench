@@ -45,11 +45,11 @@ export function WatchlistPanel({
     .filter((s): s is SymbolOption => s !== undefined);
 
   return (
-    <div className="flex h-full flex-col bg-[#131722] text-white">
-      <div className="flex items-center justify-between border-b border-[#2a2e39] p-2.5">
+    <div className="flex h-full flex-col bg-background text-white">
+      <div className="flex items-center justify-between border-b border-border p-2.5">
         <div className="flex items-center gap-1.5">
           <span className="text-xs font-semibold uppercase tracking-wider text-[#b2b5be]">Watchlist</span>
-          <span className="rounded bg-[#1e222d] px-1.5 py-0.2 text-[10px] text-[#787b86]">
+          <span className="rounded bg-muted px-1.5 py-0.2 text-[10px] text-muted-foreground">
             {watchedItems.length}
           </span>
         </div>
@@ -58,7 +58,7 @@ export function WatchlistPanel({
             type="button"
             title="Add symbol to watchlist"
             onClick={() => setIsSearchOpen(true)}
-            className="flex h-6 w-6 items-center justify-center rounded text-[#b2b5be] hover:bg-[#2a2e39] hover:text-white"
+            className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-white"
           >
             <Plus className="h-3.5 w-3.5" />
           </button>
@@ -67,7 +67,7 @@ export function WatchlistPanel({
               type="button"
               title="Close watchlist"
               onClick={onClose}
-              className="flex h-6 w-6 items-center justify-center rounded text-[#b2b5be] hover:bg-[#2a2e39] hover:text-white"
+              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-white"
             >
               <X className="h-3.5 w-3.5" />
             </button>
@@ -82,7 +82,7 @@ export function WatchlistPanel({
             <div
               key={item.ticker}
               className={`group flex cursor-pointer items-center justify-between rounded px-2.5 py-2 transition-colors ${
-                isActive ? "bg-[#2a2e39]" : "hover:bg-[#1e222d]"
+                isActive ? "bg-muted" : "hover:bg-muted/50"
               }`}
               onClick={() => onSelectSymbol(item)}
             >

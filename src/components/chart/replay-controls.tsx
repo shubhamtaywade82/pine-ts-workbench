@@ -44,8 +44,8 @@ export const ReplayControls = memo(function ReplayControls({
   };
 
   return (
-    <div className="absolute left-1/2 top-2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-full border border-[#2a2e39] bg-[#1e222d]/95 px-3 py-1 text-xs text-white shadow-xl backdrop-blur-md">
-      <div className="flex items-center gap-1 font-mono text-[11px] text-[#b2b5be]">
+    <div className="absolute left-1/2 top-2 z-30 flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-popover/95 px-3 py-1 text-xs text-white shadow-xl backdrop-blur-md">
+      <div className="flex items-center gap-1 font-mono text-[11px] text-muted-foreground">
         <span className="font-semibold text-white">{replayIndex}</span>
         <span>/</span>
         <span>{totalBars}</span>
@@ -61,13 +61,13 @@ export const ReplayControls = memo(function ReplayControls({
         title="Scrub replay bar"
       />
 
-      <div className="h-3.5 w-px bg-[#2a2e39]" />
+      <div className="h-3.5 w-px bg-border" />
 
       <button
         type="button"
         title="Restart replay from 50 bars ago"
         onClick={onRestart}
-        className="flex h-6 w-6 items-center justify-center rounded text-[#b2b5be] hover:bg-[#2a2e39] hover:text-white"
+        className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-white"
       >
         <RotateCcw className="h-3 w-3" />
       </button>
@@ -86,7 +86,7 @@ export const ReplayControls = memo(function ReplayControls({
         title="Step forward 1 bar"
         onClick={onStepForward}
         disabled={replayIndex >= totalBars}
-        className="flex h-6 w-6 items-center justify-center rounded text-[#b2b5be] hover:bg-[#2a2e39] hover:text-white disabled:opacity-30"
+        className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-white disabled:opacity-30"
       >
         <StepForward className="h-3 w-3" />
       </button>
@@ -95,18 +95,18 @@ export const ReplayControls = memo(function ReplayControls({
         type="button"
         title="Playback speed"
         onClick={cycleSpeed}
-        className="rounded px-1.5 py-0.5 text-[10px] font-medium text-[#b2b5be] hover:bg-[#2a2e39] hover:text-white"
+        className="rounded px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground hover:bg-muted hover:text-white"
       >
         {currentSpeed.label}
       </button>
 
-      <div className="h-3.5 w-px bg-[#2a2e39]" />
+      <div className="h-3.5 w-px bg-border" />
 
       <button
         type="button"
         title="Exit Replay mode"
         onClick={onClose}
-        className="flex h-6 w-6 items-center justify-center rounded text-[#b2b5be] hover:bg-[#2a2e39] hover:text-[#f23645]"
+        className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-[#f23645]"
       >
         <X className="h-3.5 w-3.5" />
       </button>

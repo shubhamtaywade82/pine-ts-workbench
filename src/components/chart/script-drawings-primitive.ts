@@ -35,14 +35,23 @@ const LABEL_GAP_PX = 3;
 export class ScriptDrawingsPrimitive implements ISeriesPrimitive<Time> {
   private drawings: readonly ChartDrawing[] = [];
   private attachedTo: SeriesAttachedParameter<Time> | null = null;
-  private readonly view: IPrimitivePaneView = { renderer: () => this.renderer };
-  private readonly renderer: IPrimitivePaneRenderer = {
-    draw: (target: CanvasRenderingTarget2D) => target.useMediaCoordinateSpace(({ context, mediaSize }) => this.paint(context, mediaSize)),
+  // Boxes, lines, and bgcolors sit behind candles, matching TradingView's visual stack.
+  private readonly backgroundView: IPrimitivePaneView = {
+    zOrder: () => "bottom",
+    renderer: () => this.backgroundRenderer,
   };
-  // Pine bgcolor sits behind the candles.
-  private readonly backgroundView: IPrimitivePaneView = { zOrder: () => "bottom", renderer: () => this.backgroundRenderer };
   private readonly backgroundRenderer: IPrimitivePaneRenderer = {
-    draw: (target: CanvasRenderingTarget2D) => target.useMediaCoordinateSpace(({ context, mediaSize }) => this.paintBackground(context, mediaSize.height)),
+    draw: (target: CanvasRenderingTarget2D) =>
+      target.useMediaCoordinateSpace(({ context, mediaSize }) => this.paintBackground(context, mediaSize.height)),
+  };
+  // Script labels and HUD tables sit on top of candles.
+  private readonly foregroundView: IPrimitivePaneView = {
+    zOrder: () => "top",
+    renderer: () => this.foregroundRenderer,
+  };
+  private readonly foregroundRenderer: IPrimitivePaneRenderer = {
+    draw: (target: CanvasRenderingTarget2D) =>
+      target.useMediaCoordinateSpace(({ context, mediaSize }) => this.paintForeground(context, mediaSize)),
   };
 
   public attached(param: SeriesAttachedParameter<Time>): void {
@@ -54,7 +63,7 @@ export class ScriptDrawingsPrimitive implements ISeriesPrimitive<Time> {
   }
 
   public paneViews(): readonly IPrimitivePaneView[] {
-    return [this.backgroundView, this.view];
+    return [this.backgroundView, this.foregroundView];
   }
 
   public setDrawings(drawings: readonly ChartDrawing[]): void {
@@ -81,21 +90,19 @@ export class ScriptDrawingsPrimitive implements ISeriesPrimitive<Time> {
   private paintBackground(context: CanvasRenderingContext2D, height: number): void {
     const projection = this.projection();
     if (projection === null) return;
-    for (const drawing of this.drawings) {
-      if (drawing.kind === "bgcolor") paintBgcolor(context, projection, drawing, height);
-    }
-  }
-
-  private paint(context: CanvasRenderingContext2D, size: { width: number; height: number }): void {
-    const projection = this.projection();
-    if (projection === null) return;
     context.font = LABEL_FONT;
     for (const drawing of this.drawings) {
-      if (drawing.kind === "line" || drawing.kind === "box") this.paintSmc(context, projection, drawing);
+      if (drawing.kind === "bgcolor") paintBgcolor(context, projection, drawing, height);
+      else if (drawing.kind === "line" || drawing.kind === "box") this.paintSmc(context, projection, drawing);
       else if (drawing.kind === "shape-line") paintShapeLine(context, projection, drawing);
       else if (drawing.kind === "shape-box") paintShapeBox(context, projection, drawing);
     }
-    // Labels over lines and boxes, separated to prevent collisions.
+  }
+
+  private paintForeground(context: CanvasRenderingContext2D, size: { width: number; height: number }): void {
+    const projection = this.projection();
+    if (projection === null) return;
+    context.font = LABEL_FONT;
     const labels = this.drawings.filter((d): d is Extract<ChartDrawing, { kind: "label" }> => d.kind === "label");
     if (labels.length > 0) paintLabels(context, projection, labels);
     for (const drawing of this.drawings) if (drawing.kind === "table") paintTable(context, drawing.table, size);

@@ -90,6 +90,7 @@ indicator("SMC Confluence Engine v7.1", { overlay: true }, (api) => {
   const G_VIS = "Visuals";
   const showDash = input.bool(true, "Show Live Dashboard Table", { group: G_VIS });
   const showSt = input.bool(true, "Show Supertrend Overlay", { group: G_VIS });
+  const colorBars = input.bool(true, "Color Candles by Structure", { group: G_VIS });
   const drawMaxAtr = input.float(3.0, "Max Draw Distance (ATR)", { min: 0.5, max: 20, step: 0.5, group: G_VIS });
 
   const BULL = "#00c4ff";
@@ -602,7 +603,7 @@ indicator("SMC Confluence Engine v7.1", { overlay: true }, (api) => {
 
   const bg = aligned === 1 ? alpha(BULL, 95) : aligned === -1 ? alpha(BEAR, 95) : htfBias === 1 ? alpha(BULL, 98) : htfBias === -1 ? alpha(BEAR, 98) : null;
   if (bg !== null) draw.bgcolor(bg);
-  if (structureBias !== 0) draw.barcolor(alpha(structureBias === 1 ? BULL : BEAR, 65));
+  if (colorBars && structureBias !== 0) draw.barcolor(alpha(structureBias === 1 ? BULL : BEAR, 65));
 
   // ── Live dashboard ────────────────────────────────────────────────────────
   if (showDash && isLast) {

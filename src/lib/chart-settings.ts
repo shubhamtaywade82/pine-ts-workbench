@@ -96,7 +96,7 @@ export const DEFAULT_CHART_SETTINGS: ChartSettings = {
     minWallNotional: DEFAULT_MIN_WALL_NOTIONAL,
   },
   canvas: {
-    background: "#131722", showVertGrid: true, showHorzGrid: true, gridColor: "#1e222d", crosshairColor: "#9598a1",
+    background: "#000000", showVertGrid: true, showHorzGrid: true, gridColor: "#141414", crosshairColor: "#9598a1",
     textColor: "#b2b5be", fontSize: 11, marginTopPercent: 10, marginBottomPercent: 10, rightOffsetBars: 10,
   },
 };
@@ -155,6 +155,20 @@ const normalizeTrading = (stored: unknown): ChartSettings["trading"] => {
   };
 };
 
+const normalizeCanvas = (stored: unknown): ChartSettings["canvas"] => {
+  const raw = isRecord(stored) ? stored : {};
+  const defaults = DEFAULT_CHART_SETTINGS.canvas;
+  const bg = typeof raw["background"] === "string" ? raw["background"] : defaults.background;
+  const grid = typeof raw["gridColor"] === "string" ? raw["gridColor"] : defaults.gridColor;
+  return {
+    ...defaults,
+    ...raw,
+    // Seamlessly upgrade legacy off-black defaults to OLED true black
+    background: bg === "#131722" ? defaults.background : bg,
+    gridColor: grid === "#1e222d" ? defaults.gridColor : grid,
+  };
+};
+
 /**
  * Stored settings over the defaults. Sections missing from older saves take
  * their defaults; the trading section is validated field by field, so a bad
@@ -168,7 +182,7 @@ export const normalizeChartSettings = (raw: unknown): ChartSettings => {
     statusLine: { ...DEFAULT_CHART_SETTINGS.statusLine, ...section("statusLine") },
     scales: { ...DEFAULT_CHART_SETTINGS.scales, ...section("scales") },
     trading: normalizeTrading(stored["trading"]),
-    canvas: { ...DEFAULT_CHART_SETTINGS.canvas, ...section("canvas") },
+    canvas: normalizeCanvas(stored["canvas"]),
   };
 };
 

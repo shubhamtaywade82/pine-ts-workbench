@@ -82,7 +82,7 @@ export function AiScriptDialog({
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-2xl bg-[#1e222d] text-foreground border-border">
+      <DialogContent className="max-w-2xl bg-popover text-foreground border-border">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-base font-semibold">
             <Sparkles className="h-5 w-5 text-indigo-400" />
@@ -114,7 +114,7 @@ export function AiScriptDialog({
               placeholder="What would you like the agent to build, optimize, or fix?"
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
-              className="resize-none bg-[#131722] text-sm"
+              className="resize-none bg-background text-sm"
               disabled={isLoading}
             />
           </div>
@@ -125,7 +125,7 @@ export function AiScriptDialog({
               <select
                 value={model}
                 onChange={(e) => setModel(e.target.value)}
-                className="rounded border border-border bg-[#131722] px-2 py-1 text-xs text-foreground focus:outline-none"
+                className="rounded border border-border bg-background px-2 py-1 text-xs text-foreground focus:outline-none"
                 disabled={isLoading}
               >
                 {models.map((m) => (
@@ -147,7 +147,7 @@ export function AiScriptDialog({
           {result?.code && (
             <div className="flex flex-col gap-1.5">
               <span className="text-xs font-medium text-muted-foreground">Validated Script Output</span>
-              <pre className="max-h-48 overflow-y-auto rounded bg-[#131722] p-2 text-xs font-mono text-emerald-300">
+              <pre className="max-h-48 overflow-y-auto rounded bg-background p-2 text-xs font-mono text-emerald-300">
                 {result.code}
               </pre>
             </div>

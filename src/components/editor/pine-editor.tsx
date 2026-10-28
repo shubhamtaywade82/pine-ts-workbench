@@ -110,7 +110,7 @@ export function PineEditor({ bars, onResults, onStrategyCode, onAddToChart, onCl
   const addToChart = () => { onAddToChart?.(); void runCode(scripts.draft); };
   const onFixWithAi = (msg: string) => { setAiErrorToFix(msg); setIsAiDialogOpen(true); };
   return (
-    <div className="flex h-full flex-col bg-[#131722]">
+    <div className="flex h-full flex-col bg-background">
       <div className="flex h-9 shrink-0 items-center justify-between px-3 text-sm text-[#d1d4dc]">
         <span>Pine Editor</span>
         {onClose !== undefined && <button type="button" title="Close" onClick={onClose}><X className="h-4 w-4" /></button>}

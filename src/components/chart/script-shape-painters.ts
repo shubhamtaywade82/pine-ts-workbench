@@ -147,7 +147,7 @@ export const paintTable = (context: CanvasRenderingContext2D, table: ScriptTable
     let cellLeft = left;
     widths.forEach((width, c) => {
       const cell = row[c];
-      context.fillStyle = cell?.bg ?? "#131722e6";
+      context.fillStyle = cell?.bg ?? "#000000e6";
       context.fillRect(cellLeft, top + r * TABLE_ROW_PX, width, TABLE_ROW_PX);
       context.fillStyle = cell?.color ?? DEFAULT_TEXT;
       context.fillText(cell?.text ?? "", cellLeft + LABEL_PAD_PX, top + r * TABLE_ROW_PX + TABLE_ROW_PX / 2);

@@ -79,7 +79,7 @@ export function AiAuditDialog({
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-2xl bg-[#1e222d] text-foreground border-border max-h-[85vh] flex flex-col">
+      <DialogContent className="max-w-2xl bg-popover text-foreground border-border max-h-[85vh] flex flex-col">
         <DialogHeader className="shrink-0">
           <DialogTitle className="flex items-center gap-2 text-base font-semibold">
             <Sparkles className="h-5 w-5 text-indigo-400" />
@@ -92,7 +92,7 @@ export function AiAuditDialog({
 
         <div className="flex-1 overflow-y-auto flex flex-col gap-4 py-2">
           {summary && (
-            <div className="grid grid-cols-4 gap-2 rounded-md bg-[#131722] p-2.5 text-center text-xs">
+            <div className="grid grid-cols-4 gap-2 rounded-md bg-background p-2.5 text-center text-xs">
               <div>
                 <span className="text-muted-foreground block text-[10px]">Net PnL</span>
                 <span className={summary.netProfit >= 0 ? "text-emerald-400 font-semibold" : "text-rose-400 font-semibold"}>
@@ -121,7 +121,7 @@ export function AiAuditDialog({
               <select
                 value={model}
                 onChange={(e) => setModel(e.target.value)}
-                className="rounded border border-border bg-[#131722] px-2 py-1 text-xs text-foreground focus:outline-none"
+                className="rounded border border-border bg-background px-2 py-1 text-xs text-foreground focus:outline-none"
                 disabled={isLoading}
               >
                 {models.map((m) => (
@@ -141,7 +141,7 @@ export function AiAuditDialog({
           {error && <div className="text-xs text-destructive">{error}</div>}
 
           {result?.analysis && (
-            <div className="flex flex-col gap-2 rounded bg-[#131722] p-3 text-xs leading-relaxed">
+            <div className="flex flex-col gap-2 rounded bg-background p-3 text-xs leading-relaxed">
               <span className="font-semibold text-indigo-300 flex items-center gap-1.5">
                 <TrendingUp className="h-4 w-4" /> Agent Diagnostic Analysis
               </span>

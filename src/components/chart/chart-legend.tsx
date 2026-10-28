@@ -153,7 +153,7 @@ function OverlayLine({ row, hoverTime, onAction, statusLine }: {
   const VisibilityIcon = isHidden ? EyeOff : Eye;
   return (
     // pointer-events back on for the row only, so the rest of the legend never blocks chart dragging.
-    <div className={`group pointer-events-auto flex w-fit items-center gap-2 rounded px-1 hover:bg-[#2a2e39]/80 ${isHidden ? "opacity-50" : ""}`}>
+    <div className={`group pointer-events-auto flex w-fit items-center gap-2 rounded px-1 hover:bg-muted/80 ${isHidden ? "opacity-50" : ""}`}>
       {statusLine.showIndicatorTitles && <span className="font-sans text-[#d1d4dc]">{row.name}</span>}
       {/* Values stay (dimmed with the row) so the buttons don't jump under the cursor when hiding. */}
       {statusLine.showIndicatorValues && row.overlays.filter((o) => !o.isLevel).map((overlay) => {

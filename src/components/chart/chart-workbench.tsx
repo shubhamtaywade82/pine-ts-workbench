@@ -35,12 +35,12 @@ export interface ChartOverlay {
 export type IndicatorAction = "toggle-visibility" | "settings" | "remove";
 
 const TV = {
-  background: "#131722",
-  grid: "#1e222d",
+  background: "#000000",
+  grid: "#141414",
   text: "#b2b5be",
-  border: "#2a2e39",
+  border: "#1f1f1f",
   crosshair: "#9598a1",
-  crosshairLabel: "#363a45",
+  crosshairLabel: "#1f1f1f",
 };
 
 const LOAD_OLDER_THRESHOLD_BARS = 30;
@@ -232,7 +232,7 @@ export function ChartWorkbench({
         drawingCount={userDrawings.length}
       />
       {isDrawing && (
-        <div className="pointer-events-none absolute left-12 top-12 z-20 rounded bg-[#1e222d]/90 px-2 py-1 text-[11px] text-[#2962ff] shadow border border-[#2a2e39]">
+        <div className="pointer-events-none absolute left-12 top-12 z-20 rounded bg-popover/90 px-2 py-1 text-[11px] text-[#2962ff] shadow border border-border">
           Click to finish drawing (Esc to cancel)
         </div>
       )}

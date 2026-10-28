@@ -27,16 +27,16 @@ export interface CodeEditorProps {
   readonly wordWrap?: boolean;
 }
 
-// Colours follow TradingView's dark Pine Editor.
+// Colours follow OLED dark palette.
 const editorTheme = EditorView.theme({
-  "&": { height: "100%", backgroundColor: "#131722", color: "#d1d4dc", fontSize: "13px" },
+  "&": { height: "100%", backgroundColor: "#000000", color: "#d1d4dc", fontSize: "13px" },
   ".cm-content": { fontFamily: "Menlo, Consolas, 'Courier New', monospace", caretColor: "#d1d4dc" },
-  ".cm-gutters": { backgroundColor: "#131722", color: "#50535e", border: "none" },
-  ".cm-activeLine": { backgroundColor: "#1e222d" },
-  ".cm-activeLineGutter": { backgroundColor: "#1e222d", color: "#b2b5be" },
+  ".cm-gutters": { backgroundColor: "#000000", color: "#50535e", border: "none" },
+  ".cm-activeLine": { backgroundColor: "#0e0e0e" },
+  ".cm-activeLineGutter": { backgroundColor: "#0e0e0e", color: "#b2b5be" },
   "&.cm-focused .cm-selectionBackground, .cm-selectionBackground": { backgroundColor: "#2962ff40" },
   ".cm-cursor": { borderLeftColor: "#d1d4dc" },
-  ".cm-tooltip": { backgroundColor: "#1e222d", border: "1px solid #2a2e39", color: "#d1d4dc" },
+  ".cm-tooltip": { backgroundColor: "#0a0a0a", border: "1px solid #1f1f1f", color: "#d1d4dc" },
 }, { dark: true });
 
 const highlightStyle = HighlightStyle.define([

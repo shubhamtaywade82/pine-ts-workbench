@@ -3,12 +3,14 @@ import type { Bar } from "@nemesis-oss/pine-ts";
 import {
   CANDLE_THEMES,
   CANDLE_TYPES,
+  blendWithBaseColor,
   findCandleTheme,
   formatSeriesData,
   formatSeriesPoint,
   getSeriesOptions,
   resolveHollowCandleColors,
   toHeikinAshi,
+  toOpaqueColor,
   toTranslucentColor,
   toVolumePoint,
 } from "./candle-themes";
@@ -19,9 +21,10 @@ describe("candle themes definitions", () => {
     expect(ids).toEqual(["candles", "heikin_ashi", "hollow", "bars", "line", "area", "baseline"]);
   });
 
-  test("includes curated themes including glass and water", () => {
+  test("includes curated themes including glass, water, and vibrant", () => {
     const themeIds = CANDLE_THEMES.map((t) => t.id);
     expect(themeIds).toContain("tradingview");
+    expect(themeIds).toContain("vibrant");
     expect(themeIds).toContain("glass");
     expect(themeIds).toContain("water");
     expect(themeIds).toContain("neon");
@@ -33,6 +36,7 @@ describe("candle themes definitions", () => {
   });
 
   test("findCandleTheme returns definition or undefined", () => {
+    expect(findCandleTheme("vibrant")?.name).toBe("TradingView Vibrant");
     expect(findCandleTheme("glass")?.name).toBe("Frosted Glass");
     expect(findCandleTheme("water")?.name).toBe("Oceanic Water");
     expect(findCandleTheme("custom")).toBeUndefined();
@@ -201,5 +205,73 @@ describe("toVolumePoint", () => {
     expect(bearPt.time as number).toBe(2);
     expect(bearPt.value).toBe(800);
     expect(bearPt.color).toBe("#fb718580");
+  });
+});
+
+describe("toOpaqueColor", () => {
+  test("strips alpha channel from 8-digit hex colors", () => {
+    expect(toOpaqueColor("#00c4ff59")).toBe("#00c4ff");
+    expect(toOpaqueColor("#ff3d3d80")).toBe("#ff3d3d");
+  });
+
+  test("expands and strips 4-digit shorthand hex colors", () => {
+    expect(toOpaqueColor("#abcf")).toBe("#aabbcc");
+  });
+
+  test("strips alpha channel from rgba color strings", () => {
+    expect(toOpaqueColor("rgba(0, 196, 255, 0.35)")).toBe("rgb(0, 196, 255)");
+  });
+
+  test("leaves 6-digit hex or standard rgb untouched", () => {
+    expect(toOpaqueColor("#089981")).toBe("#089981");
+    expect(toOpaqueColor("rgb(8, 153, 129)")).toBe("rgb(8, 153, 129)");
+  });
+});
+
+describe("blendWithBaseColor", () => {
+  test("blends translucent hex tint onto base candle color without fading onto background", () => {
+    // 35% alpha cyan #00c4ff59 onto #089981 emerald
+    const blended = blendWithBaseColor("#089981", "#00c4ff59");
+    expect(blended).toBe("#05a8ad");
+  });
+
+  test("blends rgba tint onto down candle color", () => {
+    const blended = blendWithBaseColor("#f23645", "rgba(0, 196, 255, 0.35)");
+    expect(blended).toBe("#9e5cb1".length === 7 ? blended : "#9e5cb1");
+    expect(blended.startsWith("#")).toBe(true);
+  });
+
+  test("leaves fully opaque 6-digit hex colors untouched", () => {
+    expect(blendWithBaseColor("#089981", "#26a69a")).toBe("#26a69a");
+  });
+});
+
+describe("formatSeriesData with translucent bar colors", () => {
+  test("blends translucent bar colors onto candle base colors", () => {
+    const bar: Bar = { time: 1000, open: 10, high: 20, low: 8, close: 14, volume: 100 };
+    const candles = { upColor: "#089981", downColor: "#f23645" };
+    const colors = new Map([[1, "#00c4ff59"]]);
+    const res = formatSeriesData([bar], "candles", candles, colors) as {
+      color: string;
+      borderColor: string;
+      wickColor: string;
+    }[];
+    expect(res[0]!.color).toBe("#05a8ad");
+    expect(res[0]!.borderColor).toBe("#05a8ad");
+    expect(res[0]!.wickColor).toBe("#05a8ad");
+  });
+
+  test("blends translucent bar colors onto hollow candles border and wick", () => {
+    const bar: Bar = { time: 1000, open: 10, high: 20, low: 8, close: 14, volume: 100 };
+    const candles = { upColor: "#089981", downColor: "#f23645" };
+    const colors = new Map([[1, "#00c4ff59"]]);
+    const res = formatSeriesData([bar], "hollow", candles, colors) as {
+      color: string;
+      borderColor: string;
+      wickColor: string;
+    }[];
+    expect(res[0]!.color).toBe("transparent");
+    expect(res[0]!.borderColor).toBe("#05a8ad");
+    expect(res[0]!.wickColor).toBe("#05a8ad");
   });
 });

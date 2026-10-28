@@ -41,7 +41,7 @@ export const DrawingToolbar = memo(function DrawingToolbar({
   drawingCount,
 }: DrawingToolbarProps) {
   return (
-    <div className="absolute left-1.5 top-12 z-20 flex flex-col items-center gap-0.5 rounded-md border border-[#2a2e39] bg-[#1e222d]/90 p-0.5 shadow-md backdrop-blur-sm">
+    <div className="absolute left-1.5 top-12 z-20 flex flex-col items-center gap-0.5 rounded-md border border-border bg-popover/90 p-0.5 shadow-md backdrop-blur-sm">
       {TOOLS.map(({ tool, label, icon: Icon }) => {
         const isActive = activeTool === tool;
         return (
@@ -53,20 +53,20 @@ export const DrawingToolbar = memo(function DrawingToolbar({
             className={`flex h-7 w-7 items-center justify-center rounded transition-colors ${
               isActive
                 ? "bg-[#2962ff] text-white shadow-sm"
-                : "text-[#b2b5be] hover:bg-[#2a2e39] hover:text-white"
+                : "text-muted-foreground hover:bg-muted hover:text-white"
             }`}
           >
             <Icon className="h-3.5 w-3.5" />
           </button>
         );
       })}
-      <div className="my-0.5 h-px w-5 bg-[#2a2e39]" />
+      <div className="my-0.5 h-px w-5 bg-border" />
       <button
         type="button"
         title={drawingCount > 0 ? `Clear ${drawingCount} drawings` : "No drawings to clear"}
         disabled={drawingCount === 0}
         onClick={onClearDrawings}
-        className="flex h-7 w-7 items-center justify-center rounded text-[#b2b5be] transition-colors hover:bg-[#2a2e39] hover:text-[#f23645] disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-[#b2b5be]"
+        className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-[#f23645] disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-muted-foreground"
       >
         <Trash2 className="h-3.5 w-3.5" />
       </button>

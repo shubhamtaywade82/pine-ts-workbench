@@ -79,37 +79,37 @@
 }
 
 .dark {
-  /* TradingView dark palette so the app chrome matches the chart canvas. */
-  --background: #131722;
+  /* True OLED Black palette for infinite contrast on OLED/AMOLED displays. */
+  --background: #000000;
   --foreground: #d1d4dc;
-  --card: #131722;
+  --card: #000000;
   --card-foreground: #d1d4dc;
-  --popover: #1e222d;
+  --popover: #0a0a0a;
   --popover-foreground: #d1d4dc;
   --primary: #2962ff;
   --primary-foreground: #ffffff;
-  --secondary: #2a2e39;
+  --secondary: #141414;
   --secondary-foreground: #d1d4dc;
-  --muted: #2a2e39;
+  --muted: #141414;
   --muted-foreground: #787b86;
-  --accent: #2a2e39;
+  --accent: #141414;
   --accent-foreground: #d1d4dc;
   --destructive: #f23645;
-  --border: #2a2e39;
-  --input: #2a2e39;
+  --border: #1f1f1f;
+  --input: #1f1f1f;
   --ring: #2962ff;
   --chart-1: #2962ff;
   --chart-2: #089981;
   --chart-3: #ff9800;
   --chart-4: #e040fb;
   --chart-5: #f23645;
-  --sidebar: #1e222d;
+  --sidebar: #050505;
   --sidebar-foreground: #d1d4dc;
   --sidebar-primary: #2962ff;
   --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #2a2e39;
+  --sidebar-accent: #141414;
   --sidebar-accent-foreground: #d1d4dc;
-  --sidebar-border: #2a2e39;
+  --sidebar-border: #1f1f1f;
   --sidebar-ring: #2962ff;
 }
 

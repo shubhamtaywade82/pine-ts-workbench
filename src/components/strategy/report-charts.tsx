@@ -12,10 +12,10 @@ export const UP = "#089981";
 export const DOWN = "#f23645";
 const NEUTRAL = "#ff9800";
 const HOLD = "#787b86";
-const GRID = "#2a2e39";
+const GRID = "#1f1f1f";
 const AXIS = { fontSize: 11, fill: "#b2b5be" };
 const TOOLTIP = {
-  contentStyle: { background: "#1e222d", border: `1px solid ${GRID}`, fontSize: 12 },
+  contentStyle: { background: "#0a0a0a", border: `1px solid ${GRID}`, fontSize: 12 },
   labelStyle: { color: "#d1d4dc" },
 };
 

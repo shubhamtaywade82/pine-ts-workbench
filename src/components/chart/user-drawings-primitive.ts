@@ -161,7 +161,7 @@ function paintMeasure(
   const bh = 34;
   context.fillStyle = "rgba(30, 34, 45, 0.9)";
   context.fillRect(cx - bw / 2, cy - bh / 2, bw, bh);
-  context.strokeStyle = "#2a2e39";
+  context.strokeStyle = "#1f1f1f";
   context.strokeRect(cx - bw / 2, cy - bh / 2, bw, bh);
 
   context.fillStyle = isUp ? "#089981" : "#f23645";
