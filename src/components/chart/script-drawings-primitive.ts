@@ -35,13 +35,14 @@ const LABEL_GAP_PX = 3;
 export class ScriptDrawingsPrimitive implements ISeriesPrimitive<Time> {
   private drawings: readonly ChartDrawing[] = [];
   private attachedTo: SeriesAttachedParameter<Time> | null = null;
-  // Boxes, lines, and bgcolors sit behind candles, matching TradingView's visual stack.
+  // Plotted objects (boxes, lines, bgcolors) sit on top of grid lines, but behind candles.
   private readonly backgroundView: IPrimitivePaneView = {
-    zOrder: () => "bottom",
+    zOrder: () => "normal",
     renderer: () => this.backgroundRenderer,
   };
   private readonly backgroundRenderer: IPrimitivePaneRenderer = {
-    draw: (target: CanvasRenderingTarget2D) =>
+    draw: () => {},
+    drawBackground: (target: CanvasRenderingTarget2D) =>
       target.useMediaCoordinateSpace(({ context, mediaSize }) => this.paintBackground(context, mediaSize.height)),
   };
   // Script labels and HUD tables sit on top of candles.
