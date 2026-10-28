@@ -314,17 +314,29 @@ const browserDeps: DepthFeedDeps = {
     const socket = new WebSocket(url);
     socket.onopen = handlers.onOpen;
     socket.onclose = handlers.onClose;
-    socket.onerror = () => socket.close();
+    socket.onerror = () => {
+      if (socket.readyState === WebSocket.OPEN) {
+        try { socket.close(1000, "Normal closure"); } catch {}
+      }
+    };
     socket.onmessage = (message) => {
       const { data } = JSON.parse(message.data as string) as { data: DepthUpdate & { e?: string } };
       if (data.e === "depthUpdate") handlers.onMessage(data);
     };
     return () => {
-      socket.onopen = null;
+      socket.onmessage = null;
       socket.onclose = null;
       socket.onerror = null;
-      socket.onmessage = null;
-      if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) socket.close();
+      if (socket.readyState === WebSocket.CONNECTING) {
+        socket.onopen = () => {
+          try { socket.close(1000, "Normal closure"); } catch {}
+        };
+      } else if (socket.readyState === WebSocket.OPEN) {
+        socket.onopen = null;
+        try { socket.close(1000, "Normal closure"); } catch {}
+      } else {
+        socket.onopen = null;
+      }
     };
   },
   fetchSnapshot: async (symbol, limit) => {

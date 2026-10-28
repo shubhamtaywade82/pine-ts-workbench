@@ -215,17 +215,29 @@ export const openMarketStream = (
   const socket = new WebSocket(`${COMBINED_STREAM_URL}?streams=${lower}@kline_${interval}/${lower}@trade`);
   socket.onopen = callbacks.onOpen;
   socket.onclose = callbacks.onClose;
-  socket.onerror = () => socket.close();
+  socket.onerror = () => {
+    if (socket.readyState === WebSocket.OPEN) {
+      try { socket.close(1000, "Normal closure"); } catch {}
+    }
+  };
   socket.onmessage = (event) => {
     const { data } = JSON.parse(event.data as string) as { data: BinanceKlineEvent | BinanceTrade };
     if (data.e === "kline") callbacks.onKline(toBar(data.k));
     else callbacks.onTrade({ price: Number(data.p), quantity: Number(data.q), time: data.T });
   };
   return () => {
-    socket.onopen = null;
+    socket.onmessage = null;
     socket.onclose = null;
     socket.onerror = null;
-    socket.onmessage = null;
-    if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) socket.close();
+    if (socket.readyState === WebSocket.CONNECTING) {
+      socket.onopen = () => {
+        try { socket.close(1000, "Normal closure"); } catch {}
+      };
+    } else if (socket.readyState === WebSocket.OPEN) {
+      socket.onopen = null;
+      try { socket.close(1000, "Normal closure"); } catch {}
+    } else {
+      socket.onopen = null;
+    }
   };
 };
