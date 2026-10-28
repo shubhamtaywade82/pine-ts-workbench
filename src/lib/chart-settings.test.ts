@@ -11,6 +11,7 @@ describe("normalizeChartSettings: defaults and migration", () => {
       showExecutionMarks: false,
       showExecutionLabels: true,
       showOrderBookWalls: false,
+      showBidAskLines: true,
       depthWallStyle: "shelf",
       wallWindowPct: 0.5,
       minWallNotional: 0,
@@ -63,6 +64,8 @@ describe("normalizeChartSettings: validation", () => {
 
   test("boolean flags with a wrong type fall back to their defaults", () => {
     expect(trading({ showOrderBookWalls: "no" }).showOrderBookWalls).toBe(true);
+    expect(trading({ showBidAskLines: false }).showBidAskLines).toBe(false);
+    expect(trading({ showBidAskLines: "invalid" }).showBidAskLines).toBe(true);
   });
 
   test("depthWallStyle keeps valid options and falls back to shelf on invalid", () => {

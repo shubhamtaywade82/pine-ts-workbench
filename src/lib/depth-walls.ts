@@ -73,6 +73,8 @@ export const DEFAULT_WALL_OPTIONS = wallOptionsFor(DEFAULT_WALL_WINDOW_PCT, DEFA
 
 export interface WallFrame {
   readonly mid: number;
+  readonly bestBid?: number;
+  readonly bestAsk?: number;
   readonly bid: Wall | undefined;
   readonly ask: Wall | undefined;
   /** The window actually searched: the configured one, narrowed to verified snapshot coverage. */
@@ -120,6 +122,8 @@ export class WallTracker {
     const searchedPct = Math.max(0, Math.min((mid - bidLow) / mid, (askHigh - mid) / mid)) * 100;
     return {
       mid,
+      bestBid,
+      bestAsk,
       bid,
       ask,
       searchedPct,

@@ -134,25 +134,24 @@ function StatusLineTab(props: TabProps) {
 const MODES: readonly (readonly [ScaleMode, string])[] = [["regular", "Regular"], ["percent", "Percent"], ["indexed", "Indexed to 100"], ["logarithmic", "Logarithmic"]];
 
 function ScalesTab(props: TabProps) {
-  const { scales } = props.draft;
+  const { scales, trading } = props.draft;
   const patch = patcher(props);
   return (
     <Group title="Price scale">
       <Row label="Scale mode">
-        <select className="h-8 rounded border border-border bg-background px-2 text-sm" value={scales.mode}
-          onChange={(e) => patch("scales", { mode: e.target.value as ScaleMode })}>
+        <select className="h-8 rounded border border-border bg-background px-2 text-sm" value={scales.mode} onChange={(e) => patch("scales", { mode: e.target.value as ScaleMode })}>
           {MODES.map(([mode, label]) => <option key={mode} value={mode}>{label}</option>)}
         </select>
       </Row>
       <Row label="Scales placement">
-        <select className="h-8 rounded border border-border bg-background px-2 text-sm" value={scales.placement}
-          onChange={(e) => patch("scales", { placement: e.target.value as ChartSettings["scales"]["placement"] })}>
+        <select className="h-8 rounded border border-border bg-background px-2 text-sm" value={scales.placement} onChange={(e) => patch("scales", { placement: e.target.value as ChartSettings["scales"]["placement"] })}>
           <option value="right">Right</option><option value="left">Left</option>
         </select>
       </Row>
       <Check label="Auto (fits data to screen)" checked={scales.autoScale} onChange={(autoScale) => patch("scales", { autoScale })} />
       <Check label="Invert scale" checked={scales.invert} onChange={(invert) => patch("scales", { invert })} />
       <Check label="Last price line" checked={scales.showLastPriceLine} onChange={(showLastPriceLine) => patch("scales", { showLastPriceLine })} />
+      <Check label="Bid and ask lines" checked={trading.showBidAskLines} onChange={(showBidAskLines) => patch("trading", { showBidAskLines })} />
     </Group>
   );
 }
@@ -193,6 +192,7 @@ function TradingTab(props: TabProps & { readonly quoteAsset: string }) {
       <Group title="Appearance">
         <Check label="Execution marks (strategy entries and exits)" checked={trading.showExecutionMarks} onChange={(showExecutionMarks) => patch("trading", { showExecutionMarks })} />
         <Check label="Execution labels" checked={trading.showExecutionLabels} onChange={(showExecutionLabels) => patch("trading", { showExecutionLabels })} />
+        <Check label="Bid and ask lines" checked={trading.showBidAskLines} onChange={(showBidAskLines) => patch("trading", { showBidAskLines })} />
       </Group>
       <Group title="Order book walls">
         <Check label="Show the largest resting bid and ask" checked={trading.showOrderBookWalls} onChange={(showOrderBookWalls) => patch("trading", { showOrderBookWalls })} />

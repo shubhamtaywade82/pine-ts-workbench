@@ -20,6 +20,8 @@ describe("WallTracker: which level is the wall", () => {
   test("picks the largest notional level, which need not be the best bid/ask", () => {
     const frame = tracker().update(book([[100, 1], [99, 3], [98, 2.5]], [[101, 1], [102, 4]]), 0);
     expect(frame?.mid).toBe(100.5);
+    expect(frame?.bestBid).toBe(100);
+    expect(frame?.bestAsk).toBe(101);
     expect(frame?.bid).toMatchObject({ side: "bid", price: 99, quantity: 3, notional: 297 });
     expect(frame?.ask).toMatchObject({ side: "ask", price: 102, quantity: 4, notional: 408 });
   });

@@ -49,6 +49,8 @@ export interface ChartSettings {
     readonly showExecutionLabels: boolean;
     /** Live order book depth walls visualization. */
     readonly showOrderBookWalls: boolean;
+    /** Live Best Bid and Best Ask horizontal price lines with scale badges. */
+    readonly showBidAskLines: boolean;
     /** Visual representation style for depth walls. */
     readonly depthWallStyle: DepthWallStyle;
     /** Half-width of the wall search around mid, in percent. Clipped to the snapshot's verified coverage. */
@@ -91,6 +93,7 @@ export const DEFAULT_CHART_SETTINGS: ChartSettings = {
     showExecutionMarks: true,
     showExecutionLabels: true,
     showOrderBookWalls: true,
+    showBidAskLines: true,
     depthWallStyle: "shelf",
     wallWindowPct: DEFAULT_WALL_WINDOW_PCT,
     minWallNotional: DEFAULT_MIN_WALL_NOTIONAL,
@@ -149,6 +152,7 @@ const normalizeTrading = (stored: unknown): ChartSettings["trading"] => {
     showExecutionMarks: booleanOr(raw["showExecutionMarks"], defaults.showExecutionMarks),
     showExecutionLabels: booleanOr(raw["showExecutionLabels"], defaults.showExecutionLabels),
     showOrderBookWalls: booleanOr(raw["showOrderBookWalls"], defaults.showOrderBookWalls),
+    showBidAskLines: booleanOr(raw["showBidAskLines"], defaults.showBidAskLines),
     depthWallStyle: isDepthWallStyle(raw["depthWallStyle"]) ? raw["depthWallStyle"] : defaults.depthWallStyle,
     wallWindowPct: numberIn(raw["wallWindowPct"], WALL_WINDOW_LIMITS_PCT.min, WALL_WINDOW_LIMITS_PCT.max, defaults.wallWindowPct),
     minWallNotional: numberIn(raw["minWallNotional"], 0, Number.POSITIVE_INFINITY, defaults.minWallNotional),
