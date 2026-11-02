@@ -12,6 +12,8 @@ import {
   type LiveTrade,
 } from "@/lib/public-binance-feed";
 
+export type { LiveTrade } from "@/lib/public-binance-feed";
+
 // TradingView-like depth; multi-timeframe scripts (4H context on 5m) need it.
 // 5000 bars ≈ TV's standard chart depth; deep backtesting pages further via loadOlder.
 const HISTORY_BARS = 5000;

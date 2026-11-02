@@ -135,7 +135,8 @@ export default function Home() {
       const context = await computeAlertContext(editor.editorBars, INTERVAL_MS[grid.activeCell.interval], symbol);
       if (context === undefined) return;
       const { fired, rules } = await evaluateAlerts(
-        alertRules, buildAlertSinks(alertSettings, settings), { ...context, scriptFired: false },
+        alertRules, buildAlertSinks(alertSettings, settings),
+        { ...context, interval: grid.activeCell.interval, scriptFired: false },
       );
       if (rules.some((r, i) => r.lastFiredAt !== alertRules[i]?.lastFiredAt)) saveAlertRules(rules);
       appendFiredAlerts(fired);
