@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import type { ScriptRunner } from "@/lib/script-worker-client";
 import { History, X } from "lucide-react";
 import { useLiveBars, type FeedHealth, type LiveStatus } from "@/hooks/use-live-bars";
+import { useDhanBars } from "@/hooks/use-dhan-bars";
 import { useBarReplay } from "@/hooks/use-bar-replay";
 import { ReplayControls } from "@/components/chart/replay-controls";
 import { buildSinks, dispatchScriptAlerts, formatScriptAlertMessage, loadAlertSettings } from "@/lib/alert-sinks";
@@ -55,7 +56,11 @@ export function ChartCell({
   isEditorOverlay = false, chartSettings, onChartSettingsChange, onOpenChartSettings,
   tradeMarkers, onActiveBarsChange, onEditorScriptAction,
 }: ChartCellProps) {
-  const { bars, status, error, health, loadOlder, subscribe } = useLiveBars(symbol.binanceSymbol, interval);
+  const isDhan = symbol.provider === "dhan";
+  const binanceFeed = useLiveBars(symbol.binanceSymbol, interval, !isDhan);
+  const dhanFeed = useDhanBars(symbol.ticker, interval, isDhan);
+  const { bars, status, error, health, loadOlder, subscribe } = isDhan ? dhanFeed : binanceFeed;
+  const feedName = isDhan ? "DhanHQ" : "Binance";
   const replay = useBarReplay(bars.length);
   const visibleBars = useMemo(
     () => (replay.isReplay ? bars.slice(0, replay.replayIndex) : bars),
@@ -201,11 +206,11 @@ export function ChartCell({
       <div className="flex-1 overflow-hidden px-1 pb-1">
         {visibleBars.length === 0 ? (
           <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
-            {error ?? `Loading ${symbol.displayName} from Binance…`}
+            {error ?? `Loading ${symbol.displayName} from ${feedName}…`}
           </div>
         ) : (
           <ChartWorkbench
-            title={`${symbol.displayName} · ${interval} · Binance${replay.isReplay ? " (Replay)" : ""}`}
+            title={`${symbol.displayName} · ${interval} · ${feedName}${replay.isReplay ? " (Replay)" : ""}`}
             interval={interval}
             bars={visibleBars}
             subscribeBars={replay.isReplay ? undefined : subscribe}
@@ -215,7 +220,8 @@ export function ChartCell({
             subPanes={allSubPanes}
             tradeMarkers={tradeMarkers}
             drawings={drawings}
-            depthSymbol={replay.isReplay ? undefined : symbol.binanceSymbol}
+            depthSymbol={replay.isReplay || isDhan ? undefined : symbol.binanceSymbol}
+            timeZone={isDhan ? "Asia/Kolkata" : undefined}
             settings={chartSettings}
             onSettingsChange={onChartSettingsChange}
             onOpenSettings={onOpenChartSettings}

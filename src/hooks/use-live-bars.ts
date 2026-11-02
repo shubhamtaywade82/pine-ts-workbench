@@ -109,7 +109,7 @@ export const countBarGaps = (bars: readonly Bar[], intervalMs: number): number =
  * klines + trades over one WebSocket. On disconnect it waits, refetches the
  * history (filling any gap) and reconnects.
  */
-export function useLiveBars(symbol: BinanceSymbol, interval: ChartInterval): LiveBars {
+export function useLiveBars(symbol: BinanceSymbol, interval: ChartInterval, enabled = true): LiveBars {
   const [bars, setBars] = useState<readonly Bar[]>([]);
   const [status, setStatus] = useState<LiveStatus>("loading");
   const [error, setError] = useState<string | null>(null);
@@ -161,6 +161,9 @@ export function useLiveBars(symbol: BinanceSymbol, interval: ChartInterval): Liv
       setTimeout(() => { if (!isCancelled) setAttempt((n) => n + 1); }, RECONNECT_DELAY_MS);
     };
 
+    // Disabled for non-Binance symbols (the Dhan hook serves those): no history fetch, no socket.
+    if (!enabled) return () => { clearInterval(snapshotTimer); };
+
     const start = async () => {
       const history = await fetchDeepHistoryBars(symbol, interval, HISTORY_BARS);
       if (isCancelled) return;
@@ -199,7 +202,7 @@ export function useLiveBars(symbol: BinanceSymbol, interval: ChartInterval): Liv
       frameRef.current = null;
       closeStream?.();
     };
-  }, [symbol, interval, attempt, scheduleNotify]);
+  }, [symbol, interval, attempt, scheduleNotify, enabled]);
 
   const loadOlder = useCallback(() => {
     const first = workingRef.current[0];

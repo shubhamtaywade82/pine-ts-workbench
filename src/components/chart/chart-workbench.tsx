@@ -75,12 +75,14 @@ export interface ChartWorkbenchProps {
   readonly onNeedOlderBars?: () => void;
   readonly onIndicatorAction?: (ownerId: string, action: IndicatorAction) => void;
   readonly depthSymbol?: BinanceSymbol;
+  /** IANA zone for the time axis and crosshair label (e.g. "Asia/Kolkata"); defaults to the browser's zone. */
+  readonly timeZone?: string;
 }
 
 export function ChartWorkbench({
   bars, subscribeBars, mainOverlays, subPanes, tradeMarkers, drawings,
   settings = DEFAULT_CHART_SETTINGS, onSettingsChange, onOpenSettings,
-  title, interval, onNeedOlderBars, onIndicatorAction, depthSymbol,
+  title, interval, onNeedOlderBars, onIndicatorAction, depthSymbol, timeZone,
 }: ChartWorkbenchProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -137,6 +139,27 @@ export function ChartWorkbench({
       subPaneSeriesRef.current.clear();
     };
   }, []);
+
+  // lightweight-charts formats times as UTC; NSE/BSE charts need IST (09:15-15:30, not 03:45-10:00).
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (chart === null || timeZone === undefined) return;
+    const part = (zone: string, options: Intl.DateTimeFormatOptions, seconds: number) =>
+      new Intl.DateTimeFormat("en-GB", { timeZone: zone, ...options }).format(new Date(seconds * 1000));
+    chart.applyOptions({
+      localization: {
+        timeFormatter: (t: number) =>
+          `${part(timeZone, { day: "2-digit", month: "short" }, t)} ${part(timeZone, { hour: "2-digit", minute: "2-digit", hour12: false }, t)}`,
+      },
+      timeScale: {
+        // TickMarkType: 0 Year, 1 Month, 2 DayOfMonth, 3 Time, 4 TimeWithSeconds
+        tickMarkFormatter: (t: number, type: number) =>
+          type >= 3
+            ? part(timeZone, { hour: "2-digit", minute: "2-digit", hour12: false }, t)
+            : part(timeZone, { day: "2-digit", month: "short" }, t),
+      },
+    });
+  }, [timeZone]);
 
   const liveOhlcRef = useRef<HTMLSpanElement>(null);
   const onCandleFrame = useCallback((frame: CandleFrame) => {

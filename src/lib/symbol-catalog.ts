@@ -25,6 +25,7 @@ export const SYMBOL_CATALOG: readonly SymbolOption[] = [
   // Indian Equities & Indices (DhanHQ)
   { ticker: "NSE:NIFTY50", displayName: "NIFTY 50", provider: "dhan", exchange: "NSE", category: "index", binanceSymbol: "BTCUSDT", dhanSecurityId: "13", dhanSegment: "IDX_I" },
   { ticker: "NSE:BANKNIFTY", displayName: "BANK NIFTY", provider: "dhan", exchange: "NSE", category: "index", binanceSymbol: "BTCUSDT", dhanSecurityId: "25", dhanSegment: "IDX_I" },
+  { ticker: "BSE:SENSEX", displayName: "SENSEX", provider: "dhan", exchange: "BSE", category: "index", binanceSymbol: "BTCUSDT", dhanSecurityId: "51", dhanSegment: "IDX_I" },
   { ticker: "NSE:RELIANCE", displayName: "Reliance Industries", provider: "dhan", exchange: "NSE", category: "stock", binanceSymbol: "BTCUSDT", dhanSecurityId: "2885", dhanSegment: "NSE_EQ" },
   { ticker: "NSE:TCS", displayName: "Tata Consultancy Services", provider: "dhan", exchange: "NSE", category: "stock", binanceSymbol: "BTCUSDT", dhanSecurityId: "11536", dhanSegment: "NSE_EQ" },
   { ticker: "NSE:INFY", displayName: "Infosys Ltd", provider: "dhan", exchange: "NSE", category: "stock", binanceSymbol: "BTCUSDT", dhanSecurityId: "1594", dhanSegment: "NSE_EQ" },
