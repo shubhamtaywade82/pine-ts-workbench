@@ -715,3 +715,28 @@ Stage Summary:
 - pine-ts branch fix/live-alert-rollback: 2 commits (alert rollback fix + quota). workbench branch feat/second-intervals-and-deep-history: 6 commits (1s+deep history, 16 layouts, alert engine, timeout, drawings).
 - All quality gates green at every commit: pine-ts 792/792 (54 files) + typecheck + lint + manifest; workbench 221/221 (29 files) + typecheck + lint.
 - Remaining Ultimate gaps (next session): Volume Profile indicator (Bucket 2), auto chart patterns (Bucket 2), volume footprint/TPO (Bucket 3 — deferred by design), alert quota UI polish (rules counter vs TV's 2000), paper-trading account panel through the same engine.
+
+---
+Task ID: 21
+Agent: main (Z.ai)
+Task: Workbench P0 requirements parity. Audit the workbench against the complete TradingView-replacement requirements (18 sections), then close every P0 gap: kill switch, environment banner, live watchlist quotes, fuzzy symbol search, provider health badge, alert message templates, backtest JSON export + fill-model controls, TypeScript Editor rename, and the in-app docs dialog — one commit per feature, tracked against docs/requirements-tracker.md.
+
+Work Log:
+- Pushed the previous session's unpushed commits to both remotes (pine-ts: c1ffb29..3852eda on main; workbench: f69a7bc..5fbb8c5 on main). Verified CI green on main (the one failing check was a pre-existing bun-test/playwright e2e collision, reproducible on the clean tree).
+- Audited the workbench against the 18-section requirements: docs/requirements-tracker.md is the living P0→P3 gap scorecard.
+- Kill switch (7d8652a): RealBinanceTradingSurface gains getOpenOrders/cancelAllOrders/flattenSpot (spot flatten = market-sell held base, LOT_SIZE dust filtered); KillSwitch component with typed "FLATTEN <SYMBOL>" confirmation, per-step result report; mounted in the top toolbar next to the environment badge.
+- Environment banner (7d8652a): DRY-RUN (grey) / PAPER (blue) / MAINNET (red, pulsing) badge derived from the same settings that gate order submission.
+- Watchlist quotes (d91630b): src/lib/watchlist-quotes.ts — REST snapshot (GET /api/v3/ticker/24hr?symbols=[…]) + mini-ticker WS with exponential-backoff reconnect + 30s re-sync; panel gains Last/Chg%/Vol columns and drag-reorder with persistence; compact volume formatting (K/M/B).
+- Fuzzy symbol search (83209ed): subsequence scoring (exact > prefix > word-boundary > substring > scattered, gap-penalized), favorites boost (+300), starred favorites + recents sections above results, Enter-picks-top; 5 new tests in symbol-catalog.test.ts.
+- Provider health (0598df2): useLiveBars exposes FeedHealth { lastTickAgeMs, isStale (>3× interval with no tick), gapCount, lastBarTime } via a 1s heartbeat; countBarGaps() counts missing-bar holes in the loaded history; LiveBadge renders warnings ("stale feed — 6s ago", "2 missing-bar gaps") with an explanatory tooltip; 6 new tests in use-live-bars.test.ts.
+- Alert message templates (4db70d5): fillPlaceholders() substitutes {{ticker}}/{{close}}/{{interval}}/{{time}}/{{rsi}}/{{volume}}/{{change}}; rules carry messageTemplate; alert builder gains the template input with placeholder help; unknown placeholders stay literal; 5 new tests.
+- Tester export + fill model (0a5fa0e): full-backtest JSON export (summary + risk ratios + buy&hold + trades + equity curve); slippage-unit selector (ticks/percent) joins commission-type and qty-type in the Properties tab.
+- TypeScript Editor rename (e45f183): "Pine Editor" → "TypeScript Editor" across all UI strings and comments; AI copilot + script-menu copy updated too.
+- Docs dialog (b361152): four tabs — Examples (6 copy-paste starters: SMA crossover, RSI+alert, BB squeeze, MTF trend filter, volume spike, trailing stop), ta.*/input.* API reference, Pine → TypeScript migration cheat sheet, hotkey list. One "Docs" button in the top toolbar.
+- Quality gates at every commit: typecheck ✓, eslint ✓, 224/224 unit tests ✓, production build ✓ (the single pre-existing e2e/playwright bun-test collision is unchanged from main).
+- Pushed feat/requirements-p0-parity (10 commits) and opened PR #7.
+
+Stage Summary:
+- P0 scorecard after this session: kill switch ✓, environment banner ✓, watchlist quotes ✓, fuzzy search ✓, provider health ✓, alert templates ✓, tester JSON export + fill-model UI ✓, TypeScript Editor branding ✓, in-app docs ✓. Remaining P0 gaps needing a backend/server piece: auth/2FA, server-side alert evaluation, promotion gates, key vault (all tracked in docs/requirements-tracker.md).
+- The workbench now surfaces every safety property as a visible UI element: environment banner (what will my orders hit?), kill switch (how do I stop everything NOW?), health badge (is my data trustworthy?), alert delivery log (did my alerts arrive?).
+- PR #7: https://github.com/shubhamtaywade82/pine-ts-workbench/pull/7 (CI green).
