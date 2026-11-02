@@ -22,13 +22,18 @@ import {
   CANDLE_THEMES, CANDLE_TYPES, findCandleTheme, type CandleThemeId, type CandleType,
 } from "@/lib/candle-themes";
 
-export type GridLayout = 1 | 2 | 4 | 6;
+export type GridLayout = 1 | 2 | 3 | 4 | 6 | 8 | 9 | 12 | 16;
 
 export const LAYOUT_OPTIONS: { value: GridLayout; label: string; cols: number; rows: number }[] = [
   { value: 1, label: "1 chart", cols: 1, rows: 1 },
   { value: 2, label: "2 charts", cols: 2, rows: 1 },
+  { value: 3, label: "3 charts", cols: 3, rows: 1 },
   { value: 4, label: "4 charts", cols: 2, rows: 2 },
   { value: 6, label: "6 charts", cols: 3, rows: 2 },
+  { value: 8, label: "8 charts", cols: 4, rows: 2 },
+  { value: 9, label: "9 charts", cols: 3, rows: 3 },
+  { value: 12, label: "12 charts", cols: 4, rows: 3 },
+  { value: 16, label: "16 charts", cols: 4, rows: 4 },
 ];
 
 export interface TopToolbarProps {

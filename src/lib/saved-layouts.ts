@@ -53,6 +53,21 @@ export const DEFAULT_LAYOUTS: SavedLayout[] = [
       { symbolProduct: "BNBUSDT", interval: "1m" },
     ],
   },
+  {
+    id: "default-ultimate-8",
+    name: "Ultimate 8 (2×4)",
+    layout: 8,
+    cells: [
+      { symbolProduct: "BTCUSDT", interval: "1s" },
+      { symbolProduct: "BTCUSDT", interval: "1m" },
+      { symbolProduct: "BTCUSDT", interval: "15m" },
+      { symbolProduct: "BTCUSDT", interval: "1h" },
+      { symbolProduct: "ETHUSDT", interval: "1s" },
+      { symbolProduct: "ETHUSDT", interval: "1m" },
+      { symbolProduct: "SOLUSDT", interval: "5m" },
+      { symbolProduct: "BNBUSDT", interval: "5m" },
+    ],
+  },
 ];
 
 export const loadLayouts = (): SavedLayout[] => {

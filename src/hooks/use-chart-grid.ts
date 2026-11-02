@@ -10,7 +10,8 @@ export interface CellConfig extends CellSettings {
   readonly id: string;
 }
 
-const MAX_CELLS = 6;
+// TradingView Ultimate's layout cap.
+const MAX_CELLS = 16;
 
 let cellCounter = 0;
 const newCellId = () => `cell-${++cellCounter}`;
@@ -22,8 +23,8 @@ const defaultIndicators = (): MountedIndicator[] => [
 export const newCell = (symbol: SymbolOption, interval: ChartInterval = "1m"): CellConfig =>
   ({ id: newCellId(), symbol, interval, indicators: defaultIndicators() });
 
-/** Smallest grid that fits `count` cells: 3 charts use the 2×2 grid, 5 the 3×2. */
-const layoutFor = (count: number): GridLayout => LAYOUT_OPTIONS.find((l) => l.value >= count)?.value ?? 6;
+/** Smallest grid that fits `count` cells: 5 charts use the 3×2 grid, 13 the 4×4. */
+const layoutFor = (count: number): GridLayout => LAYOUT_OPTIONS.find((l) => l.value >= count)?.value ?? 16;
 
 const symbolForSlot = (index: number): SymbolOption => SUPPORTED_SYMBOLS[index % SUPPORTED_SYMBOLS.length]!;
 
