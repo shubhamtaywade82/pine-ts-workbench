@@ -10,12 +10,25 @@ import {
   type SymbolOption,
 } from "@/lib/symbol-catalog";
 import { SymbolSearchDialog } from "./symbol-search-dialog";
+import { compactVolume, useWatchQuotes, type WatchQuote } from "@/lib/watchlist-quotes";
 
 export interface WatchlistPanelProps {
   readonly currentSymbol: string;
   readonly onSelectSymbol: (symbol: SymbolOption) => void;
   readonly onClose?: () => void;
 }
+
+/**
+ * Watchlist panel — TradingView-style columns: symbol, last price, 24h
+ * change %, 24h volume. Rows drag-reorder; the order persists. Quotes come
+ * from Binance's public ticker stream (crypto only; NSE rows show no quote).
+ */
+
+const pctClass = (value: number): string =>
+  value > 0 ? "text-[#089981]" : value < 0 ? "text-[#f23645]" : "text-muted-foreground";
+
+const fmtPrice = (value: number): string =>
+  value >= 100 ? value.toFixed(2) : value >= 1 ? value.toFixed(3) : value.toPrecision(4);
 
 export function WatchlistPanel({
   currentSymbol,
@@ -24,25 +37,38 @@ export function WatchlistPanel({
 }: WatchlistPanelProps) {
   const [watchedTickers, setWatchedTickers] = useState<readonly string[]>(() => loadWatchlist());
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [dragIndex, setDragIndex] = useState<number | null>(null);
+  const { quotes } = useWatchQuotes(
+    watchedTickers.map((t) => t.replace("NSE:", "")).filter((t) => !t.startsWith("NSE")),
+  );
 
-  const removeTicker = (ticker: string) => {
-    const next = watchedTickers.filter((t) => t !== ticker);
+  const persist = (next: readonly string[]) => {
     setWatchedTickers(next);
     saveWatchlist(next);
   };
 
+  const removeTicker = (ticker: string) => {
+    persist(watchedTickers.filter((t) => t !== ticker));
+  };
+
   const addSymbol = (symbol: SymbolOption) => {
-    if (!watchedTickers.includes(symbol.ticker)) {
-      const next = [...watchedTickers, symbol.ticker];
-      setWatchedTickers(next);
-      saveWatchlist(next);
-    }
+    if (!watchedTickers.includes(symbol.ticker)) persist([...watchedTickers, symbol.ticker]);
     onSelectSymbol(symbol);
   };
 
+  /** Drag-to-reorder: drop the dragged row at the target index. */
+  const dropOn = (targetIndex: number) => {
+    if (dragIndex === null || dragIndex === targetIndex) return;
+    const next = [...watchedTickers];
+    const [moved] = next.splice(dragIndex, 1);
+    next.splice(targetIndex, 0, moved!);
+    persist(next);
+    setDragIndex(null);
+  };
+
   const watchedItems = watchedTickers
-    .map((ticker) => findSymbol(ticker))
-    .filter((s): s is SymbolOption => s !== undefined);
+    .map((ticker) => ({ ticker, symbol: findSymbol(ticker) }))
+    .filter((s): s is { ticker: string; symbol: SymbolOption } => s.symbol !== undefined);
 
   return (
     <div className="flex h-full flex-col bg-background text-white">
@@ -75,20 +101,35 @@ export function WatchlistPanel({
         </div>
       </div>
 
+      {/* Column header */}
+      <div className="grid grid-cols-[1fr_70px_55px_55px] gap-1 border-b border-border px-2.5 py-1 text-[10px] uppercase tracking-wide text-[#787b86]">
+        <span>Symbol</span>
+        <span className="text-right">Last</span>
+        <span className="text-right">Chg%</span>
+        <span className="text-right">Vol</span>
+      </div>
+
       <div className="flex-1 overflow-y-auto p-1 [scrollbar-width:thin]">
-        {watchedItems.map((item) => {
+        {watchedItems.map(({ ticker, symbol: item }, index) => {
           const isActive = currentSymbol === item.ticker || currentSymbol === item.binanceSymbol;
+          const quote: WatchQuote | undefined = quotes.get(item.binanceSymbol);
           return (
             <div
-              key={item.ticker}
-              className={`group flex cursor-pointer items-center justify-between rounded px-2.5 py-2 transition-colors ${
-                isActive ? "bg-muted" : "hover:bg-muted/50"
+              key={ticker}
+              draggable
+              onDragStart={() => setDragIndex(index)}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={() => dropOn(index)}
+              onDragEnd={() => setDragIndex(null)}
+              className={`grid cursor-pointer grid-cols-[1fr_70px_55px_55px] items-center gap-1 rounded px-2.5 py-2 transition-colors ${
+                isActive ? "bg-muted" : dragIndex === index ? "opacity-40" : "hover:bg-muted/50"
               }`}
               onClick={() => onSelectSymbol(item)}
+              title="Drag to reorder"
             >
-              <div className="flex flex-col">
+              <div className="flex min-w-0 flex-col">
                 <div className="flex items-center gap-1.5">
-                  <span className="text-xs font-semibold text-white">{item.ticker}</span>
+                  <span className="truncate text-xs font-semibold text-white">{ticker}</span>
                   <Badge
                     variant="secondary"
                     className={`px-1 py-0 text-[8px] uppercase ${
@@ -100,23 +141,38 @@ export function WatchlistPanel({
                     {item.exchange}
                   </Badge>
                 </div>
-                <span className="text-[10px] text-[#787b86]">{item.displayName}</span>
+                <span className="truncate text-[10px] text-[#787b86]">{item.displayName}</span>
               </div>
+
+              <span className="text-right font-mono text-xs tabular-nums">
+                {quote ? fmtPrice(quote.lastPrice) : "—"}
+              </span>
+              <span className={`text-right font-mono text-xs tabular-nums ${quote ? pctClass(quote.priceChangePercent) : "text-muted-foreground"}`}>
+                {quote ? `${quote.priceChangePercent > 0 ? "+" : ""}${quote.priceChangePercent.toFixed(2)}%` : "—"}
+              </span>
+              <span className="text-right font-mono text-[10px] tabular-nums text-[#787b86]">
+                {quote ? compactVolume(quote.volume) : "—"}
+              </span>
 
               <button
                 type="button"
-                title={`Remove ${item.ticker} from watchlist`}
+                title={`Remove ${ticker} from watchlist`}
                 onClick={(e) => {
                   e.stopPropagation();
-                  removeTicker(item.ticker);
+                  removeTicker(ticker);
                 }}
-                className="opacity-0 transition-opacity group-hover:opacity-100 hover:text-[#f23645]"
+                className="invisible col-span-4 -mt-1 self-end text-right group-hover:visible"
               >
-                <X className="h-3 w-3" />
+                <X className="ml-auto h-3 w-3 hover:text-[#f23645]" />
               </button>
             </div>
           );
         })}
+        {watchedItems.length === 0 && (
+          <p className="px-2.5 py-4 text-xs text-muted-foreground">
+            Watchlist is empty — click + to add symbols.
+          </p>
+        )}
       </div>
 
       <SymbolSearchDialog
