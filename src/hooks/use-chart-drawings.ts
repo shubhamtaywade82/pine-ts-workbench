@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from "react"
 import type { IChartApi, ISeriesApi, MouseEventParams, SeriesType, Time } from "lightweight-charts";
 import type { Bar } from "@nemesis-oss/pine-ts";
 import { UserDrawingsPrimitive } from "@/components/chart/user-drawings-primitive";
-import type { DrawingPoint, DrawingToolType, UserDrawing } from "@/lib/user-drawings";
+import { SINGLE_CLICK_TOOLS, type DrawingPoint, type DrawingToolType, type UserDrawing } from "@/lib/user-drawings";
 
 function resolvePoint(
   param: MouseEventParams<Time>,
@@ -87,8 +87,18 @@ export function useChartDrawings(
       const pt = resolvePoint(param, chart, candle, bars, intervalMs);
       if (pt === null) return;
 
-      if (activeTool === "ray") {
-        setDrawings((prev) => [...prev, { id: crypto.randomUUID(), type: "ray", p1: pt, p2: pt }]);
+      if (SINGLE_CLICK_TOOLS.has(activeTool)) {
+        // One-click drawings: fully determined by the first click.
+        setDrawings((prev) => [...prev, { id: crypto.randomUUID(), type: activeTool, p1: pt, p2: pt }]);
+        setActiveTool("cursor");
+        return;
+      }
+
+      if (activeTool === "text") {
+        const label = window.prompt("Note text:");
+        if (label !== null && label.trim() !== "") {
+          setDrawings((prev) => [...prev, { id: crypto.randomUUID(), type: "text", p1: pt, p2: pt, text: label.trim() }]);
+        }
         setActiveTool("cursor");
         return;
       }
@@ -112,7 +122,8 @@ export function useChartDrawings(
   useEffect(() => {
     const chart = chartRef.current;
     const candle = candlestickRef.current;
-    if (chart === null || candle === null || draftPoint === null || activeTool === "cursor" || activeTool === "ray") {
+    const oneClick = SINGLE_CLICK_TOOLS.has(activeTool);
+    if (chart === null || candle === null || draftPoint === null || activeTool === "cursor" || oneClick) {
       return;
     }
 

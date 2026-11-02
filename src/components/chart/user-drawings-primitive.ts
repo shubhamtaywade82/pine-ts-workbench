@@ -9,6 +9,7 @@ import type { CanvasRenderingTarget2D } from "fancy-canvas";
 import {
   calculateFibPrice,
   computeMeasureStats,
+  computePositionStats,
   FIB_LEVELS,
   type DrawingPoint,
   type UserDrawing,
@@ -67,6 +68,189 @@ function paintRay(
   context.stroke();
   context.restore();
   drawHandle(context, x1, y1, color);
+}
+
+/** Horizontal line: spans the whole pane at p1's price. */
+function paintHline(
+  context: CanvasRenderingContext2D,
+  y1: number, width: number,
+  color: string, isDraft: boolean,
+): void {
+  context.save();
+  context.strokeStyle = color;
+  context.lineWidth = 1.5;
+  if (isDraft) context.setLineDash([4, 4]);
+  context.beginPath();
+  context.moveTo(0, y1);
+  context.lineTo(width, y1);
+  context.stroke();
+  context.restore();
+}
+
+/** Vertical line: spans the whole pane at p1's time. */
+function paintVline(
+  context: CanvasRenderingContext2D,
+  x1: number, height: number,
+  color: string, isDraft: boolean,
+): void {
+  context.save();
+  context.strokeStyle = color;
+  context.lineWidth = 1.5;
+  if (isDraft) context.setLineDash([4, 4]);
+  context.beginPath();
+  context.moveTo(x1, 0);
+  context.lineTo(x1, height);
+  context.stroke();
+  context.restore();
+}
+
+/** Trendline extended through both endpoints to the pane edges. */
+function paintExtended(
+  context: CanvasRenderingContext2D,
+  x1: number, y1: number, x2: number, y2: number, width: number,
+  color: string, isDraft: boolean,
+): void {
+  if (x2 === x1) return paintVline(context, x1, Number.MAX_SAFE_INTEGER, color, isDraft);
+  const slope = (y2 - y1) / (x2 - x1);
+  const yLeft = y1 - slope * x1;
+  const yRight = y1 + slope * (width - x1);
+  context.save();
+  context.strokeStyle = color;
+  context.lineWidth = 1.5;
+  if (isDraft) context.setLineDash([4, 4]);
+  context.beginPath();
+  context.moveTo(0, yLeft);
+  context.lineTo(width, yRight);
+  context.stroke();
+  context.restore();
+  drawHandle(context, x1, y1, color);
+  drawHandle(context, x2, y2, color);
+}
+
+/** Parallel channel: two parallel trendlines offset by p2's distance. */
+function paintChannel(
+  context: CanvasRenderingContext2D,
+  x1: number, y1: number, x2: number, y2: number,
+  color: string, isDraft: boolean,
+): void {
+  context.save();
+  context.strokeStyle = color;
+  context.lineWidth = 1.5;
+  if (isDraft) context.setLineDash([4, 4]);
+  context.beginPath();
+  context.moveTo(x1, y1);
+  context.lineTo(x2, y2);
+  context.stroke();
+  // The second rail: same slope, offset vertically by the |dy| between rails.
+  const offset = y2 - y1;
+  context.beginPath();
+  context.moveTo(x1, y1 + offset * 0.5);
+  context.lineTo(x2, y2 + offset * 0.5);
+  context.stroke();
+  context.restore();
+  drawHandle(context, x1, y1, color);
+  drawHandle(context, x2, y2, color);
+}
+
+/** TradingView's long/short position tool: entry / target / stop box with R:R. */
+function paintPosition(
+  context: CanvasRenderingContext2D,
+  drawing: UserDrawing,
+  x1: number, x2: number,
+  proj: Projection,
+  isLong: boolean,
+  isDraft: boolean,
+): void {
+  const stats = computePositionStats(drawing.p1, drawing.p2, isLong);
+  const yEntry = proj.y(stats.entry);
+  const yTarget = proj.y(stats.target);
+  const yStop = proj.y(stats.stop);
+  if (yEntry === null || yTarget === null || yStop === null) return;
+  const left = Math.min(x1, x2);
+  const width = Math.max(20, Math.abs(x2 - x1));
+  const top = Math.min(yTarget, yEntry);
+  const bottom = Math.max(yStop, yEntry);
+  const green = "rgba(8, 153, 129, 0.12)";
+  const red = "rgba(242, 54, 69, 0.12)";
+
+  context.save();
+  // Target zone (above entry for long, below for short).
+  context.fillStyle = green;
+  context.fillRect(left, Math.min(yTarget, yEntry), width, Math.abs(yTarget - yEntry));
+  // Stop zone.
+  context.fillStyle = red;
+  context.fillRect(left, Math.min(yStop, yEntry), width, Math.abs(yStop - yEntry));
+  // Entry line.
+  context.strokeStyle = "#2962ff";
+  context.lineWidth = 1.5;
+  if (isDraft) context.setLineDash([4, 4]);
+  context.beginPath();
+  context.moveTo(left, yEntry);
+  context.lineTo(left + width, yEntry);
+  context.stroke();
+  // Labels.
+  context.font = BADGE_FONT;
+  context.fillStyle = "#089981";
+  context.fillText(`Target ${stats.target.toFixed(2)}`, left + 4, Math.min(yTarget, yEntry) + 11);
+  context.fillStyle = "#f23645";
+  context.fillText(`Stop ${stats.stop.toFixed(2)}`, left + 4, Math.max(yStop, yEntry) - 4);
+  context.fillStyle = "#2962ff";
+  context.fillText(`${isLong ? "Long" : "Short"} ${stats.entry.toFixed(2)} · R:R ${stats.riskReward.toFixed(1)}`, left + 4, yEntry - 4);
+  context.restore();
+  drawHandle(context, x1, yEntry, "#2962ff");
+  drawHandle(context, x2, proj.y(drawing.p2.price) ?? yEntry, "#2962ff");
+}
+
+/** Text note anchored at p1, with the label box sized to its content. */
+function paintText(
+  context: CanvasRenderingContext2D,
+  x1: number, y1: number,
+  text: string | undefined,
+  color: string, isDraft: boolean,
+): void {
+  const label = (text ?? "Text").slice(0, 60);
+  context.save();
+  context.font = BADGE_FONT;
+  const w = context.measureText(label).width + 10;
+  const h = 16;
+  context.fillStyle = "rgba(30, 34, 45, 0.85)";
+  context.fillRect(x1, y1 - h, w, h);
+  context.strokeStyle = color;
+  context.lineWidth = 1;
+  if (isDraft) context.setLineDash([3, 3]);
+  context.strokeRect(x1, y1 - h, w, h);
+  context.fillStyle = "#d1d4dc";
+  context.fillText(label, x1 + 5, y1 - 5);
+  context.restore();
+  drawHandle(context, x1, y1, color);
+}
+
+/** Arrow from p1 to p2 (annotation). */
+function paintArrow(
+  context: CanvasRenderingContext2D,
+  x1: number, y1: number, x2: number, y2: number,
+  color: string, isDraft: boolean,
+): void {
+  const angle = Math.atan2(y2 - y1, x2 - x1);
+  const headLen = 10;
+  context.save();
+  context.strokeStyle = color;
+  context.fillStyle = color;
+  context.lineWidth = 2;
+  if (isDraft) context.setLineDash([4, 4]);
+  context.beginPath();
+  context.moveTo(x1, y1);
+  context.lineTo(x2 - Math.cos(angle) * headLen * 0.6, y2 - Math.sin(angle) * headLen * 0.6);
+  context.stroke();
+  context.beginPath();
+  context.moveTo(x2, y2);
+  context.lineTo(x2 - Math.cos(angle - 0.45) * headLen, y2 - Math.sin(angle - 0.45) * headLen);
+  context.lineTo(x2 - Math.cos(angle + 0.45) * headLen, y2 - Math.sin(angle + 0.45) * headLen);
+  context.closePath();
+  context.fill();
+  context.restore();
+  drawHandle(context, x1, y1, color);
+  drawHandle(context, x2, y2, color);
 }
 
 function paintFibonacci(
@@ -232,6 +416,7 @@ export class UserDrawingsPrimitive implements ISeriesPrimitive<Time> {
     drawing: UserDrawing,
     proj: Projection,
     width: number,
+    height: number,
     isDraft: boolean,
   ): void {
     const x1 = proj.x(drawing.p1.time);
@@ -248,6 +433,18 @@ export class UserDrawingsPrimitive implements ISeriesPrimitive<Time> {
       case "ray":
         paintRay(context, x1, y1, width, color, isDraft);
         break;
+      case "hline":
+        paintHline(context, y1, width, color, isDraft);
+        break;
+      case "vline":
+        paintVline(context, x1, height, color, isDraft);
+        break;
+      case "extended":
+        if (x2 !== null && y2 !== null) paintExtended(context, x1, y1, x2, y2, width, color, isDraft);
+        break;
+      case "channel":
+        if (x2 !== null && y2 !== null) paintChannel(context, x1, y1, x2, y2, color, isDraft);
+        break;
       case "fibonacci":
         if (x2 !== null) paintFibonacci(context, drawing.p1, drawing.p2, x1, x2, width, proj, isDraft);
         break;
@@ -257,6 +454,16 @@ export class UserDrawingsPrimitive implements ISeriesPrimitive<Time> {
       case "measure":
         if (x2 !== null && y2 !== null) paintMeasure(context, drawing.p1, drawing.p2, x1, y1, x2, y2, this.intervalMs);
         break;
+      case "position-long":
+      case "position-short":
+        if (x2 !== null) paintPosition(context, drawing, x1, x2, proj, drawing.type === "position-long", isDraft);
+        break;
+      case "text":
+        paintText(context, x1, y1, drawing.text, color, isDraft);
+        break;
+      case "arrow":
+        if (x2 !== null && y2 !== null) paintArrow(context, x1, y1, x2, y2, color, isDraft);
+        break;
     }
   }
 
@@ -264,10 +471,10 @@ export class UserDrawingsPrimitive implements ISeriesPrimitive<Time> {
     const proj = this.projection();
     if (proj === null) return;
     for (const drawing of this.drawings) {
-      this.paintDrawing(context, drawing, proj, size.width, false);
+      this.paintDrawing(context, drawing, proj, size.width, size.height, false);
     }
     if (this.draft !== null) {
-      this.paintDrawing(context, this.draft, proj, size.width, true);
+      this.paintDrawing(context, this.draft, proj, size.width, size.height, true);
     }
   }
 }

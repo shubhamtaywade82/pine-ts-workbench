@@ -2,13 +2,19 @@
 
 import { memo } from "react";
 import {
+  ArrowDownRight,
   Layers,
   MousePointer,
   MoveRight,
+  MoveVertical,
+  MoveHorizontal,
   Ruler,
   Square,
-  Trash2,
+  Text as TextIcon,
   TrendingUp,
+  TrendingUpDown,
+  Trash2,
+  Waypoints,
 } from "lucide-react";
 import { type DrawingToolType } from "@/lib/user-drawings";
 
@@ -29,9 +35,17 @@ const TOOLS: readonly ToolItem[] = [
   { tool: "cursor", label: "Crosshair / Select (Esc)", icon: MousePointer },
   { tool: "trendline", label: "Trendline", icon: TrendingUp },
   { tool: "ray", label: "Horizontal Ray", icon: MoveRight },
+  { tool: "extended", label: "Extended Line", icon: TrendingUpDown },
+  { tool: "hline", label: "Horizontal Line", icon: MoveHorizontal },
+  { tool: "vline", label: "Vertical Line", icon: MoveVertical },
+  { tool: "channel", label: "Parallel Channel", icon: Waypoints },
   { tool: "fibonacci", label: "Fib Retracement", icon: Layers },
   { tool: "rectangle", label: "Rectangle", icon: Square },
   { tool: "measure", label: "Measure Tool", icon: Ruler },
+  { tool: "position-long", label: "Long Position (2:1 R:R)", icon: TrendingUp },
+  { tool: "position-short", label: "Short Position (2:1 R:R)", icon: ArrowDownRight },
+  { tool: "text", label: "Text Note", icon: TextIcon },
+  { tool: "arrow", label: "Arrow", icon: MoveRight },
 ];
 
 export const DrawingToolbar = memo(function DrawingToolbar({

@@ -1,15 +1,24 @@
 /**
  * Domain types and pure calculations for user interactive chart drawings
- * (trendline, horizontal ray, fibonacci retracement, rectangle, measure tool).
+ * (trendline, ray, fib retracement, rectangle, measure, hline/vline,
+ * parallel channel, long/short position, arrow, text).
  */
 
 export type DrawingToolType =
   | "cursor"
   | "trendline"
   | "ray"
+  | "extended"
+  | "hline"
+  | "vline"
   | "fibonacci"
   | "rectangle"
-  | "measure";
+  | "channel"
+  | "measure"
+  | "position-long"
+  | "position-short"
+  | "text"
+  | "arrow";
 
 export interface DrawingPoint {
   readonly time: number; // UTC ms
@@ -22,6 +31,8 @@ export interface UserDrawing {
   readonly p1: DrawingPoint;
   readonly p2: DrawingPoint;
   readonly color?: string;
+  /** Text label for the text tool. */
+  readonly text?: string;
 }
 
 export interface FibLevel {
@@ -77,4 +88,40 @@ export function computeMeasureStats(
 
 export function calculateFibPrice(p1Price: number, p2Price: number, ratio: number): number {
   return p1Price + (p2Price - p1Price) * ratio;
+}
+
+/** A one-click drawing: placed entirely on the first click. */
+export const SINGLE_CLICK_TOOLS: ReadonlySet<DrawingToolType> = new Set([
+  "cursor", "ray", "hline", "vline",
+]);
+
+export interface PositionStats {
+  readonly entry: number;
+  readonly target: number;
+  readonly stop: number;
+  /** Per-unit distance from entry to the stop (p2's distance). */
+  readonly risk: number;
+  readonly riskReward: number;
+  readonly qtyForRisk: (accountRisk: number) => number;
+}
+
+/**
+ * Long/short position tool math (TradingView's position tool): entry = p1,
+ * target/stop derive from p2 and the tool's fixed 2:1 shape — target is
+ * twice the risk in the trade's direction, stop at the entry minus/plus
+ * the same risk (i.e. p2 splits the distance).
+ */
+export function computePositionStats(p1: DrawingPoint, p2: DrawingPoint, isLong: boolean): PositionStats {
+  const entry = p1.price;
+  const risk = Math.abs(p2.price - p1.price);
+  const target = isLong ? entry + risk * 2 : entry - risk * 2;
+  const stop = isLong ? entry - risk : entry + risk;
+  return {
+    entry,
+    target,
+    stop,
+    risk,
+    riskReward: risk > 0 ? Math.abs(target - entry) / risk : 0,
+    qtyForRisk: (accountRisk: number) => (risk > 0 ? accountRisk / risk : 0),
+  };
 }
