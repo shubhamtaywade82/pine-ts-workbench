@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Bar } from "@nemesis-oss/pine-ts";
 import {
+  fetchDeepHistoryBars,
   fetchHistoricalBars,
   openMarketStream,
   INTERVAL_MS,
@@ -12,9 +13,10 @@ import {
 } from "@/lib/public-binance-feed";
 
 // TradingView-like depth; multi-timeframe scripts (4H context on 5m) need it.
-const HISTORY_BARS = 1000;
+// 5000 bars ≈ TV's standard chart depth; deep backtesting pages further via loadOlder.
+const HISTORY_BARS = 5000;
 // Bars fetched per scroll-back request; Binance allows up to 1000 per call.
-const OLDER_PAGE_BARS = 500;
+const OLDER_PAGE_BARS = 1000;
 // The chart subscribes to raw updates (drawn once per animation frame), so the
 // React snapshot only feeds indicators/editor/backtest. 1/s keeps that work
 // off the main thread between ticks without making those panels feel stale.
@@ -132,7 +134,7 @@ export function useLiveBars(symbol: BinanceSymbol, interval: ChartInterval): Liv
     };
 
     const start = async () => {
-      const history = await fetchHistoricalBars(symbol, interval, HISTORY_BARS);
+      const history = await fetchDeepHistoryBars(symbol, interval, HISTORY_BARS);
       if (isCancelled) return;
       workingRef.current = withOlderHistory(workingRef.current, history);
       setBars(workingRef.current);

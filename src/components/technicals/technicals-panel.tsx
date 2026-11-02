@@ -10,7 +10,7 @@ import { useTechnicals } from "@/hooks/use-technicals";
 /** TradingView's Technicals: rating gauges, oscillator and moving-average tables, pivots. */
 
 const TIMEFRAMES: readonly (readonly [ChartInterval, string])[] = [
-  ["1m", "1 minute"], ["5m", "5 minutes"], ["15m", "15 minutes"], ["30m", "30 minutes"], ["1h", "1 hour"],
+  ["1s", "1 second"], ["1m", "1 minute"], ["5m", "5 minutes"], ["15m", "15 minutes"], ["30m", "30 minutes"], ["1h", "1 hour"],
   ["2h", "2 hours"], ["4h", "4 hours"], ["1d", "1 day"], ["1w", "1 week"], ["1M", "1 month"],
 ];
 const PIVOT_LABELS = ["P", "R1", "R2", "R3", "S1", "S2", "S3"];

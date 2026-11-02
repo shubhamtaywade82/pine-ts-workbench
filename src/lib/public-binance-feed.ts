@@ -42,7 +42,7 @@ export interface BinanceKlineEvent {
 export type BinanceSymbol = "BTCUSDT" | "ETHUSDT" | "SOLUSDT" | "BNBUSDT";
 
 /** Workbench intervals — the strings are valid Binance kline intervals as-is. */
-export type ChartInterval = "1m" | "3m" | "5m" | "15m" | "30m" | "1h" | "2h" | "4h" | "1d" | "1w" | "1M";
+export type ChartInterval = "1s" | "1m" | "3m" | "5m" | "15m" | "30m" | "1h" | "2h" | "4h" | "1d" | "1w" | "1M";
 
 export type { SymbolOption } from "./symbol-catalog";
 export { SYMBOL_CATALOG as SUPPORTED_SYMBOLS } from "./symbol-catalog";
@@ -62,6 +62,7 @@ export const QUOTE_ASSET: Record<BinanceSymbol, string> = {
 /** Maps Pine Script timeframe strings ("15", "60", "240", "D") to Binance intervals. */
 export const timeframeToChartInterval = (timeframe: string): ChartInterval | undefined => {
   const norm = timeframe.trim().toLowerCase();
+  if (norm === "1s") return "1s";
   if (norm === "1" || norm === "1m") return "1m";
   if (norm === "3" || norm === "3m") return "3m";
   if (norm === "5" || norm === "5m") return "5m";
@@ -101,11 +102,11 @@ export const fetchHtfBars = async (
 
 export const quoteAssetOf = (symbol: BinanceSymbol): string => QUOTE_ASSET[symbol];
 
-export const SUPPORTED_INTERVALS: readonly ChartInterval[] = ["1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "1d", "1w", "1M"];
+export const SUPPORTED_INTERVALS: readonly ChartInterval[] = ["1s", "1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "1d", "1w", "1M"];
 
 /** TradingView's toolbar labels. */
 export const INTERVAL_LABELS: Record<ChartInterval, string> = {
-  "1m": "1m", "3m": "3m", "5m": "5m", "15m": "15m", "30m": "30m",
+  "1s": "1s", "1m": "1m", "3m": "3m", "5m": "5m", "15m": "15m", "30m": "30m",
   "1h": "1h", "2h": "2h", "4h": "4h", "1d": "D", "1w": "W", "1M": "M",
 };
 
@@ -151,8 +152,37 @@ export const fetchHistoricalBars = async (
 
 // ---------- WebSocket: live klines + trades ----------
 
+/**
+ * Deep history: pages backwards from now (or `endTime`) with concurrent-free
+ * sequential requests until `totalBars` candles are collected or Binance runs
+ * out (the pair's listing date). Binance caps each request at 1000 klines, so
+ * a 5000-bar load costs 5 requests. Returns oldest-first bars like
+ * {@link fetchHistoricalBars}.
+ */
+export const fetchDeepHistoryBars = async (
+  symbol: BinanceSymbol,
+  interval: ChartInterval,
+  totalBars: number,
+): Promise<Bar[]> => {
+  const collected: Bar[] = [];
+  let endTime: number | undefined;
+  while (collected.length < totalBars) {
+    const remaining = totalBars - collected.length;
+    const page = await fetchHistoricalBars(symbol, interval, Math.min(remaining, MAX_KLINES_LIMIT), endTime);
+    if (page.length === 0) break;
+    // The page is oldest-first and ends at (or just before) the previous page's
+    // oldest candle; prepend it and continue backwards.
+    collected.unshift(...page);
+    const oldest = page[0]!.time;
+    if (page.length < Math.min(remaining, MAX_KLINES_LIMIT)) break; // history exhausted
+    endTime = oldest - 1;
+  }
+  return collected;
+};
+
 /** Bar duration per interval, to know when a trade starts a new candle. */
 export const INTERVAL_MS: Record<ChartInterval, number> = {
+  "1s": 1_000,
   "1m": 60_000,
   "3m": 180_000,
   "5m": 300_000,
