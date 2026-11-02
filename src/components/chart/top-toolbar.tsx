@@ -8,6 +8,7 @@ import type { ScriptLibraryState } from "@/hooks/use-script-library";
 import { SettingsDialog, type BinanceSettings } from "@/components/trading/settings-dialog";
 import { EnvironmentBanner, environmentOf } from "@/components/trading/environment-banner";
 import { KillSwitch } from "@/components/trading/kill-switch";
+import { DocsDialog } from "@/components/editor/docs-dialog";
 import { AlertSettingsDialog } from "@/components/alerts/alert-settings-dialog";
 import type { AlertSettings } from "@/lib/alert-sinks";
 import { loadLayouts, type SavedLayout } from "@/lib/saved-layouts";
@@ -159,6 +160,7 @@ export function TopToolbar(props: TopToolbarProps) {
       </Button>
       <ToolbarSeparator />
       <AlertSettingsDialog onSaved={props.onAlertSettingsSaved} />
+      <DocsDialog />
 
       <div className="ml-auto flex items-center gap-0.5">
         <SavedLayoutsMenu onSave={props.onSaveLayout} onLoad={props.onLoadLayout} />
