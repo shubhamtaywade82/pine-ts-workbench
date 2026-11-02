@@ -2,7 +2,7 @@ import type { Bar, ScriptDrawings } from "@nemesis-oss/pine-ts";
 import type { ChartOverlay } from "@/components/chart/chart-workbench";
 import type { ChartDrawing } from "@/components/chart/script-drawings-primitive";
 
-/** Pine Editor output (per-bar values and bar-indexed drawings) → chart-ready, time-based data. */
+/** TypeScript Editor output (per-bar values and bar-indexed drawings) → chart-ready, time-based data. */
 
 /** Plot values per editor bar → chart overlays; constant plots become dashed levels. */
 export const toEditorOverlays = (

@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/select";
 import { Trash2, Plus, Bell, CheckCircle2, XCircle, MinusCircle } from "lucide-react";
 import {
-  CONDITION_LABELS, MAX_CONDITIONS_PER_RULE, rearmRules,
+  CONDITION_LABELS, MAX_CONDITIONS_PER_RULE, PLACEHOLDER_HELP, rearmRules,
   type AlertCondition, type AlertConditionKind, type AlertRule, type FiredAlert,
 } from "@/lib/alert-engine";
 
@@ -49,6 +49,7 @@ export function AlertsPanel({
 }: AlertsPanelProps) {
   const [newName, setNewName] = useState("");
   const [newSymbol, setNewSymbol] = useState<string>(symbol);
+  const [newMessage, setNewMessage] = useState("");
   const [newConditions, setNewConditions] = useState<AlertCondition[]>([
     { kind: "rsi_above", threshold: 70 },
   ]);
@@ -76,13 +77,15 @@ export function AlertsPanel({
       name: newName.trim() || `${symbol} ${conditions.map((c) => CONDITION_LABELS[c.kind]).join(" + ")}`.slice(0, 60),
       symbol: newSymbol.trim().toUpperCase() || symbol,
       conditions,
+      messageTemplate: newMessage.trim() === "" ? undefined : newMessage.trim(),
       enabled: true,
     };
     rearmRules();
     onRulesChange([...rules, rule]);
     setNewName("");
+    setNewMessage("");
     setNewConditions([{ kind: "rsi_above", threshold: 70 }]);
-  }, [rules, newName, newSymbol, newConditions, symbol, onRulesChange]);
+  }, [rules, newName, newSymbol, newMessage, newConditions, symbol, onRulesChange]);
 
   const removeRule = useCallback((id: string) => {
     rearmRules();
@@ -126,6 +129,16 @@ export function AlertsPanel({
             <p className="text-[10px] text-muted-foreground">
               Enter <span className="font-mono">*</span> as the symbol to alert on every watchlist symbol.
             </p>
+            <div className="flex flex-col gap-1">
+              <Label className="text-xs text-muted-foreground">Message (optional)</Label>
+              <Input value={newMessage}
+                placeholder="{{ticker}} crossed {{close}} on {{interval}} at {{time}}"
+                onChange={(e) => setNewMessage(e.target.value)}
+                className="h-8 text-xs font-mono" />
+              <p className="text-[10px] text-muted-foreground">
+                Placeholders: <span className="font-mono">{PLACEHOLDER_HELP}</span>
+              </p>
+            </div>
             {newConditions.map((condition, index) => (
               <div key={index} className="flex items-end gap-2">
                 {index > 0 && <span className="pb-2 text-[10px] font-semibold uppercase text-muted-foreground">and</span>}
@@ -194,6 +207,11 @@ export function AlertsPanel({
                       </span>
                     ))}
                   </div>
+                  {rule.messageTemplate !== undefined && (
+                    <span className="pl-6 font-mono text-[9px] text-muted-foreground">
+                      ✉ {rule.messageTemplate}
+                    </span>
+                  )}
                   {rule.lastFiredAt && (
                     <span className="pl-6 text-[9px] text-muted-foreground">
                       Last fired {new Date(rule.lastFiredAt).toLocaleString()}

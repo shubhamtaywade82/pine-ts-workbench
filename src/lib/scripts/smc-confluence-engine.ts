@@ -1,6 +1,6 @@
 /**
  * "SMC Confluence Engine v7.1 [nemesis]" ported from Pine Script v6 to a
- * pine-ts concise indicator, as Pine Editor template source.
+ * pine-ts concise indicator, as TypeScript Editor template source.
  *
  * Kept: the 4-layer MTF stack (4H/1H/15m via `security`), 5m structure with
  * displacement, armed triggers, order blocks, FVGs with partial fills, HH/HL

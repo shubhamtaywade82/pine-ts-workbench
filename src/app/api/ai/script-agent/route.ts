@@ -77,7 +77,7 @@ function createValidationTool(): AnyTool {
         parameters: {
           type: "object",
           properties: {
-            code: { type: "string", description: "Pine-TS script code to test" },
+            code: { type: "string", description: "TypeScript script code to test" },
           },
           required: ["code"],
         },

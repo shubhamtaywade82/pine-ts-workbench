@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   evaluateAlerts,
   evaluateWatchlistAlerts,
+  fillPlaceholders,
   rearmRules,
   ruleTriggers,
   MAX_CONDITIONS_PER_RULE,
@@ -175,5 +176,53 @@ describe("watchlist alerts (symbol '*')", () => {
       ],
     );
     expect(fired).toHaveLength(0);
+  });
+});
+
+describe("message templates with placeholders", () => {
+  test("substitutes all known placeholders", () => {
+    const out = fillPlaceholders("{{ticker}} crossed {{close}} on {{interval}} at {{time}}", {
+      ticker: "BTCUSDT", close: 43250.5, interval: "15m", time: "2026-11-02T10:00:00Z",
+    });
+    expect(out).toBe("BTCUSDT crossed 43250.5 on 15m at 2026-11-02T10:00:00Z");
+  });
+
+  test("optional placeholders fall back to the literal when unset", () => {
+    const out = fillPlaceholders("RSI {{rsi}} vol {{volume}} chg {{change}}", {
+      ticker: "X", close: 1, interval: "1m", time: "t",
+    });
+    expect(out).toBe("RSI {{rsi}} vol {{volume}} chg {{change}}");
+  });
+
+  test("unknown placeholders are left untouched", () => {
+    expect(fillPlaceholders("{{nope}}", { ticker: "X", close: 1, interval: "1m", time: "t" })).toBe("{{nope}}");
+  });
+
+  test("a rule with a template fires the rendered message", async () => {
+    const log: string[] = [];
+    const rule: AlertRule = {
+      id: "tpl-1", name: "tpl", symbol: "BTCUSDT",
+      conditions: [{ kind: "price_above", threshold: 100 }],
+      messageTemplate: "{{ticker}} > {{close}} ({{interval}})",
+      enabled: true,
+    };
+    const { fired } = await evaluateAlerts([rule], [recordingSink(log)], {
+      symbol: "BTCUSDT", price: 101, interval: "5m", barTime: 1,
+    });
+    expect(fired.length).toBe(1);
+    expect(fired[0]!.event.message).toBe("BTCUSDT > 101 (5m)");
+  });
+
+  test("a rule without a template keeps the auto description", async () => {
+    const log: string[] = [];
+    const rule: AlertRule = {
+      id: "tpl-2", name: "auto", symbol: "BTCUSDT",
+      conditions: [{ kind: "price_above", threshold: 100 }],
+      enabled: true,
+    };
+    const { fired } = await evaluateAlerts([rule], [recordingSink(log)], {
+      symbol: "BTCUSDT", price: 101, barTime: 2,
+    });
+    expect(fired[0]!.event.message).toContain("Price is above 100");
   });
 });

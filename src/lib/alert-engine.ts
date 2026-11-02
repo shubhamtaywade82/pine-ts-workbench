@@ -58,6 +58,34 @@ export interface AlertCondition {
   readonly threshold: number;
 }
 
+/** Placeholder values available inside an alert message template. */
+export interface AlertPlaceholders {
+  readonly ticker: string;
+  readonly close: number;
+  readonly interval: string;
+  readonly time: string;
+  readonly rsi?: number;
+  readonly volume?: number;
+  readonly change?: number;
+}
+
+/** Substitutes {{ticker}}, {{close}}, {{interval}}, {{time}}, {{rsi}}, {{volume}}, {{change}} in a template. */
+export const fillPlaceholders = (template: string, values: AlertPlaceholders): string =>
+  template.replace(/\{\{(\w+)\}\}/g, (whole, key: string) => {
+    switch (key) {
+      case "ticker": return values.ticker;
+      case "close": return values.close.toString();
+      case "interval": return values.interval;
+      case "time": return values.time;
+      case "rsi": return values.rsi !== undefined ? values.rsi.toFixed(1) : whole;
+      case "volume": return values.volume !== undefined ? values.volume.toFixed(2) : whole;
+      case "change": return values.change !== undefined ? `${values.change.toFixed(2)}%` : whole;
+      default: return whole;
+    }
+  });
+
+export const PLACEHOLDER_HELP = "{{ticker}} {{close}} {{interval}} {{time}} {{rsi}} {{volume}} {{change}}";
+
 /**
  * An alert rule: 1–5 conditions ANDed together. Firing once per bar per
  * symbol, the rule re-arms itself (open-ended, no expiry).
@@ -68,6 +96,8 @@ export interface AlertRule {
   /** Symbol the rule watches; `"*"` = every watchlist symbol (watchlist alert). */
   readonly symbol: string;
   readonly conditions: readonly AlertCondition[];
+  /** User message template with {{placeholders}}; empty = auto description. */
+  readonly messageTemplate?: string;
   readonly actionSide?: "BUY" | "SELL";
   readonly actionQty?: number;
   readonly enabled: boolean;
@@ -104,6 +134,8 @@ export const CONDITION_LABELS: Record<AlertConditionKind, string> = {
 export interface AlertContext {
   readonly symbol: string;
   readonly price: number;
+  /** Chart timeframe, for the {{interval}} placeholder. */
+  readonly interval?: string;
   readonly rsi?: number;
   readonly sma?: number;
   readonly macdHist?: number;
@@ -179,6 +211,18 @@ export const evaluateAlerts = async (
     if (!ruleTriggers(rule, ctx)) { updated.push(rule); continue; }
 
     lastFiredBar.set(dedupeKey, stamp);
+    const template = rule.messageTemplate?.trim();
+    const message = template !== undefined && template !== ""
+      ? fillPlaceholders(template, {
+        ticker: ctx.symbol,
+        close: ctx.price,
+        interval: ctx.interval ?? "",
+        time: new Date().toISOString(),
+        rsi: ctx.rsi,
+        volume: ctx.volume,
+        change: ctx.percentChange24h,
+      })
+      : describeRule(rule, ctx);
     const event: AlertEvent = {
       id: `alert-${Date.now()}-${rule.id}-${Math.random().toString(36).slice(2, 6)}`,
       timestamp: new Date().toISOString(),
@@ -187,7 +231,7 @@ export const evaluateAlerts = async (
       value: ctx.price,
       threshold: rule.conditions[0]?.threshold ?? 0,
       action: rule.actionSide ? `${rule.actionSide} ${rule.actionQty ?? 0} MARKET` : undefined,
-      message: describeRule(rule, ctx),
+      message,
     };
     const deliveries: AlertDeliveryResult[] = [];
     for (const sink of sinks) deliveries.push(await sink.deliver(event));

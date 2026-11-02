@@ -145,6 +145,12 @@ function PropertiesTab({ declaration, draft, onChange }: ScriptSettingsDialogPro
               <option value="cash">Cash per order</option>
             </select>
           )}
+          {key === "slippage" && (
+            <select className={FIELD} value={merged.slippage_unit ?? "points"} onChange={(e) => set({ slippage_unit: e.target.value as StrategyOptions["slippage_unit"] })}>
+              <option value="points">Ticks</option>
+              <option value="percent">Percent</option>
+            </select>
+          )}
           {unit !== undefined && <span className="text-sm text-muted-foreground">{unit}</span>}
         </Row>
       ))}

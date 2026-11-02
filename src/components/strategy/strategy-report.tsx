@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import { usePersistedState } from "@/hooks/use-persisted-state";
-import { ChartLine, List, Settings, Sparkles } from "lucide-react";
+import { ChartLine, Download, List, Settings, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { AiAuditDialog } from "@/components/strategy/ai-audit-dialog";
 import type { BacktestSummary } from "@/lib/strategy-runner";
@@ -56,6 +56,35 @@ export function StrategyReport({ onOpenSettings, strategyCode, onApplyCode, ...d
     };
   }, [data.trades, data.equity, data.initialCapital]);
 
+  /** Exports the whole backtest — metrics + trades + equity — as JSON. */
+  const exportJson = () => {
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      summary,
+      ratios: riskRatios(data.equity, data.initialCapital),
+      buyHold: buyHoldEquity(data.equity, data.initialCapital),
+      trades: data.trades.map((t) => ({
+        direction: t.direction,
+        qty: t.qty,
+        entryTime: t.entryTime,
+        entryPrice: t.entryPrice,
+        exitTime: t.exitTime,
+        exitPrice: t.exitPrice,
+        profit: t.profit,
+        runUp: t.runUp,
+        drawDown: t.drawDown,
+      })),
+      equityCurve: data.equity.map((p) => ({ time: p.time, equity: p.equity, close: p.close })),
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `backtest-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="flex h-full flex-col bg-background">
       <div className="flex shrink-0 items-center gap-1 border-b border-border px-3 py-1.5">
@@ -63,6 +92,9 @@ export function StrategyReport({ onOpenSettings, strategyCode, onApplyCode, ...d
         <IconToggle isActive={view === "trades"} onClick={() => setView("trades")} title="List of trades"><List className="h-4 w-4" /></IconToggle>
         <span className="mx-1 h-4 w-px bg-border" />
         <IconToggle isActive={false} onClick={onOpenSettings} title="Strategy settings"><Settings className="h-4 w-4" /></IconToggle>
+        <Button variant="ghost" size="sm" className="h-6 w-6 p-0" title="Export metrics + trades (JSON)" onClick={exportJson}>
+          <Download className="h-3.5 w-3.5" />
+        </Button>
         {strategyCode && (
           <Button
             size="sm"

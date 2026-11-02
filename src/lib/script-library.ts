@@ -1,5 +1,5 @@
 /**
- * "My scripts": the user's saved Pine Editor scripts, with version history,
+ * "My scripts": the user's saved TypeScript Editor scripts, with version history,
  * favourites and recency, kept in localStorage. Pure state transitions
  * (`library` in, new `library` out) plus load/persist at the boundary.
  */

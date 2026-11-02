@@ -6,7 +6,7 @@ import { ScriptCompileError, type CodePosition } from "./script-loader";
 import { fetchHtfBars, type BinanceSymbol } from "./public-binance-feed";
 
 /**
- * Runs Pine Editor and saved scripts off the main thread, so a heavy indicator
+ * Runs TypeScript Editor and saved scripts off the main thread, so a heavy indicator
  * never stalls chart animation. Each slot (the editor, a script on a chart)
  * keeps its own live run, so ticks still execute only the forming bar.
  */

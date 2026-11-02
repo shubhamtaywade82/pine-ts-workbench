@@ -93,7 +93,7 @@ export function OpenScriptDialog({ open, onClose, scripts }: { open: boolean; on
       <DialogContent className="flex max-h-[80vh] sm:max-w-md flex-col gap-3">
         <DialogTitle>Open my script</DialogTitle>
         <DialogDescription className="sr-only">
-          Search and open saved scripts from your personal Pine Script library.
+          Search and open saved scripts from your personal TypeScript library.
         </DialogDescription>
         <Input placeholder="Search" value={query} onChange={(e) => setQuery(e.target.value)} autoFocus />
         <div className="min-h-0 flex-1 overflow-y-auto">

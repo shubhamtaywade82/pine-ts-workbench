@@ -8,7 +8,7 @@ import { StrategyReport } from "@/components/strategy/strategy-report";
 import type { ScriptSettings } from "@/lib/script-library";
 
 /**
- * Strategy backtest UI. The Pine Editor hands strategy code over; the
+ * Strategy backtest UI. The TypeScript Editor hands strategy code over; the
  * Strategy Tester (bottom panel) shows the report, like TradingView.
  */
 
@@ -65,7 +65,7 @@ export function StrategyTester({
   onApplyCode?: (code: string) => void;
 }) {
   const summary = result?.summary;
-  if (result === null) return <TesterMessage text="Run a strategy from the Pine Editor to see results." />;
+  if (result === null) return <TesterMessage text="Run a strategy from the TypeScript Editor to see results." />;
   if (!result.ok || summary === undefined) return <TesterMessage text={result.error ?? "Backtest failed."} isError />;
   return (
     <StrategyReport

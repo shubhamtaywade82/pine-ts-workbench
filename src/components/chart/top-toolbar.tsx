@@ -6,6 +6,9 @@ import type { CellSettings } from "@/components/chart/chart-cell";
 import { IndicatorsDialog } from "@/components/chart/indicators-dialog";
 import type { ScriptLibraryState } from "@/hooks/use-script-library";
 import { SettingsDialog, type BinanceSettings } from "@/components/trading/settings-dialog";
+import { EnvironmentBanner, environmentOf } from "@/components/trading/environment-banner";
+import { KillSwitch } from "@/components/trading/kill-switch";
+import { DocsDialog } from "@/components/editor/docs-dialog";
 import { AlertSettingsDialog } from "@/components/alerts/alert-settings-dialog";
 import type { AlertSettings } from "@/lib/alert-sinks";
 import { loadLayouts, type SavedLayout } from "@/lib/saved-layouts";
@@ -55,6 +58,7 @@ export interface TopToolbarProps {
   readonly onToggleTheme: () => void;
   readonly onAlertSettingsSaved: (settings: AlertSettings) => void;
   readonly onSettingsSaved: (settings: BinanceSettings) => void;
+  readonly binanceSettings?: BinanceSettings;
   readonly onOpenChartSettings: () => void;
   readonly chartSettings?: ChartSettings;
   readonly onChartSettingsChange?: (settings: ChartSettings) => void;
@@ -156,10 +160,21 @@ export function TopToolbar(props: TopToolbarProps) {
       </Button>
       <ToolbarSeparator />
       <AlertSettingsDialog onSaved={props.onAlertSettingsSaved} />
+      <DocsDialog />
 
       <div className="ml-auto flex items-center gap-0.5">
         <SavedLayoutsMenu onSave={props.onSaveLayout} onLoad={props.onLoadLayout} />
         <ToolbarSeparator />
+        {props.binanceSettings && (
+          <>
+            <EnvironmentBanner environment={environmentOf(props.binanceSettings)} />
+            <KillSwitch
+              symbol={activeCell.symbol.binanceSymbol}
+              settings={props.binanceSettings}
+            />
+            <ToolbarSeparator />
+          </>
+        )}
         <Button variant="ghost" size="sm" className="h-8 w-8 p-0" title="Toggle theme" onClick={props.onToggleTheme}>
           {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
         </Button>

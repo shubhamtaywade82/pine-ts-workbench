@@ -3,7 +3,7 @@ import { ta, PineRuntime } from "@nemesis-oss/pine-ts";
 import { loadScript, ScriptCompileError } from "@/lib/script-loader";
 
 /**
- * Runs Pine Editor indicator code on bars: a concise `indicator()` script, or
+ * Runs TypeScript Editor indicator code on bars: a concise `indicator()` script, or
  * a legacy `calculate({ ta, ctx, inputs })` function. Strategies are rejected
  * here; the Strategy Tester runs them.
  */
@@ -111,7 +111,7 @@ export const isOverlayScript = (userCode: string): boolean => {
 export type LiveRunner = (userCode: string, bars: readonly Bar[], inputs?: InputsBag) => Promise<ScriptRun>;
 
 /**
- * One script slot on a live chart (the Pine Editor, or a saved script on a
+ * One script slot on a live chart (the TypeScript Editor, or a saved script on a
  * chart). While the code and inputs stay the same, a snapshot re-executes only
  * the forming bar (or the bar that just closed and the new one) instead of all
  * history. Calls are queued, since a live run must see updates in order.

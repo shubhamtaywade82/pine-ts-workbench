@@ -86,7 +86,7 @@ export function AiScriptDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2 text-base font-semibold">
             <Sparkles className="h-5 w-5 text-indigo-400" />
-            Pine Script AI Copilot & Self-Healing Agent
+            TypeScript AI Copilot & Self-Healing Agent
           </DialogTitle>
           <DialogDescription className="text-xs text-muted-foreground">
             Describe your script requirements or let the agent diagnose and repair runtime errors.

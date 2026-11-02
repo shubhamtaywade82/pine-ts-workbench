@@ -10,7 +10,7 @@ import type { ChartSettings } from "@/lib/chart-settings";
 import { Button } from "@/components/ui/button";
 import type { ScriptRunner } from "@/lib/script-worker-client";
 import { History, X } from "lucide-react";
-import { useLiveBars, type LiveStatus } from "@/hooks/use-live-bars";
+import { useLiveBars, type FeedHealth, type LiveStatus } from "@/hooks/use-live-bars";
 import { useBarReplay } from "@/hooks/use-bar-replay";
 import { ReplayControls } from "@/components/chart/replay-controls";
 import { buildSinks, dispatchScriptAlerts, formatScriptAlertMessage, loadAlertSettings } from "@/lib/alert-sinks";
@@ -55,7 +55,7 @@ export function ChartCell({
   isEditorOverlay = false, chartSettings, onChartSettingsChange, onOpenChartSettings,
   tradeMarkers, onActiveBarsChange, onEditorScriptAction,
 }: ChartCellProps) {
-  const { bars, status, error, loadOlder, subscribe } = useLiveBars(symbol.binanceSymbol, interval);
+  const { bars, status, error, health, loadOlder, subscribe } = useLiveBars(symbol.binanceSymbol, interval);
   const replay = useBarReplay(bars.length);
   const visibleBars = useMemo(
     () => (replay.isReplay ? bars.slice(0, replay.replayIndex) : bars),
@@ -174,7 +174,7 @@ export function ChartCell({
       <div className="absolute right-16 top-1 z-10 flex items-center gap-1.5">
         {!replay.isReplay ? (
           <>
-            <LiveBadge status={status} />
+            <LiveBadge status={status} health={health} interval={interval} symbol={symbol.displayName} />
             <Button
               variant="ghost"
               size="sm"
@@ -239,11 +239,32 @@ const LIVE_BADGE: Record<LiveStatus, { label: string; dotClass: string }> = {
   reconnecting: { label: "Reconnecting…", dotClass: "bg-[#ff9800]" },
 };
 
-function LiveBadge({ status }: { status: LiveStatus }) {
+/** Provider-health badge: connection state + tick age + data-quality warnings. */
+function LiveBadge({ status, health, interval, symbol }: {
+  readonly status: LiveStatus;
+  readonly health: FeedHealth;
+  readonly interval: string;
+  readonly symbol: string;
+}) {
   const { label, dotClass } = LIVE_BADGE[status];
+  const warnings: string[] = [];
+  if (health.isStale) warnings.push(`stale feed — last tick ${Math.round((health.lastTickAgeMs ?? 0) / 1000)}s ago`);
+  if (health.gapCount > 0) warnings.push(`${health.gapCount} missing-bar gap${health.gapCount > 1 ? "s" : ""} in history`);
+  const asOf = health.lastBarTime !== undefined ? new Date(health.lastBarTime).toLocaleTimeString() : "—";
+  const title = warnings.length > 0
+    ? `${symbol} ${interval}: ${warnings.join("; ")} (last bar ${asOf})`
+    : `${symbol} ${interval}: connected, last bar ${asOf}`;
+  const warnClass = warnings.length > 0 ? "text-[#ff9800]" : "text-muted-foreground";
   return (
-    <span className="flex items-center gap-1 text-[10px] text-muted-foreground">
-      <span className={`inline-block h-2 w-2 rounded-full ${dotClass}`} />{label}
+    <span
+      className={`flex items-center gap-1 text-[10px] ${warnClass} ${health.isStale ? "animate-pulse" : ""}`}
+      title={title}
+    >
+      <span className={`inline-block h-2 w-2 rounded-full ${dotClass}`} />
+      {warnings.length > 0 ? "⚠ " : ""}{label}
+      {health.lastTickAgeMs !== undefined && status === "live" && !health.isStale && (
+        <span className="hidden text-[9px] opacity-60 sm:inline">+{Math.max(0, Math.round(health.lastTickAgeMs / 1000))}s</span>
+      )}
     </span>
   );
 }
