@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.5.0](https://github.com/shubhamtaywade82/pine-ts-workbench/compare/v0.4.0...v0.5.0) (2026-11-02)
+
+
+### Features
+
+* **ai:** integrate tev1 decision model and market snapshot contract ([00355f8](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/00355f8ca4a761651c8a3c208caac51148689b07))
+* **alerts:** message templates with {{ticker}}/{{close}}/{{interval}}/{{time}} placeholders (P0) ([4db70d5](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/4db70d5958f299895a18de3eee13228aec3fbe6f))
+* **dependencies:** add @nemesis-oss/dhanhq-sdk version 1.3.0 to bun.lock ([9bd6dbd](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/9bd6dbd3b7b839e7fba289d1341653e519710646))
+* **dhan:** add DhanHQ SDK integration and update README with token management details ([54a7745](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/54a774551b414b3dee41abb63cef70d38287f6c3))
+* **dhan:** chart NSE/BSE indices from DhanHQ via the shared algo_scalper_api token ([fe26ba0](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/fe26ba02edef4ab5e1b8b129970adfc320751af8))
+* **docs:** in-app docs dialog — examples gallery, ta API reference, Pine-to-TS cheat sheet, hotkeys (P0) ([b361152](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/b36115231d0d5dd515c6e72802ee1d1efcae4907))
+* **feed:** provider health badge — tick age, stale detection, bar-gap warnings (P0) ([0598df2](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/0598df24d0e2ee62c9dc9c90716ac2621b3acc79))
+* **search:** fuzzy-ranked symbol search with favorites and recents (P0) ([83209ed](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/83209ed3bb16eee9f54dae5283b76fca30017283))
+* **tester:** JSON export of full backtest + slippage-unit fill-model control (P0) ([0a5fa0e](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/0a5fa0e9a816637c16910fb9419a5960ccbeab05))
+* **token:** implement DhanTokenProvider for managing access tokens with fallback logic and caching ([eb1b992](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/eb1b9920d0cd221ba346a5a67b066803ff2f57f3))
+* **watchlist:** live last/chg%/vol columns from Binance ticker stream + drag-reorder (P0) ([d91630b](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/d91630b50fa585894d9beb538e0af6e6974964cf))
+* **workbench:** P0 requirements parity — kill switch, environment banner, live watchlist, fuzzy search, health badge, alert templates, docs ([623e3c3](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/623e3c3c9e95e6f7481243d99e0fff4116f0926a))
+
 ## [0.4.0](https://github.com/shubhamtaywade82/pine-ts-workbench/compare/v0.3.0...v0.4.0) (2026-11-02)
 
 
