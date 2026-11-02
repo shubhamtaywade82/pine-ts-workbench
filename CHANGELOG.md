@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.4.0](https://github.com/shubhamtaywade82/pine-ts-workbench/compare/v0.3.0...v0.4.0) (2026-11-02)
+
+
+### Features
+
+* **alerts:** multi-condition rules, persistence, dedupe, watchlist alerts (P5) ([eebd0dd](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/eebd0dd10497cd08a9f13ac9b6ca9ac13060e54c))
+* **drawings:** 8 new chart drawing tools — 13-tool core set (P4) ([eda6a50](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/eda6a50091e276e29923a4b719ae872c86c8f600))
+* **feed:** second-based 1s interval and 5000-bar deep history ([5ca31a4](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/5ca31a4432fb50296e888a78908aa12cc22953f8))
+* **grid:** 16-chart layouts — TradingView Ultimate layout parity (P4) ([ff1824a](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/ff1824a0b526dedfa65df3c7ff6be2306dfae9f3))
+* **worker:** 100-second script execution timeout (TradingView Ultimate parity) ([7b2859f](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/7b2859f900e42c4cdb4a82bafbbac08e244fe8e7))
+
 ## [0.3.0](https://github.com/shubhamtaywade82/pine-ts-workbench/compare/v0.2.1...v0.3.0) (2026-10-28)
 
 
