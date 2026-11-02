@@ -14,7 +14,7 @@ import { describeCode, type ScriptSettings } from "@/lib/script-library";
 import type { BacktestTrade } from "@/lib/strategy-runner";
 
 /**
- * Everything around the Pine Editor's script: the library, its indicator
+ * Everything around the TypeScript Editor's script: the library, its indicator
  * output on the active chart (styled by its settings), the strategy backtest,
  * and the settings dialog.
  */
@@ -26,7 +26,7 @@ export function useEditorScript(onOpenEditor: () => void, onOpenTester: () => vo
   const [isHidden, setIsHidden] = usePersistedState("editor-script-hidden", false);
   const [isOnChart, setIsOnChart] = usePersistedState("editor-script-on-chart", true);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  // Strategy code from the Pine Editor; null until the editor opens a strategy.
+  // Strategy code from the TypeScript Editor; null until the editor opens a strategy.
   const [strategyCode, setStrategyCode] = useState<string | null>(null);
   const [trades, setTrades] = useState<BacktestTrade[]>([]);
   const backtest = useBacktest(editorBars, strategyCode, settings, setTrades);

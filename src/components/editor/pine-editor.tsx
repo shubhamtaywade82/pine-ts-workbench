@@ -16,7 +16,7 @@ import type { ScriptLibraryState, ScriptTemplates } from "@/hooks/use-script-lib
 import { EditorMoreMenu, useEditorPrefs } from "@/components/editor/editor-more-menu";
 
 /**
- * TradingView-style Pine Editor panel. One editor for indicators and
+ * TradingView-style TypeScript Editor panel. One editor for indicators and
  * strategies: an indicator previews on the active chart, a strategy runs in
  * the Strategy Tester. Scripts live in the "My scripts" library.
  */
@@ -112,7 +112,7 @@ export function PineEditor({ bars, onResults, onStrategyCode, onAddToChart, onCl
   return (
     <div className="flex h-full flex-col bg-background">
       <div className="flex h-9 shrink-0 items-center justify-between px-3 text-sm text-[#d1d4dc]">
-        <span>Pine Editor</span>
+        <span>TypeScript Editor</span>
         {onClose !== undefined && <button type="button" title="Close" onClick={onClose}><X className="h-4 w-4" /></button>}
       </div>
       <div className="flex h-10 shrink-0 items-center justify-between gap-2 border-b border-border px-2">

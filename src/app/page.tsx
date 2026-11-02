@@ -43,7 +43,7 @@ import { Code2, FlaskConical } from "lucide-react";
  *
  * The page manages N independent ChartCell instances in a grid (1, 2, 4, or 6).
  * Each cell has its own symbol, timeframe, bars, stream, indicators, and overlays.
- * Clicking a cell makes it "active" — the Pine Editor (right panel) and the
+ * Clicking a cell makes it "active" — the TypeScript Editor (right panel) and the
  * Strategy Tester (bottom panel) operate on the active cell's bars. Both panels
  * are toggled from the bottom toolbar, as on TradingView.
  *
@@ -77,7 +77,7 @@ export default function Home() {
     saveChartSettings(next);
   }, []);
   const openChartSettings = useCallback(() => setIsChartSettingsOpen(true), []);
-  // The right panel (Pine Editor or Technicals); `isEditorOpen` is whether it is expanded.
+  // The right panel (TypeScript Editor or Technicals); `isEditorOpen` is whether it is expanded.
   const [isEditorOpen, setIsEditorOpen] = useState(false);
   const [rightPanel, setRightPanel] = usePersistedState<RightPanel>("right-panel", "editor");
   const onSelectRightPanel = useCallback((panel: RightPanel) => {
@@ -234,7 +234,7 @@ export default function Home() {
         onOpenChange={setIsChartSettingsOpen} onApply={onChartSettingsChange}
       />
 
-      {/* Body: [chart grid | Pine Editor] over Strategy Tester, as on TradingView */}
+      {/* Body: [chart grid | TypeScript Editor] over Strategy Tester, as on TradingView */}
       <div className="flex min-h-0 flex-1">
       <ResizablePanelGroup direction="vertical" autoSaveId="workbench-vertical" className="flex-1">
         <ResizablePanel defaultSize={70} minSize={30} order={1}>
@@ -327,7 +327,7 @@ export default function Home() {
           variant={isEditorOpen && rightPanel === "editor" ? "secondary" : "ghost"} size="sm" className="h-6 text-xs"
           onClick={() => onSelectRightPanel("editor")}
         >
-          <Code2 className="mr-1 h-3.5 w-3.5" /> Pine Editor
+          <Code2 className="mr-1 h-3.5 w-3.5" /> TypeScript Editor
         </Button>
       </footer>
 

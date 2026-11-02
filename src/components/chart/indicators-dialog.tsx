@@ -37,7 +37,7 @@ export function IndicatorsDialog({ open, onOpenChange, scripts, onAddBuiltin, on
   scripts: ScriptLibraryState;
   onAddBuiltin: (indicatorId: string) => void;
   onAddScript: (scriptId: string) => void;
-  /** Strategies open in the Pine Editor, whose run feeds the Strategy Tester. */
+  /** Strategies open in the TypeScript Editor, whose run feeds the Strategy Tester. */
   onOpenScript: (scriptId: string) => void;
 }) {
   const [query, setQuery] = useState("");

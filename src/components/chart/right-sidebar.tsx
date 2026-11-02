@@ -7,7 +7,7 @@ export type RightPanel = "watchlist" | "editor" | "technicals" | "alerts";
 
 const ITEMS: readonly { id: RightPanel; label: string; icon: ReactNode }[] = [
   { id: "watchlist", label: "Watchlist", icon: <Bookmark className="h-5 w-5" /> },
-  { id: "editor", label: "Pine Editor", icon: <Code2 className="h-5 w-5" /> },
+  { id: "editor", label: "TypeScript Editor", icon: <Code2 className="h-5 w-5" /> },
   { id: "technicals", label: "Technicals", icon: <Gauge className="h-5 w-5" /> },
   { id: "alerts", label: "Alerts", icon: <Bell className="h-5 w-5" /> },
 ];

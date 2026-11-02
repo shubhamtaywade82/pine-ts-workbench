@@ -50,7 +50,7 @@ export interface ScriptLibraryState {
 }
 
 /**
- * The Pine Editor's script library. On first use it seeds the library from
+ * The TypeScript Editor's script library. On first use it seeds the library from
  * `seed` (the scripts the editor kept before the library existed), so no work is lost.
  */
 export function useScriptLibrary(templates: ScriptTemplates, seed: () => readonly string[]): ScriptLibraryState {

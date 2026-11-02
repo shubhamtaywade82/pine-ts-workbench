@@ -8,7 +8,7 @@ import {
   DropdownMenuSubContent, DropdownMenuSubTrigger, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-/** Pine Editor preferences, kept per browser like TradingView's editor settings. */
+/** TypeScript Editor preferences, kept per browser like TradingView's editor settings. */
 export interface EditorPrefs {
   readonly autoRun: boolean;
   readonly aiGhostText: boolean;
@@ -43,7 +43,7 @@ export function useEditorPrefs(): readonly [EditorPrefs, (patch: Partial<EditorP
   return [prefs, update];
 }
 
-/** TradingView's Pine Editor "…" menu: editor settings and help. */
+/** TradingView's TypeScript Editor "…" menu: editor settings and help. */
 export function EditorMoreMenu({ prefs, onChange }: { prefs: EditorPrefs; onChange: (patch: Partial<EditorPrefs>) => void }) {
   return (
     <DropdownMenu>
