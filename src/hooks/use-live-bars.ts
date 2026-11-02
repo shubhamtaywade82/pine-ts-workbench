@@ -25,11 +25,25 @@ const RECONNECT_DELAY_MS = 3_000;
 
 export type LiveStatus = "loading" | "live" | "reconnecting";
 
+/** Feed health beyond the connection state (P0 provider health badge). */
+export interface FeedHealth {
+  /** ms since the last kline/trade message; undefined while loading. */
+  readonly lastTickAgeMs: number | undefined;
+  /** True when connected but no tick for > 3× the interval (stale feed). */
+  readonly isStale: boolean;
+  /** Number of missing-bar gaps detected in the loaded history. */
+  readonly gapCount: number;
+  /** Newest bar's time — the "as of" stamp for the badge tooltip. */
+  readonly lastBarTime: number | undefined;
+}
+
 export interface LiveBars {
   readonly bars: readonly Bar[];
   readonly status: LiveStatus;
   /** Last load failure, cleared once the stream is live again. */
   readonly error: string | null;
+  /** Feed quality: tick age, staleness, bar gaps. */
+  readonly health: FeedHealth;
   /** Prepends the page of candles before the oldest one; no-op while loading or once history is exhausted. */
   readonly loadOlder: () => void;
   /**
@@ -78,6 +92,16 @@ export const applyTrade = (forming: Bar, trade: LiveTrade, intervalMs: number): 
   };
 };
 
+/** Counts missing-bar gaps in a time-sorted history (P0 data quality). */
+export const countBarGaps = (bars: readonly Bar[], intervalMs: number): number => {
+  let gaps = 0;
+  for (let i = 1; i < bars.length; i += 1) {
+    const expected = bars[i - 1]!.time + intervalMs;
+    if (bars[i]!.time > expected) gaps += 1;
+  }
+  return gaps;
+};
+
 /**
  * Binance mainnet candles for `(symbol, interval)`: REST history, then live
  * klines + trades over one WebSocket. On disconnect it waits, refetches the
@@ -87,6 +111,8 @@ export function useLiveBars(symbol: BinanceSymbol, interval: ChartInterval): Liv
   const [bars, setBars] = useState<readonly Bar[]>([]);
   const [status, setStatus] = useState<LiveStatus>("loading");
   const [error, setError] = useState<string | null>(null);
+  const [lastTickAt, setLastTickAt] = useState<number | undefined>(undefined);
+  const [nowTick, setNowTick] = useState(() => Date.now());
   const [attempt, setAttempt] = useState(0);
   // Working copy updated on every message; React state is synced from it on a timer.
   const workingRef = useRef<readonly Bar[]>([]);
@@ -138,18 +164,21 @@ export function useLiveBars(symbol: BinanceSymbol, interval: ChartInterval): Liv
       if (isCancelled) return;
       workingRef.current = withOlderHistory(workingRef.current, history);
       setBars(workingRef.current);
+      setLastTickAt(Date.now());
       scheduleNotify();
       closeStream = openMarketStream(symbol, interval, {
-        onOpen: () => { setStatus("live"); setError(null); },
+        onOpen: () => { setStatus("live"); setError(null); setLastTickAt(Date.now()); },
         onClose: scheduleReconnect,
         onKline: (bar) => {
           workingRef.current = mergeBar(workingRef.current, bar);
+          setLastTickAt(Date.now());
           scheduleNotify();
         },
         onTrade: (trade) => {
           const forming = workingRef.current[workingRef.current.length - 1];
           if (forming === undefined || trade.time < forming.time) return;
           workingRef.current = mergeBar(workingRef.current, applyTrade(forming, trade, INTERVAL_MS[interval]));
+          setLastTickAt(Date.now());
           scheduleNotify();
         },
       });
@@ -191,5 +220,20 @@ export function useLiveBars(symbol: BinanceSymbol, interval: ChartInterval): Liv
       .finally(() => { isLoadingOlderRef.current = false; });
   }, [symbol, interval, scheduleNotify]);
 
-  return { bars, status, error, loadOlder, subscribe };
+  // A 1s heartbeat drives the tick-age counter on the health badge.
+  useEffect(() => {
+    const t = setInterval(() => setNowTick(Date.now()), 1_000);
+    return () => clearInterval(t);
+  }, []);
+
+  const intervalMs = INTERVAL_MS[interval];
+  const lastTickAgeMs = lastTickAt === undefined ? undefined : nowTick - lastTickAt;
+  const health: FeedHealth = {
+    lastTickAgeMs,
+    isStale: status === "live" && lastTickAgeMs !== undefined && lastTickAgeMs > intervalMs * 3,
+    gapCount: bars.length > 1 ? countBarGaps(bars, intervalMs) : 0,
+    lastBarTime: bars.at(-1)?.time,
+  };
+
+  return { bars, status, error, health, loadOlder, subscribe };
 }
