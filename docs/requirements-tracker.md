@@ -21,23 +21,23 @@ owner wave and lands as its own commit + PR.
 | 2 | Monaco/CodeMirror TS editor + hot-reload + inputs panel | ✅ | CodeMirror w/ completions, <300ms preview |
 | 2 | Inline diagnostics + error overlay on chart | 🟡 | lint gutter exists; on-chart failure bar missing |
 | 2 | Script manager (create/rename/dup/delete, search) | ✅ | script library |
-| 2 | Rename "Pine Editor" → "TypeScript Editor" | ❌ | branding cleanup |
+| 2 | Rename "Pine Editor" → "TypeScript Editor" | ✅ | done across the UI |
 | 3 | Backtest metrics, equity curve, trade list, markers | ✅ | full report |
-| 3 | Fill-model controls (commission/slippage/sizing) | 🟡 | honored in engine; no UI exposure |
-| 3 | Export trades + metrics (CSV/JSON) | ❌ | trades CSV exists; metrics/JSON missing |
+| 3 | Fill-model controls (commission/slippage/sizing) | ✅ | Properties tab + slippage-unit selector |
+| 3 | Export trades + metrics (CSV/JSON) | ✅ | trades CSV + full-backtest JSON export |
 | 4 | Multi-condition alerts, 4 channels, dedupe, log | ✅ | 5-condition AND engine |
-| 4 | Message templates with placeholders | ❌ | fixed describeRule() text |
+| 4 | Message templates with placeholders | ✅ | {{ticker}}/{{close}}/{{interval}}/{{time}}/{{rsi}}/{{volume}}/{{change}} |
 | 4 | Server-side evaluation, retry queues | ❌ | client-only, send-once |
 | 5.1 | Order ticket, positions, open orders, history | ✅ | Binance adapter |
-| 5.1 | Kill switch (flatten-all + cancel-all) | ❌ | biggest live-safety gap |
-| 5.2 | Environment banner Paper/Testnet/Mainnet | 🟡 | MAINNET/DRY-RUN badge only; no testnet |
+| 5.1 | Kill switch (flatten-all + cancel-all) | ✅ | typed-phrase gate + per-step report |
+| 5.2 | Environment banner Paper/Testnet/Mainnet | ✅ | color-coded DRY-RUN/PAPER/MAINNET badge |
 | 5.2 | Promotion gates + typed confirmation | ❌ | single toggle today |
 | 5.3 | Go Live signal → order via same engine | ✅ | strategy bridge |
 | 6 | Layouts, workspace persistence, 16-chart grid | ✅ | saved layouts |
-| 6 | Symbol search (fuzzy, recent, favorites) | 🟡 | substring match only |
-| 6 | Watchlists (reorder, columns: last/chg%/vol) | ❌ | no quotes/cols in panel |
-| 8 | Provider health badge, data-quality warnings | ❌ | reconnect exists, not surfaced |
-| 10 | Examples gallery, in-app docs, hotkey sheet | ❌ | README only |
+| 6 | Symbol search (fuzzy, recent, favorites) | ✅ | subsequence ranking + stars + recents |
+| 6 | Watchlists (reorder, columns: last/chg%/vol) | ✅ | ticker stream + drag-reorder |
+| 8 | Provider health badge, data-quality warnings | ✅ | tick age + stale detect + gap count |
+| 10 | Examples gallery, in-app docs, hotkey sheet | ✅ | Docs dialog (4 tabs) |
 | 10 | Empty states that teach | 🟡 | tester has one |
 | 12 | Auth/2FA/RBAC/key vault | ❌ | single-user localStorage today |
 | 13 | Error toasts, correlation IDs, structured logs | 🟡 | toasts exist |
