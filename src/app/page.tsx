@@ -222,6 +222,7 @@ export default function Home() {
         onToggleTheme={toggleTheme}
         onAlertSettingsSaved={setAlertSettings}
         onSettingsSaved={setSettings}
+        binanceSettings={settings}
         onOpenChartSettings={openChartSettings}
         chartSettings={chartSettings}
         onChartSettingsChange={onChartSettingsChange}

@@ -8,6 +8,18 @@ type BinanceNewOrderParams = broker.BinanceNewOrderParams;
 type BinancePositionResponse = broker.BinancePositionResponse;
 type BinanceOrderUpdateEvent = broker.BinanceOrderUpdateEvent;
 
+/** An open resting order, as reported to the kill-switch UI. */
+export interface BinanceOpenOrder {
+  readonly orderId: string;
+  readonly symbol: string;
+  readonly side: "BUY" | "SELL";
+  readonly type: string;
+  readonly price: number;
+  readonly origQty: number;
+  readonly executedQty: number;
+  readonly status: string;
+}
+
 /**
  * Real Binance SDK → pine-ts BinanceTradingSurface adapter.
  *
@@ -94,6 +106,28 @@ export class RealBinanceTradingSurface implements BinanceTradingSurface {
     await this.client.spot.trading.cancelOrder(params.symbol, { orderId: Number(params.orderId) });
   }
 
+  /** A flattened snapshot the kill switch reports back to the UI. */
+  public async getOpenOrders(symbol: string): Promise<BinanceOpenOrder[]> {
+    const orders = await this.client.spot.trading.getOpenOrders(symbol);
+    return orders.map((o) => ({
+      orderId: String(o.orderId),
+      symbol: o.symbol,
+      side: o.side as "BUY" | "SELL",
+      type: o.type,
+      price: o.price ?? 0,
+      origQty: o.origQty ?? 0,
+      executedQty: o.executedQty ?? 0,
+      status: o.status,
+    }));
+  }
+
+  /** Kill-switch step 1: cancel every open order on the symbol. */
+  public async cancelAllOrders(symbol: string): Promise<number> {
+    this.assertLiveEnabled();
+    const canceled = await this.client.spot.trading.cancelOpenOrders(symbol);
+    return canceled.length;
+  }
+
   public async getPosition(symbol: string): Promise<BinancePositionResponse | undefined> {
     // Spot trading: "deliver now, pay now" — there's no real position.
     // We synthesize one from the account balances: the base asset's free
@@ -112,6 +146,29 @@ export class RealBinanceTradingSurface implements BinanceTradingSurface {
       avgEntryPrice: 0,
       unrealisedPnl: 0,
     };
+  }
+
+  /**
+   * Kill-switch step 2: market-sell the held base asset back to the quote
+   * currency. Spot cannot be short, so "flatten" = sell everything held.
+   * Filters dust below Binance's LOT_SIZE step to avoid reject storms.
+   */
+  public async flattenSpot(symbol: string, stepSize = 0): Promise<BinanceOrderResponse | undefined> {
+    this.assertLiveEnabled();
+    const position = await this.getPosition(symbol);
+    if (position === undefined || position.qty <= 0) return undefined;
+    const qty = stepSize > 0 ? Math.floor(position.qty / stepSize) * stepSize : position.qty;
+    if (qty <= 0) return undefined;
+    return this.newOrder({
+      symbol,
+      side: "SELL",
+      type: "MARKET",
+      quantity: qty,
+      price: undefined,
+      stopPrice: undefined,
+      timeInForce: "GTC",
+      clientOrderId: `pine-ts-kill-${Date.now()}`,
+    });
   }
 
   public async getBalance(): Promise<number> {
