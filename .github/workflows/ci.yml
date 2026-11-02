@@ -44,7 +44,7 @@ jobs:
           pnpm build
 
       # Likewise `file:./ollama-sdk`: the local ollama-sdk checkout, built from main.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           repository: shubhamtaywade82/ollama-sdk
           path: ollama-sdk
