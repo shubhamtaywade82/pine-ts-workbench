@@ -681,3 +681,37 @@ Stage Summary:
   - pine-ts: https://github.com/shubhamtaywade82/pine-ts.git (latest: 5ea2193, Waves 1-14 pine-ts side)
   - workbench: https://github.com/shubhamtaywade82/pine-ts-workbench.git (latest: b459123, Waves 14-22 workbench side)
 - All workbench source files at /home/z/my-project/src/{app,lib,components}/.
+
+---
+Task ID: 20
+Agent: main (Z.ai)
+Task: TradingView Ultimate parity push (P4+P5). Clone both repos, audit the feature gap against TradingView Ultimate's inventory, then implement: 1s intervals, 16-chart layouts, 5000-bar deep history, multi-condition/persistent/watchlist alerts, request.*() quota, 100s script timeout, and an expanded drawing-tool set — one commit per task, tracked against a checklist.
+
+Work Log:
+- Baseline audit (both repos at origin/main):
+  - pine-ts: 67/67 ta.*, 782/782 tests green (but the workbench's SMC live-parity test was failing on main — see below).
+  - workbench: 6-chart max, 1m minimum interval, 1000-bar initial history, single-condition alert rules with no persistence, 5 drawing tools.
+- FIXED a pre-existing live-runner parity bug in pine-ts (the failing smc-confluence-engine test on main):
+  - Root cause 1: alert() events accumulate in a module-global array that is only cleared by resetGlobalState() at the start of a full run. A realtime tick re-executes the open bar, but the previous revision's alert events were never discarded → stale pre-tick alerts survived (and duplicated) in the live output while plots/drawings were correctly rolled back.
+  - Root cause 2: indicator().run() executes scripts twice when security() is pending (pass 1 collects call sites, pass 2 evaluates with resolved values); resetGlobalState() only ran before pass 1, so pass-1 alerts (computed with security() === undefined) leaked into the output as duplicates (6 duplicated bars in the SMC test).
+  - Fixes: alert events are now stamped with the session revision (internal field, stripped from the public getAlertEvents() projection) and ScriptRecorder.beginBar() drops same-bar events from other revisions before re-execution; runAll() resets global state between the two passes.
+  - Two new regression tests in tests/script-live.test.ts (tick replaces the open bar's alert instead of duplicating; new bar appends). pine-ts: 784/784. Workbench: the previously failing test now passes; 194/194 at that point.
+- Task 1 (1s intervals): added "1s" to ChartInterval/SUPPORTED_INTERVALS/INTERVAL_LABELS/INTERVAL_MS(1000ms)/timeframeToChartInterval("1s"/"1S"); technicals panel gains the 1s row. Binance spot supports 1s klines on REST+WS (verified against the Binance docs).
+- Task 3 (deep history): fetchDeepHistoryBars() pages backwards through Binance's 1000-klines-per-request cap until the total is collected or the listing date is reached; useLiveBars now loads 5000 initial bars (was 1000) and pages 1000 per scroll-back (was 500).
+- Task 2 (16-chart layouts): GridLayout 1|2|3|4|6|8|9|12|16 with per-option cols/rows (4×4 max = Ultimate's 16-chart cap); MAX_CELLS 6→16; new "Ultimate 8 (2×4)" default saved layout mixing symbols, timeframes, and the new 1s interval.
+- Tasks 4+5+6 (alert engine): new src/lib/alert-engine.ts —
+  - Multi-condition rules: up to 5 conditions ANDed (TradingView's Add-condition builder), 12 condition kinds (rsi/price/sma/macd-hist/volume-vs-sma/24h-%change/script-alert, each above/below).
+  - Open-ended: rules + fired history (last 100) persist to localStorage, never expire.
+  - Per-rule per-bar dedupe keyed by (rule, symbol, forming-bar time); editing a rule re-arms it (rearmRules()).
+  - Watchlist alerts: symbol "*" rules evaluate % change across every watchlist symbol.
+  - New src/lib/alert-context.ts derives the evaluation context (RSI/SMA/MACD hist/volume SMA/24h change/barTime) from the active chart's own bars via one pine-ts run; evaluation throttled to 1/s.
+  - AlertsPanel rebuilt as a condition-builder UI and mounted in the right sidebar (new "alerts" panel next to watchlist/editor/technicals).
+- Task 7 (request.*() quota, pine-ts): new src/request/quota.ts — a module-global call-site counter (reset per run) enforcing TradingView's 40-call budget; sites keyed by (function, symbol, timeframe, expression source) so a security() in a loop counts once. Wired into RequestEngine.security/security_lower_tf and SecurityResolver.request; exported as request.configureRequestQuota etc. 8 new tests (6 unit + 2 integration through indicator() scripts).
+- Task 8 (100s script timeout): script-worker-client races every worker run against a 100s main-thread timer (a wedged worker cannot time itself out) with a clear infinite-loop error; in-thread fallback uses Promise.race with the same budget.
+- Task 9 (drawing tools): 8 new tools → 13-tool core set: hline, vline (one-click full-pane lines), extended line, parallel channel, long/short position (entry line + 2:1 target/stop zones + R:R labels + qty-for-risk math), text note (prompt), arrow. One-click vs two-click placement handled via SINGLE_CLICK_TOOLS; crosshair draft preview preserved for two-click tools.
+
+Stage Summary:
+- TradingView Ultimate parity scorecard after this session: 16 charts ✓ (was 6), 1s intervals ✓ (was 1m), 5000-bar deep history ✓ (was 1000; TV is 40k with paged loading continuing on scroll), multi-condition alerts (5 AND) ✓ (was single), open-ended persistent alerts ✓ (were ephemeral), watchlist alerts ✓, request.*() quota 40 ✓, 100s script timeout ✓, drawing tools 13 ✓ (was 5; TV has 110+, roadmap targets ~30).
+- pine-ts branch fix/live-alert-rollback: 2 commits (alert rollback fix + quota). workbench branch feat/second-intervals-and-deep-history: 6 commits (1s+deep history, 16 layouts, alert engine, timeout, drawings).
+- All quality gates green at every commit: pine-ts 792/792 (54 files) + typecheck + lint + manifest; workbench 221/221 (29 files) + typecheck + lint.
+- Remaining Ultimate gaps (next session): Volume Profile indicator (Bucket 2), auto chart patterns (Bucket 2), volume footprint/TPO (Bucket 3 — deferred by design), alert quota UI polish (rules counter vs TV's 2000), paper-trading account panel through the same engine.
