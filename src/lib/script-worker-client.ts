@@ -3,6 +3,17 @@ import { fetchHtfBars, type BinanceSymbol } from "@/lib/public-binance-feed";
 import { ScriptCompileError } from "@/lib/script-loader";
 import type { WorkerReply, WorkerRequest } from "@/lib/script-worker";
 
+/**
+ * Script execution timeout — TradingView Ultimate's computation limit is
+ * 100 s per script run (Basic 20 s, mid tiers 40 s). A wedged script
+ * (infinite loop, pathological input) is cut off with a clear error
+ * instead of hanging the worker forever.
+ */
+export const SCRIPT_TIMEOUT_MS = 100_000;
+
+const timeoutError = (ms: number): Error =>
+  new Error(`Script execution timed out after ${Math.round(ms / 1000)}s (TradingView Ultimate's limit is 100s). Check for infinite loops or unbounded while loops in the script.`);
+
 // Kept apart from indicator-runner: the worker bundles that module, and must not contain `new Worker(...)` itself.
 /** A script slot's runner plus the release of its live run when the slot goes away. */
 export interface ScriptRunner {
@@ -40,8 +51,16 @@ const getScriptWorker = (): Worker => {
  */
 export const createScriptRunner = (symbol?: string): ScriptRunner => {
   if (typeof Worker === "undefined") {
+    // In-thread fallback (server render, tests): race the run against the
+    // same timeout budget the worker enforces.
+    const inThread = createLiveRunner(symbol ? (tf) => fetchHtfBars(tf, symbol as BinanceSymbol) : undefined);
     return {
-      run: createLiveRunner(symbol ? (tf) => fetchHtfBars(tf, symbol as BinanceSymbol) : undefined),
+      run: (userCode, bars, inputs = {}) => Promise.race([
+        inThread(userCode, bars, inputs),
+        new Promise<never>((_, reject) => {
+          setTimeout(() => reject(timeoutError(SCRIPT_TIMEOUT_MS)), SCRIPT_TIMEOUT_MS).unref?.();
+        }),
+      ]),
       dispose: () => undefined,
     };
   }
@@ -49,7 +68,18 @@ export const createScriptRunner = (symbol?: string): ScriptRunner => {
   return {
     run: (userCode, bars, inputs = {}) => new Promise<ScriptRun>((resolve, reject) => {
       const id = nextRunId++;
-      pendingRuns.set(id, { resolve, reject });
+      // The timeout is enforced here on the main thread: a wedged worker
+      // cannot time itself out. On timeout the pending run rejects; the
+      // worker may later reply for this id, which is then ignored.
+      const timer = setTimeout(() => {
+        const pending = pendingRuns.get(id);
+        pendingRuns.delete(id);
+        pending?.reject(timeoutError(SCRIPT_TIMEOUT_MS));
+      }, SCRIPT_TIMEOUT_MS);
+      pendingRuns.set(id, {
+        resolve: (run) => { clearTimeout(timer); resolve(run); },
+        reject: (error) => { clearTimeout(timer); reject(error); },
+      });
       getScriptWorker().postMessage({ type: "run", id, slot, code: userCode, bars, inputs, symbol } satisfies WorkerRequest);
     }),
     dispose: () => scriptWorker?.postMessage({ type: "dispose", slot } satisfies WorkerRequest),
