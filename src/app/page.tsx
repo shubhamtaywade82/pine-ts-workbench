@@ -9,7 +9,7 @@ import { useChartGrid, newCell } from "@/hooks/use-chart-grid";
 import { useEditorScript } from "@/hooks/use-editor-script";
 import { ChartSettingsDialog } from "@/components/chart/chart-settings-dialog";
 import { DEFAULT_CHART_SETTINGS, loadChartSettings, saveChartSettings, type ChartSettings } from "@/lib/chart-settings";
-import { quoteAssetOf, SUPPORTED_SYMBOLS } from "@/lib/public-binance-feed";
+import { quoteAssetOf, SUPPORTED_SYMBOLS, INTERVAL_MS } from "@/lib/public-binance-feed";
 import { PineEditor } from "@/components/editor/pine-editor";
 import { ScriptSettingsDialog } from "@/components/editor/script-settings-dialog";
 import { createScriptIndicator } from "@/components/chart/indicator-dialogs";
@@ -22,6 +22,12 @@ import { WatchlistPanel } from "@/components/chart/watchlist-panel";
 import type { ChartOverlay, TradeMarker } from "@/components/chart/chart-workbench";
 import { loadSettings, type BinanceSettings, DEFAULT_SETTINGS } from "@/components/trading/settings-dialog";
 import { loadAlertSettings, type AlertSettings, DEFAULT_ALERT_SETTINGS } from "@/lib/alert-sinks";
+import {
+  buildSinks as buildAlertSinks, evaluateAlerts, loadAlertRules, saveAlertRules,
+  loadFiredAlerts, saveFiredAlerts, type AlertRule, type FiredAlert,
+} from "@/lib/alert-engine";
+import { computeAlertContext } from "@/lib/alert-context";
+import { AlertsPanel } from "@/components/alerts/alerts-panel";
 import {
   saveCurrentLayout, layoutToCells, findSymbol, loadWorkspace, saveWorkspace,
   type SavedLayout, type Workspace,
@@ -92,9 +98,49 @@ export default function Home() {
   const [alertSettings, setAlertSettings] = useState<AlertSettings>(DEFAULT_ALERT_SETTINGS);
   useEffect(() => setAlertSettings(loadAlertSettings()), []);
 
+  // Alert rules (open-ended, persisted) + fired-alert history.
+  const [alertRules, setAlertRules] = useState<AlertRule[]>([]);
+  const [firedAlerts, setFiredAlerts] = useState<FiredAlert[]>([]);
+  useEffect(() => {
+    setAlertRules(loadAlertRules());
+    setFiredAlerts(loadFiredAlerts());
+  }, []);
+  const onAlertRulesChange = useCallback((next: AlertRule[]) => {
+    setAlertRules(next);
+    saveAlertRules(next);
+  }, []);
+  const appendFiredAlerts = useCallback((fired: readonly FiredAlert[]) => {
+    if (fired.length === 0) return;
+    setFiredAlerts((prev) => {
+      const next = [...fired, ...prev].slice(0, 100);
+      saveFiredAlerts(next);
+      return next;
+    });
+  }, []);
+
   const editor = useEditorScript(useCallback(() => { setIsEditorOpen(true); setRightPanel("editor"); }, [setRightPanel]), useCallback(() => setIsTesterOpen(true), []));
   const { scripts } = editor;
   const { addToActiveCell } = grid;
+
+  // Alert evaluation: the active cell's bars drive every enabled rule.
+  // Throttled to once per second so tick storms cost nothing.
+  const lastAlertEvalRef = useRef(0);
+  useEffect(() => {
+    if (editor.editorBars.length === 0 || alertRules.length === 0) return;
+    const now = Date.now();
+    if (now - lastAlertEvalRef.current < 1_000) return;
+    lastAlertEvalRef.current = now;
+    const symbol = grid.activeCell.symbol.binanceSymbol;
+    void (async () => {
+      const context = await computeAlertContext(editor.editorBars, INTERVAL_MS[grid.activeCell.interval], symbol);
+      if (context === undefined) return;
+      const { fired, rules } = await evaluateAlerts(
+        alertRules, buildAlertSinks(alertSettings, settings), { ...context, scriptFired: false },
+      );
+      if (rules.some((r, i) => r.lastFiredAt !== alertRules[i]?.lastFiredAt)) saveAlertRules(rules);
+      appendFiredAlerts(fired);
+    })();
+  }, [editor.editorBars, alertRules, alertSettings, settings, grid.activeCell, appendFiredAlerts]);
   const onAddScript = useCallback((scriptId: string) => {
     const script = scripts.library.find((s) => s.id === scriptId);
     if (script !== undefined) addToActiveCell(createScriptIndicator(script, isOverlayScript(currentCode(script))));
@@ -237,6 +283,14 @@ export default function Home() {
                     currentSymbol={grid.activeCell.symbol.binanceSymbol}
                     onSelectSymbol={(sym) => onCellChange(activeCellId, { symbol: sym })}
                     onClose={() => setIsEditorOpen(false)}
+                  />
+                )}
+                {rightPanel === "alerts" && (
+                  <AlertsPanel
+                    rules={alertRules}
+                    onRulesChange={onAlertRulesChange}
+                    firedAlerts={firedAlerts}
+                    symbol={grid.activeCell.symbol.binanceSymbol}
                   />
                 )}
               </div>

@@ -1,14 +1,15 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { Bookmark, Code2, Gauge } from "lucide-react";
+import { Bell, Bookmark, Code2, Gauge } from "lucide-react";
 
-export type RightPanel = "watchlist" | "editor" | "technicals";
+export type RightPanel = "watchlist" | "editor" | "technicals" | "alerts";
 
 const ITEMS: readonly { id: RightPanel; label: string; icon: ReactNode }[] = [
   { id: "watchlist", label: "Watchlist", icon: <Bookmark className="h-5 w-5" /> },
   { id: "editor", label: "Pine Editor", icon: <Code2 className="h-5 w-5" /> },
   { id: "technicals", label: "Technicals", icon: <Gauge className="h-5 w-5" /> },
+  { id: "alerts", label: "Alerts", icon: <Bell className="h-5 w-5" /> },
 ];
 
 /** TradingView's right icon strip: each icon opens its panel; clicking the open one closes it. */

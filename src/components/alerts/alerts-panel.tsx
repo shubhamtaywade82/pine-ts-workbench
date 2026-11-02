@@ -11,133 +11,193 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import { Trash2, Plus, Bell, CheckCircle2, XCircle, MinusCircle } from "lucide-react";
-import type {
-  AlertRule, AlertCondition, FiredAlert, AlertSettings,
-} from "@/lib/alert-sinks";
+import {
+  CONDITION_LABELS, MAX_CONDITIONS_PER_RULE, rearmRules,
+  type AlertCondition, type AlertConditionKind, type AlertRule, type FiredAlert,
+} from "@/lib/alert-engine";
 
 export interface AlertsPanelProps {
   /** The currently-configured alert rules. */
   readonly rules: AlertRule[];
-  /** Called when a rule is added/removed/toggled. */
+  /** Called when a rule is added/removed/toggled/edited. */
   readonly onRulesChange: (rules: AlertRule[]) => void;
   /** Fired alerts (most recent first). */
   readonly firedAlerts: readonly FiredAlert[];
-  /** Current alert settings (for showing what's configured). */
-  readonly alertSettings: AlertSettings;
   /** The current symbol (prefilled in new rules). */
   readonly symbol: string;
 }
 
-const CONDITION_LABELS: Record<AlertCondition, string> = {
-  rsi_above: "RSI crosses above",
-  rsi_below: "RSI crosses below",
-  price_above_sma: "Price above SMA",
-  price_below_sma: "Price below SMA",
-  macd_hist_positive: "MACD histogram >",
-  macd_hist_negative: "MACD histogram <",
-  script_alert: "Script alert()",
+/** Condition kinds that take no threshold input. */
+const NO_THRESHOLD: ReadonlySet<AlertConditionKind> = new Set([
+  "price_above_sma", "price_below_sma", "volume_above_sma", "script_alert",
+]);
+
+const DEFAULT_THRESHOLDS: Partial<Record<AlertConditionKind, number>> = {
+  rsi_above: 70,
+  rsi_below: 30,
+  price_above: 0,
+  price_below: 0,
+  macd_hist_above: 0,
+  macd_hist_below: 0,
+  volume_above_sma: 100,
+  percent_change_above: 5,
+  percent_change_below: -5,
 };
 
 export function AlertsPanel({
-  rules, onRulesChange, firedAlerts, alertSettings, symbol,
+  rules, onRulesChange, firedAlerts, symbol,
 }: AlertsPanelProps) {
-  const [newCondition, setNewCondition] = useState<AlertCondition>("rsi_above");
-  const [newThreshold, setNewThreshold] = useState("70");
+  const [newName, setNewName] = useState("");
+  const [newSymbol, setNewSymbol] = useState<string>(symbol);
+  const [newConditions, setNewConditions] = useState<AlertCondition[]>([
+    { kind: "rsi_above", threshold: 70 },
+  ]);
+
+  const setCondition = useCallback((index: number, patch: Partial<AlertCondition>) => {
+    setNewConditions((prev) => prev.map((c, i) => (i === index ? { ...c, ...patch } : c)));
+  }, []);
+
+  const addCondition = useCallback(() => {
+    if (newConditions.length >= MAX_CONDITIONS_PER_RULE) return;
+    setNewConditions((prev) => [...prev, { kind: "price_above", threshold: 0 }]);
+  }, [newConditions.length]);
+
+  const removeCondition = useCallback((index: number) => {
+    setNewConditions((prev) => (prev.length <= 1 ? prev : prev.filter((_, i) => i !== index)));
+  }, []);
 
   const addRule = useCallback(() => {
+    const conditions = newConditions
+      .filter((c) => NO_THRESHOLD.has(c.kind) || Number.isFinite(c.threshold))
+      .slice(0, MAX_CONDITIONS_PER_RULE);
+    if (conditions.length === 0) return;
     const rule: AlertRule = {
       id: `rule-${Date.now()}`,
-      condition: newCondition,
-      threshold: Number(newThreshold),
+      name: newName.trim() || `${symbol} ${conditions.map((c) => CONDITION_LABELS[c.kind]).join(" + ")}`.slice(0, 60),
+      symbol: newSymbol.trim().toUpperCase() || symbol,
+      conditions,
       enabled: true,
     };
+    rearmRules();
     onRulesChange([...rules, rule]);
-  }, [rules, newCondition, newThreshold, onRulesChange]);
+    setNewName("");
+    setNewConditions([{ kind: "rsi_above", threshold: 70 }]);
+  }, [rules, newName, newSymbol, newConditions, symbol, onRulesChange]);
 
   const removeRule = useCallback((id: string) => {
+    rearmRules();
     onRulesChange(rules.filter((r) => r.id !== id));
   }, [rules, onRulesChange]);
 
   const toggleRule = useCallback((id: string) => {
-    onRulesChange(rules.map((r) => r.id === id ? { ...r, enabled: !r.enabled } : r));
+    rearmRules();
+    onRulesChange(rules.map((r) => (r.id === id ? { ...r, enabled: !r.enabled } : r)));
   }, [rules, onRulesChange]);
 
-  // Show what sinks are configured.
-  const configuredSinks = useMemo(() => {
-    const sinks: string[] = [];
-    if (alertSettings.webhookUrl) sinks.push("Webhook");
-    if (alertSettings.telegramBotToken && alertSettings.telegramChatId) sinks.push("Telegram");
-    if (alertSettings.emailWebhookUrl && alertSettings.emailRecipient) sinks.push("Email");
-    if (alertSettings.brokerActionEnabled) sinks.push("Broker Action");
-    return sinks;
-  }, [alertSettings]);
+  const watchlistRules = useMemo(() => rules.filter((r) => r.symbol === "*").length, [rules]);
 
   return (
     <div className="flex flex-col gap-4 p-3">
-      {/* Configured sinks summary */}
-      <Card>
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm">Delivery Channels</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {configuredSinks.length === 0 ? (
-            <p className="text-xs text-muted-foreground">
-              No delivery channels configured. Click the Alerts button in the header to configure.
-            </p>
-          ) : (
-            <div className="flex flex-wrap gap-1">
-              {configuredSinks.map((s) => (
-                <Badge key={s} variant="secondary" className="text-[10px]">{s}</Badge>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
       {/* Alert rules */}
       <Card>
         <CardHeader className="pb-2">
-          <CardTitle className="text-sm">Alert Rules ({rules.length})</CardTitle>
+          <CardTitle className="flex items-center justify-between text-sm">
+            <span className="flex items-center gap-2"><Bell className="h-4 w-4" /> Alert Rules ({rules.length})</span>
+            {watchlistRules > 0 && (
+              <Badge variant="secondary" className="text-[10px]">{watchlistRules} watchlist</Badge>
+            )}
+          </CardTitle>
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
-          {/* Add new rule */}
-          <div className="flex items-end gap-2">
-            <div className="flex flex-col gap-1 flex-1">
-              <Label className="text-xs text-muted-foreground">Condition</Label>
-              <Select value={newCondition} onValueChange={(v) => setNewCondition(v as AlertCondition)}>
-                <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {Object.entries(CONDITION_LABELS).map(([k, v]) => (
-                    <SelectItem key={k} value={k}>{v}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+          {/* Add new rule — TradingView-style condition builder */}
+          <div className="flex flex-col gap-2 rounded border border-border/50 p-2">
+            <div className="flex items-end gap-2">
+              <div className="flex flex-col gap-1 flex-1">
+                <Label className="text-xs text-muted-foreground">Name</Label>
+                <Input value={newName} placeholder="e.g. BTC overbought"
+                  onChange={(e) => setNewName(e.target.value)} className="h-8 text-xs" />
+              </div>
+              <div className="flex flex-col gap-1 w-28">
+                <Label className="text-xs text-muted-foreground">Symbol</Label>
+                <Input value={newSymbol} placeholder={symbol}
+                  onChange={(e) => setNewSymbol(e.target.value)} className="h-8 text-xs font-mono" />
+              </div>
             </div>
-            <div className="flex flex-col gap-1 w-20">
-              <Label className="text-xs text-muted-foreground">Threshold</Label>
-              <Input type="number" step="0.1" value={newThreshold}
-                onChange={(e) => setNewThreshold(e.target.value)} className="h-8 text-xs" />
+            <p className="text-[10px] text-muted-foreground">
+              Enter <span className="font-mono">*</span> as the symbol to alert on every watchlist symbol.
+            </p>
+            {newConditions.map((condition, index) => (
+              <div key={index} className="flex items-end gap-2">
+                {index > 0 && <span className="pb-2 text-[10px] font-semibold uppercase text-muted-foreground">and</span>}
+                <div className="flex flex-col gap-1 flex-1">
+                  {index === 0 && <Label className="text-xs text-muted-foreground">Condition</Label>}
+                  <Select
+                    value={condition.kind}
+                    onValueChange={(v) => {
+                      const kind = v as AlertConditionKind;
+                      setCondition(index, { kind, threshold: DEFAULT_THRESHOLDS[kind] ?? 0 });
+                    }}
+                  >
+                    <SelectTrigger className="h-8 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {Object.entries(CONDITION_LABELS).map(([k, v]) => (
+                        <SelectItem key={k} value={k}>{v}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                {!NO_THRESHOLD.has(condition.kind) && (
+                  <div className="flex flex-col gap-1 w-20">
+                    {index === 0 && <Label className="text-xs text-muted-foreground">Value</Label>}
+                    <Input type="number" step="any" value={condition.threshold}
+                      onChange={(e) => setCondition(index, { threshold: Number(e.target.value) })}
+                      className="h-8 text-xs font-mono" />
+                  </div>
+                )}
+                <Button variant="ghost" size="sm" className="h-8 w-8 p-0" title="Remove condition"
+                  disabled={newConditions.length <= 1} onClick={() => removeCondition(index)}>
+                  <Trash2 className="h-3 w-3" />
+                </Button>
+              </div>
+            ))}
+            <div className="flex items-center justify-between">
+              <Button variant="outline" size="sm" className="h-7 text-xs" onClick={addCondition}
+                disabled={newConditions.length >= MAX_CONDITIONS_PER_RULE}>
+                <Plus className="h-3 w-3" /> Add condition ({newConditions.length}/{MAX_CONDITIONS_PER_RULE})
+              </Button>
+              <Button size="sm" onClick={addRule}>Create alert</Button>
             </div>
-            <Button size="sm" onClick={addRule}>
-              <Plus className="h-4 w-4" />
-            </Button>
           </div>
 
           {/* Existing rules */}
           {rules.length === 0 ? (
-            <p className="text-xs text-muted-foreground">No rules yet. Add one above.</p>
+            <p className="text-xs text-muted-foreground">
+              No rules yet. Alerts are open-ended: they stay active until you delete them.
+            </p>
           ) : (
             rules.map((rule) => (
-              <div key={rule.id} className="flex items-center justify-between rounded border border-border/50 p-2">
-                <div className="flex items-center gap-2">
-                  <Switch checked={rule.enabled} onCheckedChange={() => toggleRule(rule.id)} />
-                  <span className="text-xs">
-                    {CONDITION_LABELS[rule.condition]} <span className="font-mono">{rule.threshold}</span>
-                  </span>
-                  {rule.actionSide && (
-                    <Badge variant="destructive" className="text-[10px]">
-                      {rule.actionSide} {rule.actionQty}
-                    </Badge>
+              <div key={rule.id} className="flex items-start justify-between rounded border border-border/50 p-2">
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-center gap-2">
+                    <Switch checked={rule.enabled} onCheckedChange={() => toggleRule(rule.id)} />
+                    <span className="text-xs font-medium">{rule.name}</span>
+                    <Badge variant="outline" className="text-[9px] font-mono">{rule.symbol}</Badge>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1 pl-6">
+                    {rule.conditions.map((c, i) => (
+                      <span key={i} className="flex items-center gap-1">
+                        {i > 0 && <span className="text-[9px] uppercase text-muted-foreground">and</span>}
+                        <Badge variant="secondary" className="text-[9px]">
+                          {CONDITION_LABELS[c.kind]}
+                          {!NO_THRESHOLD.has(c.kind) && ` ${c.threshold}`}
+                        </Badge>
+                      </span>
+                    ))}
+                  </div>
+                  {rule.lastFiredAt && (
+                    <span className="pl-6 text-[9px] text-muted-foreground">
+                      Last fired {new Date(rule.lastFiredAt).toLocaleString()}
+                    </span>
                   )}
                 </div>
                 <Button variant="ghost" size="sm" onClick={() => removeRule(rule.id)}>
