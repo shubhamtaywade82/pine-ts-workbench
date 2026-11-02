@@ -132,6 +132,27 @@ defineStrategy("SMA Crossover", { initial_capital: 10_000, default_qty_value: 0.
 is excluded). Legacy `calculate({ ta, ctx, inputs })` / `strategy({ ta, ctx,
 engine, inputs })` functions still run unchanged.
 
+## DhanHQ access token (shared with algo_scalper_api)
+
+Dhan issues one active token per login, so generating a new one invalidates every other holder
+(`DH-906 Invalid Token`). The workbench therefore **reuses algo_scalper_api's token** and only
+logs in itself when algo_scalper_api is **not running**:
+
+| Situation | What happens |
+|---|---|
+| algo_scalper_api reachable | token fetched from `GET {DHAN_AUTHORITY_URL}/api/dhan/token`; the workbench never generates or renews it |
+| algo_scalper_api answers with an error (401/503) | the error is surfaced; no login is attempted (it is running and owns the token) |
+| connection to algo_scalper_api fails | log in with `DHAN_CLIENT_ID` / `DHAN_PIN` / `DHAN_TOTP_SECRET`, re-checking every 30 s and switching back as soon as it returns |
+
+```bash
+DHAN_AUTHORITY_URL=http://localhost:3011      # default
+DHAN_AUTHORITY_TOKEN=<algo_scalper_api API_OPERATOR_TOKEN>
+# fallback login, used only while algo_scalper_api is down
+DHAN_CLIENT_ID=...  DHAN_PIN=...  DHAN_TOTP_SECRET=...
+```
+
+Use `getDhanClient()` from `src/lib/dhan-client.ts` (server-side only) — never send the token to the browser.
+
 ## Binance trading setup
 
 1. Click Settings in the header
