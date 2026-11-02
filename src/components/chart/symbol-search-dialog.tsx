@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -10,9 +10,14 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Search, X } from "lucide-react";
+import { Clock, Search, Star, X } from "lucide-react";
 import {
-  searchSymbols,
+  findSymbol,
+  fuzzySearchSymbols,
+  loadFavoriteSymbols,
+  loadRecentSymbols,
+  rememberSymbol,
+  toggleFavoriteSymbol,
   type SymbolCategory,
   type SymbolOption,
 } from "@/lib/symbol-catalog";
@@ -31,6 +36,10 @@ const CATEGORIES: readonly { readonly id: SymbolCategory; readonly label: string
   { id: "stock", label: "Stocks" },
 ];
 
+/**
+ * Symbol search — fuzzy-ranked results with starred favorites and a recents
+ * row, like TradingView's search. Enter picks the top result; stars persist.
+ */
 export function SymbolSearchDialog({
   open,
   onOpenChange,
@@ -39,12 +48,39 @@ export function SymbolSearchDialog({
 }: SymbolSearchDialogProps) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState<SymbolCategory>("all");
+  const [favorites, setFavorites] = useState<readonly string[]>([]);
+  const [recents, setRecents] = useState<readonly string[]>([]);
 
-  const results = useMemo(() => searchSymbols(query, category), [query, category]);
+  // localStorage isn't available during SSR; load once the dialog can render.
+  useEffect(() => {
+    setFavorites(loadFavoriteSymbols());
+    setRecents(loadRecentSymbols());
+  }, []);
+
+  const results = useMemo(
+    () => fuzzySearchSymbols(query, category, favorites),
+    [query, category, favorites],
+  );
+
+  const favoriteSymbols = useMemo(
+    () => favorites.map(findSymbol).filter((s): s is SymbolOption => s !== undefined),
+    [favorites],
+  );
+  const recentSymbols = useMemo(
+    () => recents.map(findSymbol).filter((s): s is SymbolOption => s !== undefined),
+    [recents],
+  );
 
   const handleSelect = (symbol: SymbolOption) => {
+    setRecents(rememberSymbol(symbol.ticker));
     onSelect(symbol);
     onOpenChange(false);
+  };
+
+  const star = (e: React.SyntheticEvent, ticker: string) => {
+    e.stopPropagation();
+    e.preventDefault();
+    setFavorites(toggleFavoriteSymbol(ticker));
   };
 
   return (
@@ -60,7 +96,10 @@ export function SymbolSearchDialog({
             <Input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search symbol, name or exchange…"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && results.length > 0) handleSelect(results[0]!);
+              }}
+              placeholder="Search symbol, name or exchange…  (fuzzy: btu → BTCUSDT)"
               className="h-9 border-border bg-background pl-8 pr-8 text-xs text-white placeholder:text-[#787b86] focus-visible:ring-1 focus-visible:ring-[#2962ff]"
               autoFocus
             />
@@ -97,44 +136,97 @@ export function SymbolSearchDialog({
         </DialogHeader>
 
         <div className="max-h-80 overflow-y-auto p-1 [scrollbar-width:thin]">
+          {/* Favorites — pinned above everything when the query is empty. */}
+          {query === "" && favoriteSymbols.length > 0 && (
+            <Section title="Favorites">
+              {favoriteSymbols.map((item) => (
+                <Row key={`fav-${item.ticker}`} item={item} currentSymbol={currentSymbol} isFavorite onSelect={handleSelect} onStar={star} />
+              ))}
+            </Section>
+          )}
+
+          {/* Recents — below favorites, above ranked results. */}
+          {query === "" && recentSymbols.length > 0 && (
+            <Section title="Recent">
+              {recentSymbols.map((item) => (
+                <Row key={`rec-${item.ticker}`} item={item} currentSymbol={currentSymbol} isFavorite={favorites.includes(item.ticker)} onSelect={handleSelect} onStar={star} icon={<Clock className="h-3 w-3 text-[#787b86]" />} />
+              ))}
+            </Section>
+          )}
+
           {results.length === 0 ? (
             <div className="py-8 text-center text-xs text-[#787b86]">No symbols found for &quot;{query}&quot;</div>
           ) : (
-            results.map((item) => {
-              const isSelected = currentSymbol === item.ticker || currentSymbol === item.binanceSymbol;
-              return (
-                <button
-                  key={item.ticker}
-                  type="button"
-                  onClick={() => handleSelect(item)}
-                  className={`flex w-full items-center justify-between rounded px-3 py-2 text-left transition-colors ${
-                    isSelected ? "bg-muted" : "hover:bg-background"
-                  }`}
-                >
-                  <div className="flex flex-col">
-                    <div className="flex items-center gap-2">
-                      <span className="font-semibold text-xs text-white">{item.ticker}</span>
-                      <Badge
-                        variant="secondary"
-                        className={`px-1.5 py-0 text-[9px] uppercase ${
-                          item.exchange === "BINANCE"
-                            ? "bg-amber-500/15 text-amber-400"
-                            : "bg-blue-500/15 text-blue-400"
-                        }`}
-                      >
-                        {item.exchange}
-                      </Badge>
-                    </div>
-                    <span className="text-[11px] text-[#787b86]">{item.displayName}</span>
-                  </div>
-
-                  <span className="text-[10px] capitalize text-[#787b86]">{item.category}</span>
-                </button>
-              );
-            })
+            <Section title={query === "" ? "All symbols" : "Results"}>
+              {results.map((item) => (
+                <Row key={item.ticker} item={item} currentSymbol={currentSymbol} isFavorite={favorites.includes(item.ticker)} onSelect={handleSelect} onStar={star} />
+              ))}
+            </Section>
           )}
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function Section({ title, children }: { readonly title: string; readonly children: React.ReactNode }) {
+  return (
+    <div className="pb-1">
+      <p className="px-3 pb-0.5 pt-2 text-[10px] font-semibold uppercase tracking-wider text-[#787b86]">{title}</p>
+      {children}
+    </div>
+  );
+}
+
+function Row({
+  item, currentSymbol, isFavorite, onSelect, onStar, icon,
+}: {
+  readonly item: SymbolOption;
+  readonly currentSymbol?: string;
+  readonly isFavorite: boolean;
+  readonly onSelect: (symbol: SymbolOption) => void;
+  readonly onStar: (e: React.SyntheticEvent, ticker: string) => void;
+  readonly icon?: React.ReactNode;
+}) {
+  const isSelected = currentSymbol === item.ticker || currentSymbol === item.binanceSymbol;
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(item)}
+      className={`group flex w-full items-center justify-between rounded px-3 py-2 text-left transition-colors ${
+        isSelected ? "bg-muted" : "hover:bg-background"
+      }`}
+    >
+      <div className="flex min-w-0 flex-col">
+        <div className="flex items-center gap-2">
+          {icon}
+          <span className="font-semibold text-xs text-white">{item.ticker}</span>
+          <Badge
+            variant="secondary"
+            className={`px-1.5 py-0 text-[9px] uppercase ${
+              item.exchange === "BINANCE"
+                ? "bg-amber-500/15 text-amber-400"
+                : "bg-blue-500/15 text-blue-400"
+            }`}
+          >
+            {item.exchange}
+          </Badge>
+        </div>
+        <span className="truncate text-[11px] text-[#787b86]">{item.displayName}</span>
+      </div>
+
+      <span
+        role="button"
+        tabIndex={0}
+        title={isFavorite ? "Remove from favorites" : "Add to favorites"}
+        onClick={(e) => onStar(e, item.ticker)}
+        onKeyDown={(e) => { if (e.key === "Enter") onStar(e, item.ticker); }}
+        className={`ml-2 shrink-0 cursor-pointer rounded p-1 transition-opacity ${
+          isFavorite ? "text-[#f7b731] opacity-100" : "text-[#787b86] opacity-0 group-hover:opacity-100 hover:text-[#f7b731]"
+        }`}
+      >
+        <Star className={`h-3.5 w-3.5 ${isFavorite ? "fill-current" : ""}`} />
+      </span>
+    </button>
   );
 }

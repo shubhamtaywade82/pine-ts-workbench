@@ -67,6 +67,116 @@ export function searchSymbols(
   });
 }
 
+// ---------------------------------------------------------------------------
+// Fuzzy search + recents + favorites (P0 symbol search)
+// ---------------------------------------------------------------------------
+
+/**
+ * Subsequence fuzzy score for a query against a target (higher = better).
+ * Exact prefix > word-boundary > contiguous substring > scattered subsequence.
+ * Returns -1 when the query is not a subsequence of the target at all.
+ */
+export const fuzzyScore = (query: string, target: string): number => {
+  const q = query.toLowerCase();
+  const t = target.toLowerCase();
+  if (q === "") return 0;
+  if (t === q) return 1_000;
+  if (t.startsWith(q)) return 800 - t.length;
+  const idx = t.indexOf(q);
+  if (idx >= 0) {
+    // Word-boundary hits ("re" → "RELIANCE" ticker over "reliance" inside prose).
+    const boundary = idx === 0 || /[^a-z0-9]/.test(t[idx - 1]!);
+    return (boundary ? 550 : 400) - idx;
+  }
+  // Scattered subsequence: "btu" matches "BTCUSDT" (B…T…U).
+  let qi = 0;
+  let gaps = 0;
+  let last = -1;
+  for (let ti = 0; ti < t.length && qi < q.length; ti += 1) {
+    if (t[ti] === q[qi]) {
+      if (last >= 0) gaps += ti - last - 1;
+      last = ti;
+      qi += 1;
+    }
+  }
+  if (qi < q.length) return -1;
+  return 200 - gaps * 5;
+};
+
+const RECENTS_KEY = "pine-ts-workbench-recent-symbols";
+const FAVORITES_KEY = "pine-ts-workbench-favorite-symbols";
+const RECENTS_LIMIT = 8;
+
+const readList = (key: string, fallback: readonly string[]): readonly string[] => {
+  if (typeof window === "undefined") return fallback;
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (raw === null) return fallback;
+    const parsed = JSON.parse(raw) as string[];
+    return Array.isArray(parsed) ? parsed.filter((s) => typeof s === "string") : fallback;
+  } catch {
+    return fallback;
+  }
+};
+
+const writeList = (key: string, list: readonly string[]): void => {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(key, JSON.stringify(list));
+  } catch { /* storage unavailable */ }
+};
+
+/** Most-recently-picked symbols (newest first), for the search dialog. */
+export const loadRecentSymbols = (): readonly string[] => readList(RECENTS_KEY, []);
+
+export const rememberSymbol = (ticker: string): readonly string[] => {
+  const next = [ticker, ...readList(RECENTS_KEY, []).filter((t) => t !== ticker)].slice(0, RECENTS_LIMIT);
+  writeList(RECENTS_KEY, next);
+  return next;
+};
+
+/** Starred symbols, pinned above search results. */
+export const loadFavoriteSymbols = (): readonly string[] => readList(FAVORITES_KEY, []);
+
+export const toggleFavoriteSymbol = (ticker: string): readonly string[] => {
+  const current = readList(FAVORITES_KEY, []);
+  const next = current.includes(ticker)
+    ? current.filter((t) => t !== ticker)
+    : [...current, ticker];
+  writeList(FAVORITES_KEY, next);
+  return next;
+};
+
+/**
+ * Ranked fuzzy search across the catalog (best match first). Favorites get a
+ * flat boost so they surface when scores are otherwise close.
+ */
+export function fuzzySearchSymbols(
+  query: string,
+  category: SymbolCategory = "all",
+  favorites: readonly string[] = [],
+): readonly SymbolOption[] {
+  const inCategory = SYMBOL_CATALOG.filter(
+    (item) => category === "all" || item.category === category,
+  );
+  const q = query.trim();
+  if (q === "") return inCategory;
+  return inCategory
+    .map((item) => {
+      const best = Math.max(
+        fuzzyScore(q, item.ticker),
+        fuzzyScore(q, item.displayName),
+      );
+      if (best < 0) return null;
+      // Favorites get a flat boost that outranks word-boundary differences.
+      const boost = favorites.includes(item.ticker) ? 300 : 0;
+      return { item, score: best + boost };
+    })
+    .filter((r): r is { item: SymbolOption; score: number } => r !== null)
+    .sort((a, b) => b.score - a.score)
+    .map((r) => r.item);
+}
+
 export function loadWatchlist(): readonly string[] {
   if (typeof window === "undefined") return DEFAULT_WATCHLIST;
   try {
