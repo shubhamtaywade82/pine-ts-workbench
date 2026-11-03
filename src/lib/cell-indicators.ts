@@ -13,7 +13,7 @@ export const INDICATOR_COLORS: Record<string, string> = {
   bb: "#7e57c2", obv: "#26a69a", vwap: "#eab308", supertrend: "#22c55e",
   stoch: "#2196f3", atr: "#b388ff", kc: "#2196f3", sar: "#2962ff",
   mfi: "#26a69a", wma: "#9c27b0", hma: "#00bcd4", cci: "#e91e63",
-  wpr: "#009688", dmi: "#ff007f",
+  wpr: "#009688", dmi: "#ff007f", alma: "#00e5ff", alma_ribbon: "#facc15",
   smc_structure: "#2962ff", smc_fvg: "#089981", smc_ob: "#00b0ff", smc_liquidity: "#d500f9",
 };
 export const FALLBACK_COLOR = "#1e88e5";
