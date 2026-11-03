@@ -27,6 +27,7 @@ export const toEditorOverlays = (
   };
 });
 
+export const NO_OVERLAYS: ChartOverlay[] = [];
 export const NO_DRAWINGS: ChartDrawing[] = [];
 
 /** Script drawings use bar indices; the chart needs the times of the bars the editor ran on. */

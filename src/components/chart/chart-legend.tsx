@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode, RefObject } from "react";
+import { useEffect, useMemo, useState, type ReactNode, type RefObject } from "react";
 import type { Bar } from "@nemesis-oss/pine-ts";
 import { Eye, EyeOff, Settings, X } from "lucide-react";
 import type { ChartOverlay, ChartSubPane, IndicatorAction } from "@/components/chart/chart-workbench";
@@ -18,7 +18,9 @@ export interface ChartLegendProps {
   readonly mainOverlays: readonly ChartOverlay[];
   readonly subPanes: readonly ChartSubPane[];
   /** Bar time (ms) under the crosshair; null = show the latest bar, like TradingView. */
-  readonly hoverTime: number | null;
+  readonly hoverTime?: number | null;
+  /** Subscribes to crosshair movements directly, avoiding parent chart re-renders. */
+  readonly subscribeCrosshair?: (listener: (time: number | null) => void) => () => void;
   /** Pixel height of each LWC pane, main pane first. */
   readonly paneHeights: readonly number[];
   /** Attached to the OHLC values while showing the live bar, for {@link writeLiveOhlc}. */
@@ -50,9 +52,21 @@ const VOLUME_FORMAT = new Intl.NumberFormat("en-US", { notation: "compact", maxi
 const formatPrice = (value: number, scale: number = value): string =>
   (Math.abs(scale) < 10 ? SMALL_PRICE_FORMAT : PRICE_FORMAT).format(value);
 
-/** Point at `time`, or the last point when not hovering. */
-const pointAt = <T extends { time: number }>(points: readonly T[], time: number | null): T | undefined =>
-  time === null ? points[points.length - 1] : points.find((p) => p.time === time);
+/** Point at `time` using binary search, or the last point when not hovering. */
+export const pointAt = <T extends { time: number }>(points: readonly T[], time: number | null): T | undefined => {
+  if (points.length === 0) return undefined;
+  if (time === null) return points[points.length - 1];
+  let low = 0;
+  let high = points.length - 1;
+  while (low <= high) {
+    const mid = (low + high) >> 1;
+    const pt = points[mid]!;
+    if (pt.time === time) return pt;
+    if (pt.time < time) low = mid + 1;
+    else high = mid - 1;
+  }
+  return undefined;
+};
 
 type OhlcvValues = Pick<Bar, "open" | "high" | "low" | "close" | "volume">;
 
@@ -90,13 +104,21 @@ export const writeLiveOhlc = (container: HTMLSpanElement, bar: OhlcvValues): voi
 
 /** TradingView-style top-left legend: symbol + OHLC, then one line per indicator in each pane. */
 export function ChartLegend({
-  title, bars, mainOverlays, subPanes, hoverTime, paneHeights, liveOhlcRef, onIndicatorAction,
+  title, bars, mainOverlays, subPanes, hoverTime, subscribeCrosshair, paneHeights, liveOhlcRef, onIndicatorAction,
   statusLine = DEFAULT_CHART_SETTINGS.statusLine,
 }: ChartLegendProps) {
-  const bar = pointAt(bars, hoverTime);
-  // Sub-pane i starts below the main pane and every sub-pane before it.
-  const paneTops = subPanes.map((_, i) =>
-    paneHeights.slice(0, i + 1).reduce((sum, height) => sum + height + PANE_SEPARATOR_PX, 0));
+  const [internalHover, setInternalHover] = useState<number | null>(null);
+  useEffect(() => {
+    if (!subscribeCrosshair) return;
+    return subscribeCrosshair(setInternalHover);
+  }, [subscribeCrosshair]);
+  const activeHover = hoverTime !== undefined ? hoverTime : internalHover;
+  const bar = pointAt(bars, activeHover);
+  const mainRows = useMemo(() => groupByOwner(mainOverlays), [mainOverlays]);
+  const paneTops = useMemo(
+    () => subPanes.map((_, i) => paneHeights.slice(0, i + 1).reduce((sum, height) => sum + height + PANE_SEPARATOR_PX, 0)),
+    [subPanes, paneHeights],
+  );
   return (
     <div className="pointer-events-none absolute inset-0 z-10 font-mono text-[11px]">
       <div className="absolute left-2 top-1 flex flex-col gap-0.5">
@@ -104,16 +126,16 @@ export function ChartLegend({
           {statusLine.showTitle && <span className="font-sans text-xs font-semibold text-[#d1d4dc]">{title}</span>}
           {/* Keyed by mode: switching hover ↔ live remounts, so no frame-written colour lingers. */}
           {statusLine.showOhlc && bar !== undefined && (
-            <OhlcValues key={hoverTime === null ? "live" : "hover"} bar={bar} valuesRef={hoverTime === null ? liveOhlcRef : undefined} />
+            <OhlcValues key={activeHover === null ? "live" : "hover"} bar={bar} valuesRef={activeHover === null ? liveOhlcRef : undefined} />
           )}
         </div>
-        {groupByOwner(mainOverlays).map((row) => (
-          <OverlayLine key={row.ownerId} row={row} hoverTime={hoverTime} onAction={onIndicatorAction} statusLine={statusLine} />
+        {mainRows.map((row) => (
+          <OverlayLine key={row.ownerId} row={row} hoverTime={activeHover} onAction={onIndicatorAction} statusLine={statusLine} />
         ))}
       </div>
       {subPanes.map((pane, i) => (
         <div key={pane.paneId} className="absolute left-2" style={{ top: paneTops[i]! + 2 }}>
-          <OverlayLine row={{ ownerId: pane.paneId, name: pane.title, overlays: pane.overlays }} hoverTime={hoverTime} onAction={onIndicatorAction} statusLine={statusLine} />
+          <OverlayLine row={{ ownerId: pane.paneId, name: pane.title, overlays: pane.overlays }} hoverTime={activeHover} onAction={onIndicatorAction} statusLine={statusLine} />
         </div>
       ))}
     </div>

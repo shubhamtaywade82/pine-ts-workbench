@@ -90,7 +90,11 @@ export function ChartWorkbench({
   const subPaneSeriesRef = useRef<Map<string, ISeriesApi<"Custom">>>(new Map());
   const drawingsRef = useRef<{ series: ISeriesApi<SeriesType>; primitive: ScriptDrawingsPrimitive } | null>(null);
   const lastPriceRef = useRef<{ series: ISeriesApi<SeriesType>; primitive: LastPricePrimitive } | null>(null);
-  const [hoverTime, setHoverTime] = useState<number | null>(null);
+  const crosshairListenersRef = useRef<Set<(time: number | null) => void>>(new Set());
+  const subscribeCrosshair = useCallback((listener: (time: number | null) => void) => {
+    crosshairListenersRef.current.add(listener);
+    return () => { crosshairListenersRef.current.delete(listener); };
+  }, []);
   const [paneHeights, setPaneHeights] = useState<number[]>([]);
   const [leftScaleWidth, setLeftScaleWidth] = useState(0);
 
@@ -118,7 +122,8 @@ export function ChartWorkbench({
     });
     chartRef.current = chart;
     chart.subscribeCrosshairMove((param) => {
-      setHoverTime(param.time === undefined ? null : (param.time as number) * 1000);
+      const time = param.time === undefined ? null : (param.time as number) * 1000;
+      for (const listener of crosshairListenersRef.current) listener(time);
     });
 
     const resize = () => {
@@ -268,7 +273,7 @@ export function ChartWorkbench({
         <ChartLegend
           statusLine={settings.statusLine}
           title={title} bars={bars} mainOverlays={mainOverlays} subPanes={subPanes}
-          hoverTime={hoverTime} paneHeights={paneHeights} liveOhlcRef={liveOhlcRef}
+          subscribeCrosshair={subscribeCrosshair} paneHeights={paneHeights} liveOhlcRef={liveOhlcRef}
           onIndicatorAction={onIndicatorAction}
         />
       </div>

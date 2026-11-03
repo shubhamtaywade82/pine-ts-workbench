@@ -90,6 +90,8 @@ export function ChartCell({
 
   const [liveRunners] = useState(() => new Map<string, ScriptRunner>());
   useEffect(() => () => liveRunners.forEach((runner) => runner.dispose()), [liveRunners]);
+  const lastRunTimeRef = useRef(0);
+  const prevRunKeyRef = useRef<string | null>(null);
   useEffect(() => {
     let cancelled = false;
     for (const [id, runner] of liveRunners) {
@@ -97,6 +99,16 @@ export function ChartCell({
       runner.dispose();
       liveRunners.delete(id);
     }
+    const first = visibleBars[0];
+    const last = visibleBars[visibleBars.length - 1];
+    const runKey = `${symbol.binanceSymbol}:${interval}:${visibleBars.length}:${first?.time}:${last?.time}:${mounted.map((m) => m.instanceId).join(",")}`;
+    const isNewBarOrConfig = runKey !== prevRunKeyRef.current;
+    const now = Date.now();
+    // Throttle sub-tick recalculations within a forming candle to reduce main-thread pressure.
+    if (!isNewBarOrConfig && now - lastRunTimeRef.current < 2_000) return;
+    lastRunTimeRef.current = now;
+    prevRunKeyRef.current = runKey;
+
     (async () => {
       const out: Record<string, IndicatorRunResult> = {};
       for (const m of mounted) {
@@ -110,7 +122,7 @@ export function ChartCell({
       if (!cancelled) setRunResults(out);
     })();
     return () => { cancelled = true; };
-  }, [visibleBars, mounted, liveRunners, symbol.binanceSymbol]);
+  }, [visibleBars, mounted, liveRunners, symbol.binanceSymbol, interval]);
 
   const { mainOverlays, subPanes } = useMemo(
     () => computeOverlays(visibleBars, mounted, runResults, interval),
@@ -144,7 +156,7 @@ export function ChartCell({
     const first = visibleBars[0];
     const last = visibleBars[visibleBars.length - 1];
     if (first === undefined || last === undefined) { notifiedRef.current = null; return; }
-    const signature = `${symbol.binanceSymbol}:${interval}:${first.time}:${last.time}:${visibleBars.length}:${last.close}`;
+    const signature = `${symbol.binanceSymbol}:${interval}:${first.time}:${last.time}:${visibleBars.length}`;
     if (wasActiveRef.current && signature === notifiedRef.current) return;
     wasActiveRef.current = true;
     notifiedRef.current = signature;

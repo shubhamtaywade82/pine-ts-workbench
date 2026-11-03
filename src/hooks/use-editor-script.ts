@@ -8,7 +8,7 @@ import type { ScriptSettingsDialogProps } from "@/components/editor/script-setti
 import { useBacktest } from "@/components/strategy/strategy-panel";
 import { useScriptLibrary } from "@/hooks/use-script-library";
 import { usePersistedState } from "@/hooks/use-persisted-state";
-import { NO_DRAWINGS, toChartDrawings, toEditorOverlays } from "@/lib/editor-output";
+import { NO_DRAWINGS, NO_OVERLAYS, toChartDrawings, toEditorOverlays } from "@/lib/editor-output";
 import type { ChartInterval } from "@/lib/public-binance-feed";
 import { describeCode, type ScriptSettings } from "@/lib/script-library";
 import type { BacktestTrade } from "@/lib/strategy-runner";
@@ -59,15 +59,20 @@ export function useEditorScript(onOpenEditor: () => void, onOpenTester: () => vo
     else setIsSettingsOpen(true);
   }, [setIsHidden, setIsOnChart]);
 
+  const editorOverlays = useMemo(
+    () => overlays.map((o) => ({ ...o, ownerId: "editor", isHidden: isHidden || o.isHidden === true })),
+    [overlays, isHidden],
+  );
+
   /** What the active chart shows of the script, honouring the legend and the Visibility tab. */
-  const chartOutput = (interval: ChartInterval) => {
+  const chartOutput = useCallback((interval: ChartInterval) => {
     const isVisible = isOnChart && (settings.visibleIntervals?.includes(interval) ?? true);
     return {
-      overlays: isVisible ? overlays.map((o) => ({ ...o, ownerId: "editor", isHidden: isHidden || o.isHidden === true })) : [],
+      overlays: isVisible ? editorOverlays : NO_OVERLAYS,
       drawings: isVisible && !isHidden ? drawings : NO_DRAWINGS,
       isOverlay: run?.isOverlay === true,
     };
-  };
+  }, [isOnChart, settings.visibleIntervals, editorOverlays, isHidden, drawings, run?.isOverlay]);
 
   const isStrategy = scripts.active?.kind === "strategy";
   const settingsDialog: ScriptSettingsDialogProps = {

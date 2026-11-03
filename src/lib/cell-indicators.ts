@@ -44,6 +44,32 @@ export const runSavedScript = async (
   return { plots: run.results, meta: { plots }, drawings: run.drawings, alerts: run.alerts, visibleIntervals };
 };
 
+interface ConfirmedCache {
+  readonly key: string;
+  readonly plots: Record<string, Array<number | undefined>>;
+  readonly drawings?: ScriptDrawings;
+  readonly meta: IndicatorRunResult["meta"];
+}
+
+const confirmedCache = new Map<string, ConfirmedCache>();
+
+const executeInstance = async (
+  indicatorId: string,
+  inputs: Record<string, unknown> | undefined,
+  bars: readonly Bar[],
+): Promise<{ plots: Record<string, Array<number | undefined>>; drawings?: ScriptDrawings; meta: IndicatorRunResult["meta"] } | undefined> => {
+  const meta = registry.metadata(indicatorId);
+  const instance = registry.instantiate(indicatorId, inputs);
+  if (!instance || !meta) return undefined;
+  const perPlot: Record<string, Array<number | undefined>> = {};
+  let barIndex = 0;
+  for await (const r of instance.run(bars as never)) {
+    for (const [plotId, value] of Object.entries(r)) (perPlot[plotId] ??= [])[barIndex] = value;
+    barIndex++;
+  }
+  return { plots: perPlot, drawings: instance.drawings, meta };
+};
+
 export const runMounted = async (
   m: MountedIndicator,
   bars: readonly Bar[],
@@ -55,21 +81,49 @@ export const runMounted = async (
     if (runner === undefined) runners.set(m.instanceId, (runner = createScriptRunner(symbol)));
     return runSavedScript(runner.run, m.scriptId, bars);
   }
-  const meta = registry.metadata(m.indicatorId);
-  const instance = registry.instantiate(m.indicatorId, m.inputs);
-  if (!instance || !meta) return undefined;
-  const perPlot: Record<string, Array<number | undefined>> = {};
-  let barIndex = 0;
-  for await (const r of instance.run(bars as never)) {
-    for (const [plotId, value] of Object.entries(r)) (perPlot[plotId] ??= [])[barIndex] = value;
-    barIndex++;
+  if (bars.length === 0) return undefined;
+
+  const isForming = bars.at(-1)?.isClosed === false;
+  const confirmedEnd = isForming ? bars.length - 1 : bars.length;
+  if (confirmedEnd <= 0) return executeInstance(m.indicatorId, m.inputs, bars);
+
+  // Confirmed history is immutable; cache results across forming-bar ticks.
+  const confirmedKey = `${m.instanceId}:${m.indicatorId}:${JSON.stringify(m.inputs)}:${bars[0]?.time}:${bars[confirmedEnd - 1]?.time}:${confirmedEnd}`;
+  let cached = confirmedCache.get(m.instanceId);
+  if (!cached || cached.key !== confirmedKey) {
+    const executed = await executeInstance(m.indicatorId, m.inputs, bars.slice(0, confirmedEnd));
+    if (!executed) return undefined;
+    cached = { key: confirmedKey, ...executed };
+    confirmedCache.set(m.instanceId, cached);
   }
-  return { plots: perPlot, meta, drawings: instance.drawings };
+
+  if (!isForming) return { plots: cached.plots, meta: cached.meta, drawings: cached.drawings };
+
+  // Forming bar: run only on the recent lookback slice (e.g. 250 bars) instead of all history.
+  const lookback = bars.slice(-Math.min(bars.length, 250));
+  const formingResult = await executeInstance(m.indicatorId, m.inputs, lookback);
+  if (!formingResult) return { plots: cached.plots, meta: cached.meta, drawings: cached.drawings };
+
+  const perPlot: Record<string, Array<number | undefined>> = {};
+  for (const [plotId, series] of Object.entries(cached.plots)) {
+    const lastVal = formingResult.plots[plotId]?.at(-1);
+    perPlot[plotId] = [...series, lastVal];
+  }
+  return { plots: perPlot, meta: cached.meta, drawings: formingResult.drawings ?? cached.drawings };
 };
 
 export const isConstant = (data: readonly { value?: number }[]): boolean => {
-  const withVal = data.filter((d): d is { value: number } => d.value !== undefined);
-  return withVal.length > 1 && withVal.every((d) => d.value === withVal[0]!.value);
+  let firstVal: number | undefined;
+  let count = 0;
+  for (let i = 0; i < data.length; i++) {
+    const val = data[i]!.value;
+    if (val !== undefined) {
+      if (firstVal === undefined) firstVal = val;
+      else if (val !== firstVal) return false;
+      count++;
+    }
+  }
+  return count > 1;
 };
 
 export const isShownOn = (result: IndicatorRunResult, interval: ChartInterval): boolean =>
