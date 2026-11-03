@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.6.0](https://github.com/shubhamtaywade82/pine-ts-workbench/compare/v0.5.0...v0.6.0) (2026-11-03)
+
+
+### Features
+
+* **alma:** add ALMA ribbon template and indicator color mappings ([565afef](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/565afef2872c0e14144bc7a466dec2ccc4169ebb))
+
+
+### Performance Improvements
+
+* eliminate UI lag via incremental indicators and decoupled hover ([a097dd6](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/a097dd62ddeb040a5c41d4c31d6533b668ac6d16))
+
 ## [0.5.0](https://github.com/shubhamtaywade82/pine-ts-workbench/compare/v0.4.0...v0.5.0) (2026-11-02)
 
 
