@@ -60,3 +60,4 @@ server.log
 /skills/
 prisma/db/custom.db
 .remember/
+.omc
