@@ -1,24 +1,33 @@
 import { describe, expect, test } from "bun:test";
-import { bigLevelsModel, pulledEvents, type BigLevelInput } from "./wall-monitor-rows";
+import { BigLevelsBody, bigLevelsModel, pulledEvents, type BigLevelInput } from "./wall-monitor-rows";
 import { readExpandedState, writeExpandedState } from "./wall-monitor-panel";
 
-const level = (
-  side: BigLevelInput["side"],
-  price: number,
-  quantity: number,
-  strength: number | null,
-  held = false,
-): BigLevelInput => ({ side, price, quantity, strength, observedSince: 0, held });
+interface LevelOptions {
+  readonly side: BigLevelInput["side"];
+  readonly price: number;
+  readonly quantity: number;
+  readonly strength?: number | null;
+  readonly held?: boolean;
+}
+
+const level = (opts: LevelOptions): BigLevelInput => ({
+  side: opts.side,
+  price: opts.price,
+  quantity: opts.quantity,
+  strength: opts.strength ?? null,
+  observedSince: 0,
+  held: opts.held ?? false,
+});
 
 describe("big levels model", () => {
   test("ranks the nearest zones and collapses the rest", () => {
     const model = bigLevelsModel([
-      level("bid", 90, 1500, 2.5),
-      level("bid", 80, 10, 1),
-      level("bid", 70, 10, 1),
-      level("bid", 60, 10, 1),
-      level("bid", 50, 10, 1),
-      level("ask", 110, 800, 4),
+      level({ side: "bid", price: 90, quantity: 1500, strength: 2.5 }),
+      level({ side: "bid", price: 80, quantity: 10, strength: 1 }),
+      level({ side: "bid", price: 70, quantity: 10, strength: 1 }),
+      level({ side: "bid", price: 60, quantity: 10, strength: 1 }),
+      level({ side: "bid", price: 50, quantity: 10, strength: 1 }),
+      level({ side: "ask", price: 110, quantity: 800, strength: 4 }),
     ], { mid: 100, now: 45_000, quote: "USDT" }, []);
     expect(model.buyerDistance).toBe("10 below spot");
     expect(model.sellerDistance).toBe("10 above spot");
@@ -30,7 +39,7 @@ describe("big levels model", () => {
 
   test("marks a held level and lists walls that left before price reached them", () => {
     const model = bigLevelsModel(
-      [level("bid", 99, 3, null, true)],
+      [level({ side: "bid", price: 99, quantity: 3, held: true })],
       { mid: 100, now: 10_000, quote: "USDT" },
       [{ side: "ask", price: 130, notional: 2500, at: 0 }],
     );
@@ -47,6 +56,14 @@ describe("big levels model", () => {
     ];
     const events = pulledEvents(previous, [], { at: 1_000, mid: 100, proximityPct: 0.05, bucketWidth: 0.01 });
     expect(events.map((event) => event.price)).toEqual([90]);
+  });
+
+  test("BigLevelsBody renders non-live status even when collapsed", () => {
+    const model = bigLevelsModel([], { mid: 100, now: 0, quote: "USDT" }, []);
+    const collapsedSyncing = BigLevelsBody({ snapshot: { status: "syncing", model }, isExpanded: false });
+    expect(collapsedSyncing.props.children[1].props.children).toBe("syncing");
+    const collapsedLive = BigLevelsBody({ snapshot: { status: "live", model }, isExpanded: false });
+    expect(collapsedLive.props.children[1]).toBe(false);
   });
 });
 

@@ -4,10 +4,8 @@ import type { DepthStatus, DepthWallsUpdate } from "@/lib/depth-feed";
 import { bubbleRadius, decayedReference, type Wall } from "@/lib/depth-walls";
 import type { BookSide } from "@/lib/order-book";
 import type { DepthWallStyle, WallLabel } from "@/lib/chart-settings";
-import { fitWallLabel, paintWallByStyle } from "./depth-wall-painters";
+import { paintWallByStyle } from "./depth-wall-painters";
 import { formatCompact } from "./footprint-primitive";
-
-export { fitWallLabel };
 
 const RADIUS = { min: 5, max: 24 };
 // Bubble size is relative to a recent peak that halves every minute without a new one.
@@ -75,7 +73,6 @@ export class DepthWallsPrimitive implements ISeriesPrimitive<Time> {
     this.labelMode = wallLabel;
     this.attachedTo?.requestUpdate();
   }
-  public setWallLabel(wallLabel: WallLabel): void { this.setLabel(wallLabel); }
 
   /** The latest subscription update, or `undefined` to clear (overlay off / symbol switched). */
   public setUpdate(update: DepthWallsUpdate | undefined, now = Date.now()): void {
@@ -176,30 +173,25 @@ export class DepthWallsPrimitive implements ISeriesPrimitive<Time> {
     if (this.update === undefined) return;
     const { status, quoteAsset, frame, observedUntil } = this.update;
     const observationEnd = status === "live" ? Date.now() : observedUntil;
+    const isCompact = this.labelMode === "compact";
     for (const [side, bubble] of this.bubbles) {
       const y = p.ys[side];
       if (y === null || bubble.wall === undefined) continue;
-      const x = bubbleCenterX(p.formingX, p.barSpacing, bubble.radius, p.paneWidth);
       const wall = bubble.wall;
-      const fullLabel = wallLabel({
+      const x = bubbleCenterX(p.formingX, p.barSpacing, bubble.radius, p.paneWidth);
+      const label = isCompact ? formatWallPill(wall) : wallLabel({
         wall, status, quoteAsset,
         searchedPct: frame?.searchedPct ?? 0,
         clippedByCoverage: frame?.clippedByCoverage ?? false,
         observedMs: observationEnd - wall.observedSince,
       });
-      const compactLabel = formatWallPill(wall);
-      const isCompact = this.labelMode === "compact";
       const notionalOnly = isCompact ? formatCompact(wall.notional) : undefined;
-      const label = isCompact ? compactLabel : fullLabel;
       paintWallByStyle(this.style, {
         context, side, wall, x, y,
         labelY: p.labelYs[side] ?? y,
         alpha: bubble.alpha, radius: bubble.radius,
-        paneWidth: p.paneWidth, status, quoteAsset,
-        searchedPct: frame?.searchedPct ?? 0,
-        clippedByCoverage: frame?.clippedByCoverage ?? false,
-        observedMs: observationEnd - wall.observedSince,
-        fullLabel, compactLabel, notionalOnly, label, minLabelX: p.minLabelX,
+        paneWidth: p.paneWidth, status,
+        label, notionalOnly, minLabelX: p.minLabelX,
       });
     }
   }

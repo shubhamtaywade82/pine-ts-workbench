@@ -206,11 +206,9 @@ const useExpandedState = (cellId?: string): [boolean, () => void] => {
     setExpanded(readExpandedState(cellId));
   }, [cellId]);
   const toggle = () => {
-    setExpanded((prev) => {
-      const next = !prev;
-      writeExpandedState(cellId, next);
-      return next;
-    });
+    const next = !expanded;
+    setExpanded(next);
+    writeExpandedState(cellId, next);
   };
   return [expanded, toggle];
 };

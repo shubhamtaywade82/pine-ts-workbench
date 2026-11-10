@@ -1,4 +1,4 @@
-import type { DataGap, OutcomeTrade, PricePoint } from "./liquidity-outcomes";
+import { EVALUATION_WINDOW_MS, type DataGap, type OutcomeTrade, type PricePoint } from "./liquidity-outcomes";
 import type { WallTransitionRow } from "./market-recorder";
 
 const SECOND_MS = 1_000;
@@ -95,44 +95,96 @@ const parseGap = (payload: string): ParsedGap | undefined => {
   }
 };
 
+export interface GapRangeOptions {
+  readonly evaluationWindowMs?: number;
+  readonly lastEventBefore?: (beforeAt: number) => number | undefined;
+}
+
+interface GapCollectorState {
+  readonly gaps: DataGap[];
+  readonly restartTimes: number[];
+  readonly openStarts: Map<string, number>;
+  readonly options?: GapRangeOptions;
+  lastEventAt: number | undefined;
+}
+
+const handleRestart = (state: GapCollectorState, restart: number): void => {
+  state.restartTimes.push(restart);
+  for (const startAt of state.openStarts.values()) {
+    state.gaps.push({ from: startAt, to: restart });
+  }
+  state.openStarts.clear();
+  const windowMs = state.options?.evaluationWindowMs ?? EVALUATION_WINDOW_MS;
+  const downtimeFrom = state.options?.lastEventBefore?.(restart)
+    ?? state.lastEventAt
+    ?? Math.max(0, restart - windowMs);
+  if (downtimeFrom < restart && !state.gaps.some((g) => g.from === downtimeFrom && g.to === restart)) {
+    state.gaps.push({ from: downtimeFrom, to: restart });
+  }
+  state.openStarts.set("trade", restart);
+  state.openStarts.set("depth", restart);
+};
+
+const handleStreamPhase = (state: GapCollectorState, stream: string, phase: string | undefined, at: number): void => {
+  if (phase === "start") {
+    if (!state.openStarts.has(stream)) state.openStarts.set(stream, at);
+  } else if (phase === "end") {
+    const startAt = state.openStarts.get(stream);
+    if (startAt !== undefined) {
+      state.gaps.push({ from: startAt, to: at });
+      state.openStarts.delete(stream);
+    }
+  } else if (phase === undefined && stream === "trade") {
+    state.gaps.push({ from: at, to: at });
+  }
+};
+
+const processGapRow = (state: GapCollectorState, row: StoredGap): void => {
+  const parsed = parseGap(row.payload);
+  if (parsed === undefined) return;
+  if (parsed.stream === "collector" && parsed.phase === "restart") {
+    handleRestart(state, row.receivedAt);
+  } else if (parsed.stream === "depth" || parsed.stream === "trade") {
+    handleStreamPhase(state, parsed.stream, parsed.phase, row.receivedAt);
+  }
+  state.lastEventAt = row.receivedAt;
+};
+
 export const gapRangesFromEvents = (
   gapRows: readonly StoredGap[],
   now: number,
+  options?: GapRangeOptions,
 ): { readonly gaps: readonly DataGap[]; readonly restartTimes: readonly number[] } => {
   const sorted = [...gapRows].sort((left, right) => left.receivedAt - right.receivedAt);
-  const gaps: DataGap[] = [];
-  const restartTimes: number[] = [];
-  const openStarts = new Map<string, number>();
-
-  for (const row of sorted) {
-    const parsed = parseGap(row.payload);
-    if (parsed === undefined) continue;
-    if (parsed.stream === "collector" && parsed.phase === "restart") {
-      restartTimes.push(row.receivedAt);
-      continue;
-    }
-    if (parsed.stream !== "depth" && parsed.stream !== "trade") continue;
-    if (parsed.phase === "start") {
-      if (!openStarts.has(parsed.stream)) openStarts.set(parsed.stream, row.receivedAt);
-    } else if (parsed.phase === "end") {
-      const startAt = openStarts.get(parsed.stream);
-      if (startAt !== undefined) {
-        gaps.push({ from: startAt, to: row.receivedAt });
-        openStarts.delete(parsed.stream);
-      }
-    } else if (parsed.phase === undefined && parsed.stream === "trade") {
-      gaps.push({ from: row.receivedAt, to: row.receivedAt });
-    }
-  }
-
-  for (const startAt of openStarts.values()) {
-    gaps.push({ from: startAt, to: now });
-  }
-
-  return {
-    gaps: gaps.sort((left, right) => left.from - right.from),
-    restartTimes,
+  const state: GapCollectorState = {
+    gaps: [],
+    restartTimes: [],
+    openStarts: new Map(),
+    options,
+    lastEventAt: undefined,
   };
+  for (const row of sorted) processGapRow(state, row);
+  for (const startAt of state.openStarts.values()) state.gaps.push({ from: startAt, to: now });
+  return {
+    gaps: state.gaps.sort((left, right) => left.from - right.from),
+    restartTimes: state.restartTimes,
+  };
+};
+
+const lastRecordedEventBefore = (
+  transitions: readonly WallTransitionRow[],
+  tradeRows: readonly StoredTrade[],
+  gapRows: readonly StoredGap[],
+  at: number,
+): number | undefined => {
+  let latest: number | undefined;
+  for (const t of transitions) if (t.at < at && (latest === undefined || t.at > latest)) latest = t.at;
+  for (const t of tradeRows) {
+    const time = t.exchangeTime ?? t.receivedAt;
+    if (time < at && (latest === undefined || time > latest)) latest = time;
+  }
+  for (const g of gapRows) if (g.receivedAt < at && (latest === undefined || g.receivedAt > latest)) latest = g.receivedAt;
+  return latest;
 };
 
 export const windowFrom = (
@@ -145,7 +197,9 @@ export const windowFrom = (
     const trade = tradeFromPayload(row.payload, row.exchangeTime ?? row.receivedAt);
     return trade === undefined ? [] : [trade];
   });
-  const { gaps, restartTimes } = gapRangesFromEvents(gapRows, now);
+  const { gaps, restartTimes } = gapRangesFromEvents(gapRows, now, {
+    lastEventBefore: (at) => lastRecordedEventBefore(transitions, tradeRows, gapRows, at),
+  });
   const legacyGapTimes = gapRows.flatMap((row) => {
     const at = tradeGapAt(row.payload, row.receivedAt);
     return at === undefined ? [] : [at];

@@ -3,28 +3,24 @@ import { isDepthSnapshot } from "../../src/lib/binance-payloads";
 import { serializeCoverage } from "../../src/lib/book-replay";
 import { DepthFeed, type DepthFeedDeps, type DepthFeedState } from "../../src/lib/depth-feed";
 import { DEFAULT_WALL_OPTIONS, WallTracker } from "../../src/lib/depth-walls";
-import {
-  isBinanceSymbol,
-  MarketRecorder,
-  syntheticGapSeq,
-  type BookSnapshotRow,
-  type MarketEventKind,
-  type MarketStore,
-  type WallTransitionRow,
-} from "../../src/lib/market-recorder";
-import type { DepthSnapshot, DepthUpdate } from "../../src/lib/order-book";
-import { toLiveTrade, type BinanceSymbol } from "../../src/lib/public-binance-feed";
+import { isBinanceSymbol, MarketRecorder, syntheticGapSeq, type BookSnapshotRow, type MarketEventKind } from "../../src/lib/market-recorder";
+import type { DepthUpdate } from "../../src/lib/order-book";
+import { closeQuietly, toLiveTrade, type BinanceSymbol } from "../../src/lib/public-binance-feed";
 import { fetchInstrumentFilters } from "../../src/lib/symbol-catalog";
-import { diffWalls, wallIdentityWidth, type LifecycleWall, type WallEvent } from "../../src/lib/wall-lifecycle";
+import { diffWalls, findMatch, wallIdentityWidth, type LifecycleWall, type WallEvent } from "../../src/lib/wall-lifecycle";
 import { COLLECTOR_DATA_WS_URL, COLLECTOR_REST_URL } from "./endpoints";
 import { createMalformedLogger, parseDepthMessage } from "./parse";
 import { disconnectStore, purgeOldEvents, startOutcomeLoop, store } from "./store";
-import { closeQuietly, openTradeStream, type RawTrade } from "./trade-stream";
+import { openTradeStream, type RawTrade } from "./trade-stream";
 
 const DEPTH_SNAPSHOT_URL = `${COLLECTOR_REST_URL}/api/v3/depth`;
 const SNAPSHOT_MS = 60_000;
 const RETENTION_MS = 60 * 60 * 1000;
 const DETECTOR_VERSION = "1";
+// Floating-point math differences between wall-lifecycle diffs and stored prices must be treated as exact price equality.
+const PRICE_MATCH_EPSILON = 1e-9;
+// Guards against sub-satoshi degenerate zero bucket widths for micro-priced assets or extreme mid calculations.
+const MIN_IDENTITY_WIDTH = 1e-8;
 
 const malformedLogger = createMalformedLogger();
 
@@ -83,82 +79,84 @@ interface ActiveWall {
   notional: number;
 }
 
-const matchActiveWall = (open: readonly ActiveWall[], wall: { readonly side: string; readonly price: number }, width: number, used: Set<number>): number => {
-  let best = -1;
-  let bestDist = Number.POSITIVE_INFINITY;
-  for (let i = 0; i < open.length; i += 1) {
-    const prior = open[i];
-    if (prior === undefined || used.has(i) || prior.side !== wall.side) continue;
-    const dist = Math.abs(prior.price - wall.price);
-    if (dist > width || dist >= bestDist) continue;
-    best = i;
-    bestDist = dist;
+interface WatchWallsState {
+  readonly symbol: string;
+  readonly recorder: MarketRecorder;
+  readonly tracker: WallTracker;
+  readonly tickSize?: number;
+  openWalls: ActiveWall[];
+}
+
+const dropOutage = (state: WatchWallsState, at: number): void => {
+  for (const w of state.openWalls) {
+    state.recorder.recordTransition({
+      wallId: w.wallId, symbol: state.symbol, side: w.side, price: w.originalPrice,
+      kind: "unobserved", notional: w.notional, at, detectorVersion: DETECTOR_VERSION,
+    });
   }
-  return best;
+  state.openWalls = [];
+  state.tracker.reset();
+};
+
+const recordEvents = (
+  state: WatchWallsState,
+  events: readonly WallEvent[],
+  currentMap: Map<string, ActiveWall>,
+  at: number,
+): void => {
+  for (const event of events) {
+    const active = event.kind === "removed" || event.kind === "pulled"
+      ? state.openWalls.find((w) => w.side === event.side && Math.abs(w.price - event.price) <= PRICE_MATCH_EPSILON)
+      : currentMap.get(`${event.side}:${event.price}`);
+    if (active === undefined) continue;
+    state.recorder.recordTransition({
+      wallId: active.wallId, symbol: state.symbol, side: event.side, price: active.originalPrice,
+      kind: event.kind, notional: event.notional, at, detectorVersion: DETECTOR_VERSION,
+    });
+  }
+};
+
+const updateOpen = (
+  state: WatchWallsState,
+  current: readonly LifecycleWall[],
+  width: number,
+  at: number,
+) => {
+  const used = new Set<number>();
+  const nextOpen: ActiveWall[] = [];
+  const currentMap = new Map<string, ActiveWall>();
+  for (const wall of current) {
+    const idx = findMatch(state.openWalls, wall, width, used);
+    const active: ActiveWall = idx >= 0 ? state.openWalls[idx]! : {
+      wallId: `${state.symbol}:${wall.side}:${wall.price}:${at}`,
+      side: wall.side, originalPrice: wall.price, price: wall.price, notional: wall.notional,
+    };
+    if (idx >= 0) used.add(idx);
+    active.price = wall.price;
+    active.notional = wall.notional;
+    nextOpen.push(active);
+    currentMap.set(`${wall.side}:${wall.price}`, active);
+  }
+  return { nextOpen, currentMap };
 };
 
 export const watchWalls = (symbol: string, recorder: MarketRecorder, tickSize?: number) => {
-  const tracker = new WallTracker(DEFAULT_WALL_OPTIONS);
-  let openWalls: ActiveWall[] = [];
-
-  const dropOutage = (at: number): void => {
-    for (const w of openWalls) {
-      recorder.recordTransition({
-        wallId: w.wallId, symbol, side: w.side, price: w.originalPrice,
-        kind: "unobserved", notional: w.notional, at, detectorVersion: DETECTOR_VERSION,
-      });
-    }
-    openWalls = [];
-    tracker.reset();
-  };
-
-  const recordEvents = (events: readonly WallEvent[], currentMap: Map<string, ActiveWall>, at: number): void => {
-    for (const event of events) {
-      const active = event.kind === "removed" || event.kind === "pulled"
-        ? openWalls.find((w) => w.side === event.side && Math.abs(w.price - event.price) <= 1e-9)
-        : currentMap.get(`${event.side}:${event.price}`);
-      if (active === undefined) continue;
-      recorder.recordTransition({
-        wallId: active.wallId, symbol, side: event.side, price: active.originalPrice,
-        kind: event.kind, notional: event.notional, at, detectorVersion: DETECTOR_VERSION,
-      });
-    }
-  };
-
-  const updateOpen = (current: readonly LifecycleWall[], width: number, at: number) => {
-    const used = new Set<number>();
-    const nextOpen: ActiveWall[] = [];
-    const currentMap = new Map<string, ActiveWall>();
-    for (const wall of current) {
-      const idx = matchActiveWall(openWalls, wall, width, used);
-      const active: ActiveWall = idx >= 0 ? openWalls[idx]! : {
-        wallId: `${symbol}:${wall.side}:${wall.price}:${at}`,
-        side: wall.side, originalPrice: wall.price, price: wall.price, notional: wall.notional,
-      };
-      if (idx >= 0) used.add(idx);
-      active.price = wall.price;
-      active.notional = wall.notional;
-      nextOpen.push(active);
-      currentMap.set(`${wall.side}:${wall.price}`, active);
-    }
-    return { nextOpen, currentMap };
-  };
-
+  const state: WatchWallsState = { symbol, recorder, tracker: new WallTracker(DEFAULT_WALL_OPTIONS), tickSize, openWalls: [] };
   return {
-    reset(): void { tracker.reset(); openWalls = []; },
-    dropOutage,
-    note(state: DepthFeedState): void {
-      if (state.book === undefined) return;
+    reset(): void { state.tracker.reset(); state.openWalls = []; },
+    dropOutage: (at: number): void => dropOutage(state, at),
+    note(feedState: DepthFeedState): void {
+      if (feedState.book === undefined) return;
       const at = Date.now();
-      const frame = tracker.update(state.book, at);
+      const frame = state.tracker.update(feedState.book, at);
       if (frame === undefined) return;
       const current = [...frame.bids, ...frame.asks].map((w) => ({ side: w.side, price: w.price, notional: w.notional }));
-      const width = Math.max(wallIdentityWidth(frame.mid, tickSize), 1e-8);
-      const previous = openWalls.map((w) => ({ side: w.side, price: w.price, notional: w.notional }));
+      const width = Math.max(wallIdentityWidth(frame.mid, state.tickSize), MIN_IDENTITY_WIDTH);
+      const previous = state.openWalls.map((w) => ({ side: w.side, price: w.price, notional: w.notional }));
       const events = diffWalls(previous, current, { at, mid: frame.mid, proximityPct: DEFAULT_WALL_OPTIONS.windowPct, bucketWidth: width });
-      const { nextOpen, currentMap } = updateOpen(current, width, at);
-      recordEvents(events, currentMap, at);
-      openWalls = nextOpen;
+      const { nextOpen, currentMap } = updateOpen(state, current, width, at);
+      recordEvents(state, events, currentMap, at);
+      state.openWalls = nextOpen;
     },
   };
 };
@@ -170,40 +168,41 @@ const captureIfLive = (symbol: string, recorder: MarketRecorder, state: DepthFee
   }
 };
 
-const followBook = (
-  symbol: string, recorder: MarketRecorder, walls: ReturnType<typeof watchWalls>,
-  held: { state?: DepthFeedState }, nextGapSeq: () => number,
-) => {
+interface FollowBookContext {
+  readonly symbol: string;
+  readonly recorder: MarketRecorder;
+  readonly walls: ReturnType<typeof watchWalls>;
+  readonly held: { state?: DepthFeedState };
+  readonly nextGapSeq: () => number;
+}
+
+const followBook = (ctx: FollowBookContext) => {
   let live = false;
-  let wasLive = false;
   return (state: DepthFeedState): void => {
-    held.state = state;
+    ctx.held.state = state;
     const nowLive = state.status === "live";
     const now = Date.now();
     if (live && !nowLive) {
-      wasLive = true;
-      walls.dropOutage(now);
-      recorder.recordEvent({ symbol, kind: "gap", seq: nextGapSeq(), receivedAt: now, payload: JSON.stringify({ stream: "depth", phase: "start" }) });
+      ctx.walls.dropOutage(now);
+      ctx.recorder.recordEvent({
+        symbol: ctx.symbol, kind: "gap", seq: ctx.nextGapSeq(), receivedAt: now,
+        payload: JSON.stringify({ stream: "depth", phase: "start" }),
+      });
     }
     if (!live && nowLive) {
-      if (wasLive) {
-        recorder.recordEvent({ symbol, kind: "gap", seq: nextGapSeq(), receivedAt: now, payload: JSON.stringify({ stream: "depth", phase: "end" }) });
-      }
-      captureIfLive(symbol, recorder, state);
+      ctx.recorder.recordEvent({
+        symbol: ctx.symbol, kind: "gap", seq: ctx.nextGapSeq(), receivedAt: now,
+        payload: JSON.stringify({ stream: "depth", phase: "end" }),
+      });
+      captureIfLive(ctx.symbol, ctx.recorder, state);
     }
     live = nowLive;
-    if (nowLive) walls.note(state);
+    if (nowLive) ctx.walls.note(state);
   };
 };
 
 const recordTradeGap = (recorder: MarketRecorder, symbol: string, phase: "start" | "end", seq: number): void => {
-  recorder.recordEvent({
-    symbol,
-    kind: "gap",
-    seq,
-    receivedAt: Date.now(),
-    payload: JSON.stringify({ stream: "trade", phase }),
-  });
+  recorder.recordEvent({ symbol, kind: "gap", seq, receivedAt: Date.now(), payload: JSON.stringify({ stream: "trade", phase }) });
 };
 
 const collectSymbol = (symbol: BinanceSymbol, recorder: MarketRecorder, tickSize?: number): (() => void) => {
@@ -216,7 +215,7 @@ const collectSymbol = (symbol: BinanceSymbol, recorder: MarketRecorder, tickSize
     onApplied: (event) => recordMarket(recorder, symbol, "depth", { event, seq: event.u }),
     onGap: (event) => recordMarket(recorder, symbol, "gap", { event, seq: event?.u ?? nextGapSeq() }),
   });
-  const unsubscribe = feed.subscribe(followBook(symbol, recorder, walls, held, nextGapSeq));
+  const unsubscribe = feed.subscribe(followBook({ symbol, recorder, walls, held, nextGapSeq }));
   const trades = openTradeStream(
     symbol,
     (raw) => recordTrade(recorder, symbol, raw),
@@ -230,9 +229,8 @@ const collectSymbol = (symbol: BinanceSymbol, recorder: MarketRecorder, tickSize
 const symbolsFrom = (raw: string | undefined): BinanceSymbol[] =>
   (raw ?? "BTCUSDT").split(",").map((part) => part.trim()).filter(isBinanceSymbol);
 
-const logDrop = (total: number, pending: number): void => {
+const logDrop = (total: number, pending: number): void =>
   console.warn(`recorder dropped rows; total ${total}; pending ${pending}`);
-};
 
 const logWriteError = (error: unknown, remaining: number, dropped: number): void => {
   const msg = error instanceof Error ? error.message : "unknown error";
@@ -259,6 +257,11 @@ const stopCollector = async (stops: readonly (() => void)[], recorder: MarketRec
   process.exit(0);
 };
 
+const loadFilter = (symbol: string) => fetchInstrumentFilters(symbol).catch((error: unknown) => {
+  console.warn(`failed to fetch instrument filters for ${symbol}`, error);
+  return undefined;
+});
+
 const main = async (): Promise<void> => {
   const symbols = symbolsFrom(process.env.COLLECTOR_SYMBOLS);
   if (symbols.length === 0) throw new Error("COLLECTOR_SYMBOLS has no supported Binance symbol");
@@ -273,7 +276,7 @@ const main = async (): Promise<void> => {
       receivedAt: bootTime, payload: JSON.stringify({ stream: "collector", phase: "restart" }),
     });
   }
-  const filters = await Promise.all(symbols.map((s) => fetchInstrumentFilters(s).catch(() => undefined)));
+  const filters = await Promise.all(symbols.map(loadFilter));
   const stops = symbols.map((s, i) => collectSymbol(s, recorder, filters[i]?.tickSize));
   const stopOutcomes = startOutcomeLoop(symbols, () => recorder.flush());
   const stopRetention = startRetention();

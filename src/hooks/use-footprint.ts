@@ -6,7 +6,7 @@ import { INTERVAL_MS, type BinanceSymbol, type ChartInterval, type LiveTrade } f
 import { fallbackTickSize, loadTickSize } from "@/lib/symbol-catalog";
 import type { ChartSettings } from "@/lib/chart-settings";
 import type { FootprintMode } from "@/lib/trading-settings";
-import { addTrade, footprintSupported, type FootprintBar } from "@/lib/footprint";
+import { addTrade, footprintSupported, mergeHistoryAndLive, type FootprintBar } from "@/lib/footprint";
 import { FootprintPrimitive } from "@/components/chart/footprint-primitive";
 
 export interface FootprintInput {
@@ -80,57 +80,135 @@ interface TradeWatch {
   readonly options: { current: TradeOptions };
 }
 
-const fetchTradeChunk = async (symbol: string, from: number, to: number): Promise<LiveTrade[]> => {
+interface StoredEvent {
+  readonly receivedAt: number;
+  readonly payload: string;
+}
+
+interface EventPageResponse {
+  readonly ok: boolean;
+  readonly hasMore?: boolean;
+  readonly events?: readonly StoredEvent[];
+}
+
+const MAX_PAGES_PER_CHUNK = 20;
+
+const isStoredTrade = (val: unknown): val is LiveTrade => {
+  if (typeof val !== "object" || val === null) return false;
+  const t = val as Record<string, unknown>;
+  return (
+    Number.isFinite(t.id) &&
+    Number.isFinite(t.price) &&
+    Number.isFinite(t.quantity) &&
+    Number.isFinite(t.time) &&
+    (t.aggressor === "buy" || t.aggressor === "sell")
+  );
+};
+
+const parseStoredEvents = (events: readonly StoredEvent[]): LiveTrade[] => {
+  let badCount = 0;
+  const trades: LiveTrade[] = [];
+  for (const event of events) {
+    try {
+      const parsed: unknown = JSON.parse(event.payload);
+      if (isStoredTrade(parsed)) trades.push(parsed);
+      else badCount += 1;
+    } catch {
+      // Malformed JSON is counted and skipped to keep the valid history rows intact.
+      badCount += 1;
+    }
+  }
+  if (badCount > 0) {
+    console.warn(`[useFootprint] Skipped ${badCount} invalid stored trade payloads`);
+  }
+  return trades;
+};
+
+const requestPage = async (symbol: string, from: number, to: number): Promise<EventPageResponse> => {
   const res = await fetch(`/api/microstructure/events?symbol=${symbol}&kind=trade&from=${from}&to=${to}`);
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const data = (await res.json()) as { ok: boolean; events?: { payload: string }[] };
-  if (!data.ok || !Array.isArray(data.events)) return [];
-  return data.events.map((e) => JSON.parse(e.payload) as LiveTrade);
+  return (await res.json()) as EventPageResponse;
+};
+
+const fetchChunkEvents = async (symbol: string, from: number, to: number): Promise<StoredEvent[]> => {
+  const events: StoredEvent[] = [];
+  let cursor = from;
+  let page = 0;
+  while (page < MAX_PAGES_PER_CHUNK) {
+    const data = await requestPage(symbol, cursor, to);
+    if (!data.ok || !data.events || data.events.length === 0) return events;
+    events.push(...data.events);
+    if (!data.hasMore) return events;
+    cursor = data.events[data.events.length - 1]!.receivedAt;
+    page += 1;
+  }
+  console.warn(`[useFootprint] Page cap (${MAX_PAGES_PER_CHUNK}) hit for chunk ${from}-${to}`);
+  return events;
 };
 
 const fetchHistoricalTrades = async (symbol: string): Promise<LiveTrade[]> => {
   const now = Date.now();
   const chunkMs = 10 * 60 * 1000;
-  const chunks: Array<Promise<LiveTrade[]>> = [];
+  const chunks: Array<Promise<StoredEvent[]>> = [];
   // 10-minute chunks covering up to the last 60 minutes of visible bars
   for (let i = 6; i > 0; i -= 1) {
     const from = now - i * chunkMs;
-    const to = from + chunkMs;
-    chunks.push(fetchTradeChunk(symbol, from, to));
+    chunks.push(fetchChunkEvents(symbol, from, from + chunkMs));
   }
   const results = await Promise.all(chunks);
-  return results.flat();
+  return parseStoredEvents(results.flat());
+};
+
+const applyTrades = (session: TradeSession, trades: readonly LiveTrade[]): void => {
+  const { intervalMs, bucketTicks } = session.options.current;
+  for (const trade of trades) {
+    if (session.tickBox.tick === undefined) session.tickBox.tick = fallbackTickSize(trade.price);
+    addTrade(session.bars, trade, { intervalMs, tickSize: session.tickBox.tick, bucketTicks });
+  }
+  publish(session);
+};
+
+interface LiveBufferState {
+  isHistoryDone: boolean;
+  buffered: LiveTrade[];
+}
+
+const loadAndApplyHistory = async (
+  session: TradeSession,
+  symbol: BinanceSymbol,
+  bufferState: LiveBufferState,
+  isStopped: () => boolean,
+): Promise<void> => {
+  let history: LiveTrade[] = [];
+  try {
+    history = await fetchHistoricalTrades(symbol);
+  } catch (err: unknown) {
+    // History fetch failure is warned once; live stream continues regardless.
+    console.warn(`[useFootprint] Could not load historical trades (collector may not be running): ${err instanceof Error ? err.message : String(err)}`);
+  }
+  if (isStopped()) return;
+  const trades = mergeHistoryAndLive(history, bufferState.buffered);
+  bufferState.buffered = [];
+  bufferState.isHistoryDone = true;
+  applyTrades(session, trades);
 };
 
 const watchTrades = (watch: TradeWatch): (() => void) => {
   const session: TradeSession = {
-    bars: watch.bars,
-    primitive: watch.primitive,
-    options: watch.options,
-    tickBox: { tick: undefined },
-    raf: 0,
+    bars: watch.bars, primitive: watch.primitive, options: watch.options,
+    tickBox: { tick: undefined }, raf: 0,
   };
-  let unsubscribe = () => {};
+  const bufferState: LiveBufferState = { isHistoryDone: false, buffered: [] };
   let stopped = false;
   void loadTickSize(watch.symbol).then((known) => {
-    if (stopped) return;
-    session.tickBox.tick = known;
-    unsubscribe = watch.subscribeTrades((trade) => onPrint(session, trade));
+    if (!stopped) session.tickBox.tick = known;
   });
-  void fetchHistoricalTrades(watch.symbol)
-    .then((trades) => {
-      if (stopped) return;
-      const { intervalMs, bucketTicks } = session.options.current;
-      for (const trade of trades) {
-        if (session.tickBox.tick === undefined) session.tickBox.tick = fallbackTickSize(trade.price);
-        addTrade(session.bars, trade, { intervalMs, tickSize: session.tickBox.tick, bucketTicks });
-      }
-      publish(session);
-    })
-    .catch((err: unknown) => {
-      // History fetch failure is warned once; live stream continues regardless.
-      console.warn(`[useFootprint] Could not load historical trades (collector may not be running): ${err instanceof Error ? err.message : String(err)}`);
-    });
+  const unsubscribe = watch.subscribeTrades((trade) => {
+    if (stopped) return;
+    if (!bufferState.isHistoryDone) bufferState.buffered.push(trade);
+    else onPrint(session, trade);
+  });
+  void loadAndApplyHistory(session, watch.symbol, bufferState, () => stopped);
   return () => {
     stopped = true;
     unsubscribe();

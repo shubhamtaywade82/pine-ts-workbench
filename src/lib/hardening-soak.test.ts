@@ -26,16 +26,14 @@ interface FeedHarness {
   readonly resolveLatest: (snapshot: DepthSnapshot) => void;
 }
 
-/** Isolated clock, timers, sockets and snapshot endpoint, one per DepthFeed. */
-const feedHarness = (): FeedHarness => {
+const createSoakTimeline = () => {
   let now = 0;
   let outstanding = 0;
   const timers: FakeTimer[] = [];
-  const sockets: FakeSocket[] = [];
-  const snapshots: Array<{ resolve: (s: DepthSnapshot) => void; reject: (e: Error) => void }> = [];
-  const deps: DepthFeedDeps = {
+  return {
     now: () => now,
-    schedule: (run, delayMs) => {
+    outstanding: () => outstanding,
+    schedule: (run: () => void, delayMs: number) => {
       outstanding += 1;
       const timer: FakeTimer = { at: now + delayMs, run, cancelled: false };
       timers.push(timer);
@@ -44,6 +42,26 @@ const feedHarness = (): FeedHarness => {
         timer.cancelled = true;
       };
     },
+    advance: async (ms: number) => {
+      now += ms;
+      for (const timer of timers.filter((t) => !t.cancelled && t.at <= now)) {
+        timer.cancelled = true;
+        outstanding -= 1;
+        timer.run();
+      }
+      await settle();
+    },
+  };
+};
+
+/** Isolated clock, timers, sockets and snapshot endpoint, one per DepthFeed. */
+const feedHarness = (): FeedHarness => {
+  const time = createSoakTimeline();
+  const sockets: FakeSocket[] = [];
+  const snapshots: Array<{ resolve: (s: DepthSnapshot) => void; reject: (e: Error) => void }> = [];
+  const deps: DepthFeedDeps = {
+    now: time.now,
+    schedule: time.schedule,
     openSocket: (url, handlers) => {
       const socket: FakeSocket = { url, ...handlers, closed: false };
       sockets.push(socket);
@@ -52,22 +70,11 @@ const feedHarness = (): FeedHarness => {
     fetchSnapshot: () => new Promise<DepthSnapshot>((resolve, reject) => { snapshots.push({ resolve, reject }); }),
   };
   return {
-    deps,
-    sockets,
-    settle,
-    outstanding: () => outstanding,
+    deps, sockets, settle,
+    outstanding: time.outstanding,
     snapshotCount: () => snapshots.length,
     resolveLatest: (snapshot: DepthSnapshot) => { snapshots.at(-1)?.resolve(snapshot); },
-    advance: async (ms: number) => {
-      now += ms;
-      const due = timers.filter((timer) => !timer.cancelled && timer.at <= now);
-      for (const timer of due) {
-        timer.cancelled = true;
-        outstanding -= 1;
-        timer.run();
-      }
-      await settle();
-    },
+    advance: time.advance,
   };
 };
 

@@ -148,7 +148,6 @@ export interface BigLevelsBodyProps {
 
 const ExpandedLevelList = ({ snapshot }: { readonly snapshot: MonitorSnapshot }) => (
   <>
-    {snapshot.status !== "live" && <p className="mt-1">{snapshot.status}</p>}
     <ul className="mt-1 flex flex-col gap-1">
       {snapshot.model.shown.map((row) => <LevelRow key={row.key} row={row} />)}
     </ul>
@@ -186,6 +185,7 @@ export const BigLevelsBody = ({ snapshot, isExpanded = false, onToggle }: BigLev
         {isExpanded ? "▾" : "▸"}
       </button>
     </div>
+    {snapshot.status !== "live" && <p className="mt-1">{snapshot.status}</p>}
     {isExpanded && <ExpandedLevelList snapshot={snapshot} />}
   </>
 );

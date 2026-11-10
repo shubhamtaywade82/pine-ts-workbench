@@ -1,5 +1,6 @@
 import {
   CLASSIFIER_VERSION,
+  EVALUATION_WINDOW_MS,
   classifyInteractions,
   type DataGap,
   type LiquidityInteraction,
@@ -16,7 +17,6 @@ import type { WallTransitionRow } from "./market-recorder";
 /** Same band the wall search uses, so a "touch" matches what the monitor calls nearby. */
 const PROXIMITY_PCT = 0.5;
 const REACTION_PCT = 0.2;
-const WINDOW_MS = 5 * 60 * 1000;
 
 export const ENOUGH_OUTCOMES = 20;
 
@@ -24,7 +24,7 @@ export const OUTCOME_SCAN_OPTIONS: OutcomeOptions = {
   proximityPct: PROXIMITY_PCT,
   reversalPct: REACTION_PCT,
   breakoutPct: REACTION_PCT,
-  evaluationWindowMs: WINDOW_MS,
+  evaluationWindowMs: EVALUATION_WINDOW_MS,
   consumedPct: 50,
   priceTolerance: 0.01,
 };

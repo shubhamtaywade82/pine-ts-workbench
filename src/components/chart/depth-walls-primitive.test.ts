@@ -2,14 +2,13 @@ import { describe, expect, test } from "bun:test";
 import {
   bubbleCenterX,
   DepthWallsPrimitive,
-  fitWallLabel,
   formatAge,
   formatPct,
   formatWallPill,
   separateLabels,
   wallLabel,
 } from "./depth-walls-primitive";
-import { paintWallByStyle } from "./depth-wall-painters";
+import { fitWallLabel, paintWallByStyle } from "./depth-wall-painters";
 import type { DepthWallStyle } from "@/lib/chart-settings";
 
 const wall = { side: "bid" as const, price: 79_500, quantity: 25.76, notional: 2_048_054, observedSince: 0 };
@@ -124,31 +123,30 @@ describe("formatting", () => {
 });
 
 describe("depth wall visual styles and painters", () => {
+  const createMockCanvasOps = () => ({
+    save: () => {},
+    restore: () => {},
+    beginPath: () => {},
+    arc: () => {},
+    fill: () => {},
+    stroke: () => {},
+    rect: () => {},
+    fillRect: () => {},
+    strokeRect: () => {},
+    moveTo: () => {},
+    lineTo: () => {},
+    setLineDash: () => {},
+  });
+
   const createMockContext = () => {
     const textCalls: Array<{ text: string; x: number; y: number }> = [];
     let clipCount = 0;
     return {
-      save: () => {},
-      restore: () => {},
-      beginPath: () => {},
+      ...createMockCanvasOps(),
       clip: () => { clipCount++; },
-      arc: () => {},
-      fill: () => {},
-      stroke: () => {},
-      rect: () => {},
-      fillRect: () => {},
-      strokeRect: () => {},
-      moveTo: () => {},
-      lineTo: () => {},
       fillText: (text: string, x: number, y: number) => { textCalls.push({ text, x, y }); },
-      setLineDash: () => {},
       measureText: (text: string) => ({ width: text.length * 6 }),
-      globalAlpha: 1,
-      lineWidth: 1,
-      fillStyle: "",
-      strokeStyle: "",
-      textAlign: "left",
-      textBaseline: "middle",
+      globalAlpha: 1, lineWidth: 1, fillStyle: "", strokeStyle: "", textAlign: "left", textBaseline: "middle",
       _textCalls: textCalls,
       _getClipCount: () => clipCount,
     } as unknown as CanvasRenderingContext2D & {
@@ -161,30 +159,13 @@ describe("depth wall visual styles and painters", () => {
 
   test("all 4 styles paint without throwing", () => {
     const ctx = createMockContext();
-    const fullLabel = wallLabel({ ...base, status: "live" });
     const compactLabel = formatWallPill(wall);
-
     for (const style of styles) {
       expect(() => {
         paintWallByStyle(style, {
-          context: ctx,
-          side: "bid",
-          wall,
-          x: 100,
-          y: 200,
-          labelY: 200,
-          alpha: 1,
-          radius: 12,
-          paneWidth: 800,
-          status: "live",
-          quoteAsset: "USDT",
-          searchedPct: 0.5,
-          clippedByCoverage: false,
-          observedMs: 60_000,
-          fullLabel,
-          compactLabel,
-          label: compactLabel,
-          minLabelX: 120,
+          context: ctx, side: "bid", wall, x: 100, y: 200, labelY: 200,
+          alpha: 1, radius: 12, paneWidth: 800, status: "live",
+          label: compactLabel, minLabelX: 120,
         });
       }).not.toThrow();
     }
@@ -193,27 +174,10 @@ describe("depth wall visual styles and painters", () => {
   test("pills never start left of minLabelX even when pane is narrow", () => {
     const ctx = createMockContext();
     const compactLabel = formatWallPill(wall);
-    // minLabelX is 350, paneWidth is 400. Text width is length * 6 ~ 84.
-    // paneWidth - pillW - 4 < minLabelX, so it clamps to minLabelX (350).
     paintWallByStyle("shelf", {
-      context: ctx,
-      side: "bid",
-      wall,
-      x: 300,
-      y: 200,
-      labelY: 200,
-      alpha: 1,
-      radius: 12,
-      paneWidth: 400,
-      status: "live",
-      quoteAsset: "USDT",
-      searchedPct: 0.5,
-      clippedByCoverage: false,
-      observedMs: 60_000,
-      fullLabel: "detailed",
-      compactLabel,
-      label: compactLabel,
-      minLabelX: 350,
+      context: ctx, side: "bid", wall, x: 300, y: 200, labelY: 200,
+      alpha: 1, radius: 12, paneWidth: 400, status: "live",
+      label: compactLabel, minLabelX: 350,
     });
     const lastText = ctx._textCalls.at(-1);
     expect(lastText).toBeDefined();
@@ -223,25 +187,9 @@ describe("depth wall visual styles and painters", () => {
   test("draws notional-only pill in compact mode when space to pane edge is narrow", () => {
     const ctx = createMockContext();
     paintWallByStyle("shelf", {
-      context: ctx,
-      side: "bid",
-      wall,
-      x: 340,
-      y: 200,
-      labelY: 200,
-      alpha: 1,
-      radius: 12,
-      paneWidth: 400,
-      status: "live",
-      quoteAsset: "USDT",
-      searchedPct: 0.5,
-      clippedByCoverage: false,
-      observedMs: 60_000,
-      fullLabel: "79,500 · 2.05M USDT",
-      compactLabel: "79,500 · 2.05M",
-      notionalOnly: "2.05M",
-      label: "79,500 · 2.05M",
-      minLabelX: 360,
+      context: ctx, side: "bid", wall, x: 340, y: 200, labelY: 200,
+      alpha: 1, radius: 12, paneWidth: 400, status: "live",
+      label: "79,500 · 2.05M", notionalOnly: "2.05M", minLabelX: 360,
     });
     expect(ctx._textCalls.at(-1)?.text).toBe("2.05M");
   });
@@ -250,26 +198,37 @@ describe("depth wall visual styles and painters", () => {
     const ctx = createMockContext();
     const fullLabel = wallLabel({ ...base, status: "live" });
     paintWallByStyle("shelf", {
-      context: ctx,
-      side: "bid",
-      wall,
-      x: 350,
-      y: 200,
-      labelY: 200,
-      alpha: 1,
-      radius: 12,
-      paneWidth: 400,
-      status: "live",
-      quoteAsset: "USDT",
-      searchedPct: 0.5,
-      clippedByCoverage: false,
-      observedMs: 60_000,
-      fullLabel,
-      compactLabel: formatWallPill(wall),
-      label: fullLabel, // ~60 chars * 6 = 360px wide, overflows 400px pane
-      minLabelX: 360,
+      context: ctx, side: "bid", wall, x: 350, y: 200, labelY: 200,
+      alpha: 1, radius: 12, paneWidth: 400, status: "live",
+      label: fullLabel, minLabelX: 360,
     });
     expect(ctx._getClipCount()).toBeGreaterThan(0);
+  });
+
+  test("dom style places pill left of depth bar", () => {
+    const ctx = createMockContext();
+    const compactLabel = formatWallPill(wall);
+    paintWallByStyle("dom", {
+      context: ctx, side: "bid", wall, x: 100, y: 200, labelY: 200,
+      alpha: 1, radius: 12, paneWidth: 400, status: "live",
+      label: compactLabel, minLabelX: 50,
+    });
+    const lastText = ctx._textCalls.at(-1);
+    expect(lastText).toBeDefined();
+    expect(lastText?.x).toBeLessThan(340);
+  });
+
+  test("bubbles style pill starts after the bubble radius", () => {
+    const ctx = createMockContext();
+    const compactLabel = formatWallPill(wall);
+    paintWallByStyle("bubbles", {
+      context: ctx, side: "bid", wall, x: 100, y: 200, labelY: 200,
+      alpha: 1, radius: 12, paneWidth: 400, status: "live",
+      label: compactLabel, minLabelX: 50,
+    });
+    const lastText = ctx._textCalls.at(-1);
+    expect(lastText).toBeDefined();
+    expect(lastText?.x).toBe(121);
   });
 
   test("DepthWallsPrimitive accepts style and label mode changes", () => {
@@ -279,7 +238,6 @@ describe("depth wall visual styles and painters", () => {
       primitive.setStyle("dom");
       primitive.setLabel("compact");
       primitive.setLabel("detailed");
-      primitive.setWallLabel("compact");
     }).not.toThrow();
   });
 });

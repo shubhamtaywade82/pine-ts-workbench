@@ -10,11 +10,22 @@ const unwrapData = (value: unknown): unknown => {
   return value;
 };
 
-// Frame data may arrive as string, Buffer, or Uint8Array; safely parse JSON without throwing.
+const textDecoder = new TextDecoder();
+
+// Binary frames from WebSocket transports require UTF-8 decoding before JSON parsing.
+const decodeRaw = (raw: unknown): string | undefined => {
+  if (typeof raw === "string") return raw;
+  if (raw instanceof ArrayBuffer || ArrayBuffer.isView(raw)) {
+    return textDecoder.decode(raw);
+  }
+  return undefined;
+};
+
 const safeParseJson = (raw: unknown): unknown => {
-  if (raw === null || raw === undefined) return undefined;
+  const text = decodeRaw(raw);
+  if (text === undefined) return undefined;
   try {
-    return JSON.parse(typeof raw === "string" ? raw : String(raw));
+    return JSON.parse(text);
   } catch {
     return undefined;
   }

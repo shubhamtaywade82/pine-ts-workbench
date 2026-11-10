@@ -49,7 +49,12 @@ const changeKind = (prior: number, next: number): "increased" | "reduced" | unde
   return undefined;
 };
 
-const findMatch = (previous: readonly LifecycleWall[], wall: LifecycleWall, width: number, used: Set<number>): number => {
+export const findMatch = <T extends { readonly side: BookSide; readonly price: number }>(
+  previous: readonly T[],
+  wall: { readonly side: BookSide; readonly price: number },
+  width: number,
+  used: Set<number>,
+): number => {
   let best = -1;
   let bestDistance = Number.POSITIVE_INFINITY;
   for (let index = 0; index < previous.length; index += 1) {
@@ -84,9 +89,12 @@ const leftEvent = (wall: LifecycleWall, context: LifecycleContext): WallEvent =>
   return wallEvent(kind, wall, context.at);
 };
 
+// One basis point (0.01%) of mid price provides a grouping tolerance when exchange tick size is missing.
+const DEFAULT_IDENTITY_FRACTION = 0.0001;
+
 export const wallIdentityWidth = (mid: number, tickSize?: number): number => {
   if (tickSize !== undefined && tickSize > 0) return tickSize;
-  return mid * 0.0001;
+  return mid * DEFAULT_IDENTITY_FRACTION;
 };
 
 export const diffWalls = (

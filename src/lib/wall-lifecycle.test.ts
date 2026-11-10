@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { diffWalls, wallIdentityWidth, type LifecycleContext, type LifecycleWall } from "./wall-lifecycle";
+import { diffWalls, findMatch, wallIdentityWidth, type LifecycleContext, type LifecycleWall } from "./wall-lifecycle";
 
 const wall = (side: LifecycleWall["side"], price: number, notional: number): LifecycleWall =>
   ({ side, price, notional });
@@ -51,5 +51,17 @@ describe("wallIdentityWidth", () => {
     expect(wallIdentityWidth(50_000, 0.1)).toBe(0.1);
     expect(wallIdentityWidth(50_000, undefined)).toBe(5);
     expect(wallIdentityWidth(100, 0)).toBe(0.01);
+  });
+});
+
+describe("findMatch", () => {
+  test("matches nearest wall of same side within bucket width", () => {
+    const prev = [wall("bid", 100, 100), wall("ask", 105, 100)];
+    const used = new Set<number>();
+    expect(findMatch(prev, wall("bid", 100.2, 50), 0.5, used)).toBe(0);
+    expect(findMatch(prev, wall("bid", 102, 50), 0.5, used)).toBe(-1);
+    expect(findMatch(prev, wall("ask", 105.1, 50), 0.5, used)).toBe(1);
+    used.add(0);
+    expect(findMatch(prev, wall("bid", 100.2, 50), 0.5, used)).toBe(-1);
   });
 });

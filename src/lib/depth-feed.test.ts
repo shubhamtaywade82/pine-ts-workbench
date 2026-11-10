@@ -12,21 +12,36 @@ interface Socket {
   closed: boolean;
 }
 
-/** Hand-driven clock, timers, socket and snapshot endpoint. */
-const harness = () => {
+const createTimeline = () => {
   let now = 0;
   const timers: Array<{ at: number; run: () => void; cancelled: boolean }> = [];
-  const sockets: Socket[] = [];
-  const snapshotRequests: Array<{ resolve: (s: DepthSnapshot) => void; reject: (e: Error) => void }> = [];
-  const updates: DepthWallsUpdate[] = [];
-
-  const deps: DepthFeedDeps = {
+  return {
     now: () => now,
-    schedule: (run, delayMs) => {
+    schedule: (run: () => void, delayMs: number) => {
       const timer = { at: now + delayMs, run, cancelled: false };
       timers.push(timer);
       return () => { timer.cancelled = true; };
     },
+    advance: async (ms: number) => {
+      now += ms;
+      for (const t of timers.filter((item) => !item.cancelled && item.at <= now)) {
+        t.cancelled = true;
+        t.run();
+      }
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    },
+  };
+};
+
+/** Hand-driven clock, timers, socket and snapshot endpoint. */
+const harness = () => {
+  const time = createTimeline();
+  const sockets: Socket[] = [];
+  const snapshotRequests: Array<{ resolve: (s: DepthSnapshot) => void; reject: (e: Error) => void }> = [];
+  const updates: DepthWallsUpdate[] = [];
+  const deps: DepthFeedDeps = {
+    now: time.now,
+    schedule: time.schedule,
     openSocket: (url, handlers) => {
       const socket: Socket = { url, ...handlers, closed: false };
       sockets.push(socket);
@@ -34,24 +49,17 @@ const harness = () => {
     },
     fetchSnapshot: () => new Promise<DepthSnapshot>((resolve, reject) => snapshotRequests.push({ resolve, reject })),
   };
-
-  const advance = async (ms: number) => {
-    now += ms;
-    for (const timer of timers.filter((t) => !t.cancelled && t.at <= now)) {
-      timer.cancelled = true;
-      timer.run();
-    }
-    await settle();
-  };
-  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
   const observe = (feed: DepthFeed, windowPct = 5) => {
-    const observer = new WallObserver(wallOptionsFor(windowPct, 0), "USDT", () => now, (u) => updates.push(u));
+    const observer = new WallObserver(wallOptionsFor(windowPct, 0), "USDT", time.now, (u) => updates.push(u));
     feed.setWindow(observer, windowPct);
     feed.subscribe((state) => observer.receive(state));
     return observer;
   };
-
-  return { deps, sockets, snapshotRequests, updates, advance, settle, observe, now: () => now };
+  return {
+    deps, sockets, snapshotRequests, updates,
+    advance: time.advance, settle: () => new Promise((resolve) => setTimeout(resolve, 0)),
+    observe, now: time.now,
+  };
 };
 
 const snap = (lastUpdateId: number): DepthSnapshot => ({
@@ -79,17 +87,14 @@ describe("DepthFeed: connection and sync", () => {
     const h = harness();
     const feed = new DepthFeed("BTCUSDT", h.deps);
     h.observe(feed);
-
     expect(h.sockets[0]?.url).toContain("btcusdt@depth@100ms");
     h.sockets[0]!.onOpen();
     h.sockets[0]!.onMessage(event(11, 12, [["99", "12"]]));
     h.snapshotRequests[0]!.resolve(snap(10));
     await h.settle();
-
     expect(lastUpdate(h)).toMatchObject({ status: "live", quoteAsset: "USDT" });
     expect(lastUpdate(h).frame?.bid).toMatchObject({ price: 99, quantity: 12 });
     expect(lastUpdate(h).frame?.ask).toMatchObject({ price: 102, quantity: 8 });
-
     h.sockets[0]!.onMessage(event(13, 13, [], [["102", "0"]]));
     expect(lastUpdate(h).frame?.ask?.price).toBe(101);
     feed.stop();
@@ -101,12 +106,10 @@ describe("DepthFeed: connection and sync", () => {
     h.observe(feed);
     h.sockets[0]!.onOpen();
     h.sockets[0]!.onMessage(event(50, 51));
-
     h.snapshotRequests[0]!.resolve(snap(10));
     await h.settle();
     expect(lastUpdate(h).status).toBe("syncing");
     expect(h.snapshotRequests).toHaveLength(1);
-
     await h.advance(1_000);
     expect(h.snapshotRequests).toHaveLength(2);
     h.snapshotRequests[1]!.resolve(snap(50));
@@ -123,7 +126,6 @@ describe("DepthFeed: connection and sync", () => {
     h.snapshotRequests[0]!.reject(new Error("HTTP 503"));
     await h.settle();
     expect(lastUpdate(h)).toMatchObject({ status: "syncing", error: expect.stringContaining("503") });
-
     await h.advance(1_000);
     expect(h.snapshotRequests).toHaveLength(2);
     feed.stop();
@@ -139,7 +141,6 @@ describe("DepthFeed: options and coverage", () => {
     h.snapshotRequests[0]!.resolve(snap(10));
     await h.settle();
     expect(lastUpdate(h).frame?.bid?.price).toBe(99);
-
     feed.setWindow(observer, 0.001);
     observer.setOptions(wallOptionsFor(0.001, 0));
     expect(h.sockets).toHaveLength(1);
@@ -155,13 +156,11 @@ describe("DepthFeed: options and coverage", () => {
     h.snapshotRequests[0]!.resolve(wideSnapshot(10));
     await h.settle();
     expect(lastUpdate(h).status).toBe("live");
-
     const asksBelow = Array.from({ length: 3000 }, (_, i) => [(100.0001 + 0.0002 * i).toFixed(4), "0"] as [string, string]);
     h.sockets[0]!.onMessage(event(11, 11, [["100.6", "1"]], asksBelow));
     await h.settle();
     expect(lastUpdate(h).status).toBe("syncing");
     expect(h.snapshotRequests).toHaveLength(2);
-
     h.snapshotRequests[1]!.resolve(wideSnapshot(11));
     await h.settle();
     expect(lastUpdate(h).status).toBe("live");

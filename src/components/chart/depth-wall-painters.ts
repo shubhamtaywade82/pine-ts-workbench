@@ -21,14 +21,8 @@ export interface WallPaintContext {
   readonly radius: number;
   readonly paneWidth: number;
   readonly status: DepthStatus;
-  readonly quoteAsset: string;
-  readonly searchedPct: number;
-  readonly clippedByCoverage: boolean;
-  readonly observedMs: number;
-  readonly fullLabel: string;
-  readonly compactLabel?: string;
+  readonly label: string;
   readonly notionalOnly?: string;
-  readonly label?: string;
   readonly minLabelX?: number;
 }
 
@@ -46,6 +40,8 @@ interface BadgeStyle {
   readonly pad: number;
   readonly stroke: string;
   readonly lineWidth?: number;
+  readonly rightLimit?: number;
+  readonly startX?: number;
 }
 
 interface BracketCardParams {
@@ -111,13 +107,29 @@ const resolveBadgeLabel = (
   pad: number,
   availablePx: number,
 ): string => {
-  if (p.notionalOnly === undefined) return p.label ?? p.fullLabel;
-  const compact = p.compactLabel ?? p.label ?? p.fullLabel;
+  if (p.notionalOnly === undefined) return p.label;
   return fitWallLabel(
-    { compact, notionalOnly: p.notionalOnly },
+    { compact: p.label, notionalOnly: p.notionalOnly },
     availablePx,
     (text) => ctx.measureText(text).width + pad * 2,
   );
+};
+
+const renderPillBadge = (
+  ctx: CanvasRenderingContext2D,
+  rect: PillRect,
+  style: BadgeStyle,
+  color: string,
+): void => {
+  ctx.fillStyle = BG_DARK;
+  drawPill(ctx, rect);
+  ctx.fill();
+  ctx.strokeStyle = style.stroke;
+  ctx.lineWidth = style.lineWidth ?? 1;
+  ctx.stroke();
+  ctx.fillStyle = color;
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
 };
 
 // Pill sits flush to the right margin, never shifting left over the newest candles.
@@ -125,32 +137,22 @@ const paintPillBadge = (
   ctx: CanvasRenderingContext2D,
   p: WallPaintContext,
   color: string,
-  style: BadgeStyle
+  style: BadgeStyle,
 ): void => {
   const minX = p.minLabelX ?? Math.max(10, p.x - p.radius);
-  const availableSpace = Math.max(0, p.paneWidth - minX - 4);
-  const label = resolveBadgeLabel(ctx, p, style.pad, availableSpace);
-  const textW = ctx.measureText(label).width;
-  const pillW = textW + style.pad * 2;
-  const pillX = Math.max(minX, p.paneWidth - pillW - 4);
-  const availableW = Math.max(0, p.paneWidth - pillX - 4);
-  const actualW = Math.min(pillW, availableW);
+  const right = style.rightLimit ?? (p.paneWidth - 4);
+  const availSpace = style.startX !== undefined ? Math.max(0, p.paneWidth - style.startX - 4) : Math.max(0, right - minX);
+  const label = resolveBadgeLabel(ctx, p, style.pad, availSpace);
+  const pillW = ctx.measureText(label).width + style.pad * 2;
+  const pillX = style.startX ?? Math.max(minX, right - pillW);
+  const maxRight = style.startX !== undefined ? p.paneWidth - 4 : right;
+  const availW = Math.max(0, maxRight - pillX);
+  const actualW = Math.min(pillW, availW);
   if (actualW <= 0) return;
-
-  const y = p.labelY;
-  const top = y - style.h / 2;
-  ctx.fillStyle = BG_DARK;
-  drawPill(ctx, { x: pillX, y: top, w: actualW, h: style.h, r: style.r });
-  ctx.fill();
-  ctx.strokeStyle = style.stroke;
-  ctx.lineWidth = style.lineWidth ?? 1;
-  ctx.stroke();
-
-  ctx.fillStyle = color;
-  ctx.textAlign = "left";
-  ctx.textBaseline = "middle";
-  const clip = pillW > availableW ? { x: pillX, y: top, w: actualW, h: style.h } : undefined;
-  clipAndFillText(ctx, label, { x: pillX + style.pad, y }, clip);
+  const top = p.labelY - style.h / 2;
+  renderPillBadge(ctx, { x: pillX, y: top, w: actualW, h: style.h, r: style.r }, style, color);
+  const clip = pillW > availW ? { x: pillX, y: top, w: actualW, h: style.h } : undefined;
+  clipAndFillText(ctx, label, { x: pillX + style.pad, y: p.labelY }, clip);
 };
 
 const paintRayAndGauge = (ctx: CanvasRenderingContext2D, p: WallPaintContext, startX: number, color: string): void => {
@@ -197,7 +199,8 @@ export const paintDomShelf = (p: WallPaintContext): void => {
   ctx.lineWidth = 1;
   ctx.strokeRect(rightX - barW, y - 8, barW, 16);
 
-  paintPillBadge(ctx, p, color, { h: 18, r: 3, pad: 6, stroke: `${color}88` });
+  const rightLimit = rightX - barW - 4;
+  paintPillBadge(ctx, p, color, { h: 18, r: 3, pad: 6, stroke: `${color}88`, rightLimit });
   ctx.restore();
 };
 
@@ -274,7 +277,9 @@ export const paintBubble = (p: WallPaintContext): void => {
   ctx.stroke();
   ctx.setLineDash([]);
 
-  paintPillBadge(ctx, p, color, { h: 18, r: 3, pad: 6, stroke: `${color}88` });
+  const minLabelX = p.minLabelX ?? Math.max(10, x - radius);
+  const startX = Math.max(minLabelX, x + radius + 3);
+  paintPillBadge(ctx, p, color, { h: 18, r: 3, pad: 6, stroke: `${color}88`, startX });
   ctx.restore();
 };
 

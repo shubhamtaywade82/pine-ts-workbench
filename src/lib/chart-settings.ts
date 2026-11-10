@@ -1,10 +1,10 @@
 import type { DeepPartial, ChartOptions, CandlestickSeriesOptions, PriceScaleOptions } from "lightweight-charts";
 import type { CandleThemeId, CandleType } from "./candle-themes";
 import { CANDLE_THEMES, CANDLE_TYPES } from "./candle-themes";
-import { DEFAULT_TRADING, DEPTH_WALL_STYLES, WALL_LABELS, normalizeTrading, type TradingSettings } from "./trading-settings";
+import { DEFAULT_TRADING, DEPTH_WALL_STYLES, normalizeTrading, type TradingSettings } from "./trading-settings";
 
 export type { DepthWallStyle, FootprintMode, TradingSettings, WallLabel } from "./trading-settings";
-export { DEPTH_WALL_STYLES, WALL_LABELS, normalizeTrading };
+export { DEPTH_WALL_STYLES, normalizeTrading };
 
 /**
  * Chart appearance shared by every chart cell, edited in the Settings dialog

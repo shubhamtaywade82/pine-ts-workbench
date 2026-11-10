@@ -252,7 +252,10 @@ export const loadTickSize = (symbol: string, lookup: TickLookup = fetchInstrumen
   if (cached !== undefined) return cached;
   const pending = lookup(symbol)
     .then((filters) => settleTick(symbol, filters?.tickSize))
-    .catch(() => settleTick(symbol, undefined));
+    .catch((error: unknown) => {
+      console.warn(`failed to load tick size for ${symbol}`, error);
+      return settleTick(symbol, undefined);
+    });
   tickCache.set(symbol, pending);
   return pending;
 };

@@ -15,13 +15,32 @@ const MODES: readonly (readonly [FootprintMode, string])[] = [
 
 type SettingsPatch = <K extends keyof ChartSettings>(section: K, values: Partial<ChartSettings[K]>) => void;
 
+const HeatmapAndOutcomeSettings = ({
+  heatmap,
+  outcomes,
+  patch,
+}: {
+  heatmap: ChartSettings["trading"]["heatmap"];
+  outcomes: ChartSettings["trading"]["outcomes"];
+  patch: SettingsPatch;
+}) => {
+  const patchHeat = (values: Partial<typeof heatmap>) => patch("trading", { heatmap: { ...heatmap, ...values } });
+  const patchOutcomes = (values: Partial<typeof outcomes>) => patch("trading", { outcomes: { ...outcomes, ...values } });
+  return (
+    <>
+      <Check label="Liquidity heatmap" checked={heatmap.enabled} onChange={(enabled) => patchHeat({ enabled })} />
+      <Row label="Heatmap opacity"><ValidatedNumber value={heatmap.opacity} min={0.05} max={1} unit="" onChange={(opacity) => patchHeat({ opacity })} /></Row>
+      <Row label="Heatmap history"><ValidatedNumber integer value={heatmap.minutes} min={1} max={60} unit="min" onChange={(minutes) => patchHeat({ minutes })} /></Row>
+      <Check label="Big-level outcomes (needs the collector)" checked={outcomes.enabled} onChange={(enabled) => patchOutcomes({ enabled })} />
+    </>
+  );
+};
+
 const WallSettings = ({ trading, quoteAsset, patch }: {
   trading: ChartSettings["trading"]; quoteAsset: string; patch: SettingsPatch;
 }) => {
   const { wallWindowPct, minWallNotional, dom, heatmap, outcomes } = trading;
   const patchDom = (values: Partial<typeof dom>) => patch("trading", { dom: { ...dom, ...values } });
-  const patchHeat = (values: Partial<typeof heatmap>) => patch("trading", { heatmap: { ...heatmap, ...values } });
-  const patchOutcomes = (values: Partial<typeof outcomes>) => patch("trading", { outcomes: { ...outcomes, ...values } });
   return (
     <Group title="Order book walls">
       <Check label="Show the largest resting bid and ask" checked={trading.showOrderBookWalls} onChange={(showOrderBookWalls) => patch("trading", { showOrderBookWalls })} />
@@ -41,10 +60,7 @@ const WallSettings = ({ trading, quoteAsset, patch }: {
       <Row label="Bucket size"><ValidatedNumber integer value={dom.bucketTicks} min={1} max={10_000} unit="ticks" onChange={(bucketTicks) => patchDom({ bucketTicks })} /></Row>
       <Row label="Visible buckets"><ValidatedNumber integer value={dom.visibleBuckets} min={5} max={200} unit="rows" onChange={(visibleBuckets) => patchDom({ visibleBuckets })} /></Row>
       <Row label="Top walls"><ValidatedNumber integer value={trading.wallTopN} min={1} max={20} unit="levels" onChange={(wallTopN) => patch("trading", { wallTopN })} /></Row>
-      <Check label="Liquidity heatmap" checked={heatmap.enabled} onChange={(enabled) => patchHeat({ enabled })} />
-      <Row label="Heatmap opacity"><ValidatedNumber value={heatmap.opacity} min={0.05} max={1} unit="" onChange={(opacity) => patchHeat({ opacity })} /></Row>
-      <Row label="Heatmap history"><ValidatedNumber integer value={heatmap.minutes} min={1} max={60} unit="min" onChange={(minutes) => patchHeat({ minutes })} /></Row>
-      <Check label="Big-level outcomes (needs the collector)" checked={outcomes.enabled} onChange={(enabled) => patchOutcomes({ enabled })} />
+      <HeatmapAndOutcomeSettings heatmap={heatmap} outcomes={outcomes} patch={patch} />
     </Group>
   );
 };

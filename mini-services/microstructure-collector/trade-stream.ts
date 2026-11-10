@@ -1,4 +1,4 @@
-import { toLiveTrade, type BinanceSymbol } from "../../src/lib/public-binance-feed";
+import { closeQuietly, toLiveTrade, type BinanceSymbol } from "../../src/lib/public-binance-feed";
 import { COLLECTOR_DATA_WS_URL } from "./endpoints";
 import { parseTradeMessage } from "./parse";
 
@@ -20,15 +20,11 @@ interface TradeConnection {
   cancelReconnect: (() => void) | undefined;
 }
 
-export const closeQuietly = (socket: WebSocket): void => {
-  try { socket.close(1000, "Normal closure"); } catch { /* already closing */ }
-};
-
 const tradeUrl = (symbol: BinanceSymbol): string =>
   `${STREAM_URL}?streams=${symbol.toLowerCase()}@trade`;
 
 const noteOpen = (conn: TradeConnection): void => {
-  if (conn.connectedBefore) conn.onGap("end");
+  conn.onGap("end");
   conn.connectedBefore = true;
 };
 

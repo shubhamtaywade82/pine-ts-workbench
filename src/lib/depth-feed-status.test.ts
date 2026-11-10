@@ -11,21 +11,36 @@ interface Socket {
   closed: boolean;
 }
 
-/** Hand-driven clock, timers, socket and snapshot endpoint. */
-const harness = () => {
+const createTimeline = () => {
   let now = 0;
   const timers: Array<{ at: number; run: () => void; cancelled: boolean }> = [];
-  const sockets: Socket[] = [];
-  const snapshotRequests: Array<{ resolve: (s: DepthSnapshot) => void; reject: (e: Error) => void }> = [];
-  const updates: DepthWallsUpdate[] = [];
-
-  const deps: DepthFeedDeps = {
+  return {
     now: () => now,
-    schedule: (run, delayMs) => {
+    schedule: (run: () => void, delayMs: number) => {
       const timer = { at: now + delayMs, run, cancelled: false };
       timers.push(timer);
       return () => { timer.cancelled = true; };
     },
+    advance: async (ms: number) => {
+      now += ms;
+      for (const t of timers.filter((item) => !item.cancelled && item.at <= now)) {
+        t.cancelled = true;
+        t.run();
+      }
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    },
+  };
+};
+
+/** Hand-driven clock, timers, socket and snapshot endpoint. */
+const harness = () => {
+  const time = createTimeline();
+  const sockets: Socket[] = [];
+  const snapshotRequests: Array<{ resolve: (s: DepthSnapshot) => void; reject: (e: Error) => void }> = [];
+  const updates: DepthWallsUpdate[] = [];
+  const deps: DepthFeedDeps = {
+    now: time.now,
+    schedule: time.schedule,
     openSocket: (url, handlers) => {
       const socket: Socket = { url, ...handlers, closed: false };
       sockets.push(socket);
@@ -33,24 +48,17 @@ const harness = () => {
     },
     fetchSnapshot: () => new Promise<DepthSnapshot>((resolve, reject) => snapshotRequests.push({ resolve, reject })),
   };
-
-  const advance = async (ms: number) => {
-    now += ms;
-    for (const timer of timers.filter((t) => !t.cancelled && t.at <= now)) {
-      timer.cancelled = true;
-      timer.run();
-    }
-    await settle();
-  };
-  const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
   const observe = (feed: DepthFeed, windowPct = 5) => {
-    const observer = new WallObserver(wallOptionsFor(windowPct, 0), "USDT", () => now, (u) => updates.push(u));
+    const observer = new WallObserver(wallOptionsFor(windowPct, 0), "USDT", time.now, (u) => updates.push(u));
     feed.setWindow(observer, windowPct);
     feed.subscribe((state) => observer.receive(state));
     return observer;
   };
-
-  return { deps, sockets, snapshotRequests, updates, advance, settle, observe, now: () => now };
+  return {
+    deps, sockets, snapshotRequests, updates,
+    advance: time.advance, settle: () => new Promise((resolve) => setTimeout(resolve, 0)),
+    observe, now: time.now,
+  };
 };
 
 const snap = (lastUpdateId: number): DepthSnapshot => ({

@@ -58,6 +58,13 @@ describe("parseDepthMessage", () => {
     const invalid = JSON.stringify({ data: { U: 15, u: 10, b: [], a: [] } });
     expect(parseDepthMessage(invalid)).toBeUndefined();
   });
+
+  test("accepts binary Uint8Array and ArrayBuffer frames", () => {
+    const raw = JSON.stringify({ stream: "btcusdt@depth@100ms", data: validDepthPayload() });
+    const encoded = new TextEncoder().encode(raw);
+    expect(parseDepthMessage(encoded)?.u).toBe(12);
+    expect(parseDepthMessage(encoded.buffer)?.u).toBe(12);
+  });
 });
 
 describe("parseTradeMessage", () => {
@@ -86,6 +93,13 @@ describe("parseTradeMessage", () => {
 
     const badTrade = JSON.stringify({ data: { ...validTradePayload(), p: "-1" } });
     expect(parseTradeMessage(badTrade)).toBeUndefined();
+  });
+
+  test("accepts binary Uint8Array and ArrayBuffer trade frames", () => {
+    const raw = JSON.stringify(validTradePayload());
+    const encoded = new TextEncoder().encode(raw);
+    expect(parseTradeMessage(encoded)?.t).toBe(7);
+    expect(parseTradeMessage(encoded.buffer)?.t).toBe(7);
   });
 });
 

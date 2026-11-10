@@ -1,4 +1,6 @@
 export const CLASSIFIER_VERSION = "1";
+// One source for the evaluation horizon: scan options and gap fallbacks must not drift apart.
+export const EVALUATION_WINDOW_MS = 5 * 60 * 1000;
 
 /** A later touch counts only after price is outside this many proximity bands. */
 const RETOUCH_BAND = 2;
