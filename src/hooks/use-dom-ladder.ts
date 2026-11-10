@@ -4,10 +4,11 @@ import type { BinanceSymbol, LiveTrade } from "@/lib/public-binance-feed";
 import { subscribeBook, subscribeDepthWalls, type BookSubscription } from "@/lib/depth-feed-browser";
 import type { DepthFeedState, DepthWallsUpdate } from "@/lib/depth-feed";
 import { wallOptionsFor, type WallOptions } from "@/lib/depth-walls";
-import { bucketBounds, bucketize, priceBucketKey, type PriceBucket } from "@/lib/price-buckets";
+import { bucketize, priceBucketKey, type PriceBucket } from "@/lib/price-buckets";
 import { fallbackTickSize, loadTickSize } from "@/lib/symbol-catalog";
 import type { ChartSettings } from "@/lib/chart-settings";
 import { LevelActivity } from "@/lib/level-activity";
+import { FlowScale, TradeFlowBatcher } from "@/lib/trade-flow";
 import { formatBucketWidth } from "@/components/chart/dom-ladder-layout";
 import { DomLadderPrimitive, type DomLadderBuckets, type LadderWall } from "@/components/chart/dom-ladder-primitive";
 
@@ -23,11 +24,8 @@ const windowPctFor = (price: number, tickSize: number, bucketTicks: number, visi
   ((visibleBuckets / 2) * bucketTicks * tickSize / price) * 100;
 interface TickBox { tick: number | undefined }
 interface DomParams {
-  bucketTicks: number;
-  visibleBuckets: number;
-  wallWindowPct: number;
-  minWallNotional: number;
-  wallTopN: number;
+  bucketTicks: number; visibleBuckets: number; wallWindowPct: number;
+  minWallNotional: number; wallTopN: number; flowAnimation: boolean;
 }
 interface AppliedWindow { pct: number | undefined }
 const bucketsFrom = (
@@ -50,16 +48,11 @@ const bucketsFrom = (
   return { bids: bucketize(book.levels("bid"), options), asks: bucketize(book.levels("ask"), options) };
 };
 interface DomRun {
-  readonly series: ISeriesApi<SeriesType>;
-  readonly symbol: BinanceSymbol;
-  readonly primitive: DomLadderPrimitive;
-  readonly knownTick: number | undefined;
+  readonly series: ISeriesApi<SeriesType>; readonly symbol: BinanceSymbol;
+  readonly primitive: DomLadderPrimitive; readonly knownTick: number | undefined;
   readonly subscribeTrades?: (listener: (trade: LiveTrade) => void) => () => void;
 }
-interface WindowView {
-  readonly params: DomParams;
-  readonly applied: AppliedWindow;
-}
+interface WindowView { readonly params: DomParams; readonly applied: AppliedWindow }
 const openingWindow = (series: ISeriesApi<SeriesType>, knownTick: number | undefined, params: DomParams): number | undefined => {
   const price = lastClose(series);
   if (price === undefined) return undefined;
@@ -73,12 +66,7 @@ const publishWindow = (subscription: BookSubscription, price: number, tick: numb
   subscription.setWindow(next);
   view.applied.pct = next;
 };
-const syncWindow = (
-  state: DepthFeedState,
-  tickBox: TickBox,
-  subscription: BookSubscription,
-  view: WindowView,
-): void => {
+const syncWindow = (state: DepthFeedState, tickBox: TickBox, subscription: BookSubscription, view: WindowView): void => {
   const book = state.book;
   if (state.status !== "live" || book?.bestBid === undefined || book.bestAsk === undefined) return;
   if (tickBox.tick === undefined) tickBox.tick = fallbackTickSize(book.bestBid);
@@ -95,19 +83,15 @@ const shownBuckets = (
   coverage: state.book?.coverage,
 });
 interface LadderSession {
-  readonly run: DomRun;
-  readonly params: { current: DomParams };
-  readonly tickBox: TickBox;
-  readonly applied: AppliedWindow;
-  readonly activity: LevelActivity;
+  readonly run: DomRun; readonly params: { current: DomParams };
+  readonly tickBox: TickBox; readonly applied: AppliedWindow;
+  readonly activity: LevelActivity; readonly batcher: TradeFlowBatcher; readonly flowScale: FlowScale;
+  windowTimer: ReturnType<typeof setTimeout> | null;
   subscription: BookSubscription | null;
   wallsSub: { setOptions: (options: WallOptions) => void; unsubscribe: () => void } | null;
-  wallOptions: WallOptions;
-  shown: DomLadderBuckets;
-  latest: DepthFeedState | undefined;
-  walls: LadderWall[];
-  lastPrice: number | undefined;
-  bucketTicks: number;
+  wallOptions: WallOptions; shown: DomLadderBuckets;
+  latest: DepthFeedState | undefined; walls: LadderWall[];
+  lastPrice: number | undefined; bucketTicks: number;
 }
 const trackBook = (session: LadderSession, state: DepthFeedState): void => {
   session.latest = state;
@@ -126,11 +110,9 @@ const publishLadder = (session: LadderSession, shown: DomLadderBuckets, bucketTi
     key, bought: flow.bought, sold: flow.sold, pulled: flow.pulled,
   }));
   session.run.primitive.setBuckets({
-    ...shown,
-    activity,
-    walls: session.walls,
-    lastPrice: session.lastPrice,
+    ...shown, activity, walls: session.walls, lastPrice: session.lastPrice,
     bucketLabel: formatBucketWidth((session.tickBox.tick ?? 0) * bucketTicks),
+    flowAnimation: session.params.current.flowAnimation,
   });
 };
 const syncWallOptions = (session: LadderSession): void => {
@@ -141,6 +123,13 @@ const syncWallOptions = (session: LadderSession): void => {
   session.wallOptions = next;
   session.wallsSub?.setOptions(next);
 };
+const drainFlow = (session: LadderSession): void => {
+  const batches = session.batcher.drain(Date.now());
+  if (batches.length === 0) return;
+  session.flowScale.observe(batches);
+  const scale = session.flowScale.thresholds();
+  session.run.primitive.pushTrades(batches, scale?.minQuantity, scale?.referenceQuantity);
+};
 const paintSession = (session: LadderSession): void => {
   const { latest, subscription } = session;
   if (latest === undefined || subscription === null) return;
@@ -149,6 +138,7 @@ const paintSession = (session: LadderSession): void => {
   const next = bucketsFrom(latest, session.tickBox, bucketTicks, visibleBuckets);
   session.shown = shownBuckets(latest, next, session.shown);
   syncWallOptions(session);
+  drainFlow(session);
   publishLadder(session, session.shown, bucketTicks);
 };
 const noteTrade = (session: LadderSession, trade: LiveTrade): void => {
@@ -160,6 +150,7 @@ const noteTrade = (session: LadderSession, trade: LiveTrade): void => {
   // Stamp trades with local receive time so they share the book's clock.
   session.activity.observeTrade({ ...trade, time: Date.now() }, key);
   session.lastPrice = trade.price;
+  session.batcher.add({ key, aggressor: trade.aggressor, quantity: trade.quantity, at: Date.now() });
 };
 const noteWalls = (session: LadderSession, update: DepthWallsUpdate): void => {
   const frame = update.frame;
@@ -182,10 +173,17 @@ const bindFeeds = (session: LadderSession, refresh: { current: () => void }): ((
     noteWalls(session, update);
     schedule();
   });
-  const stopTrades = run.subscribeTrades?.((trade) => { noteTrade(session, trade); schedule(); }) ?? (() => undefined);
+  const stopTrades = run.subscribeTrades?.((trade) => {
+    noteTrade(session, trade);
+    schedule();
+    if (session.windowTimer === null) {
+      session.windowTimer = setTimeout(() => { session.windowTimer = null; schedule(); }, 160);
+    }
+  }) ?? (() => undefined);
   refresh.current = schedule;
   return () => {
     if (raf !== 0) cancelAnimationFrame(raf);
+    if (session.windowTimer !== null) clearTimeout(session.windowTimer);
     refresh.current = () => undefined;
     session.subscription?.unsubscribe();
     session.wallsSub?.unsubscribe();
@@ -201,6 +199,7 @@ const startDom = (run: DomRun, params: { current: DomParams }, refresh: { curren
     activity: new LevelActivity(), subscription: null, wallsSub: null, wallOptions,
     shown: { status: "syncing", bids: [], asks: [] }, latest: undefined, walls: [],
     lastPrice: undefined, bucketTicks: params.current.bucketTicks,
+    batcher: new TradeFlowBatcher(150), flowScale: new FlowScale(), windowTimer: null,
   };
   return bindFeeds(session, refresh);
 };
@@ -225,8 +224,7 @@ const attachDom = (
 };
 interface DomHolders {
   readonly slot: { current: { series: ISeriesApi<SeriesType>; primitive: DomLadderPrimitive } | null };
-  readonly params: { current: DomParams };
-  readonly refresh: { current: () => void };
+  readonly params: { current: DomParams }; readonly refresh: { current: () => void };
   readonly subscribeTrades?: (listener: (trade: LiveTrade) => void) => () => void;
 }
 const watchDom = (
@@ -266,20 +264,18 @@ export function useDomLadder(
   tradingSettings: ChartSettings["trading"],
   extras?: DomExtras,
 ): void {
-  const { enabled, bucketTicks, visibleBuckets } = tradingSettings.dom;
+  const { enabled, bucketTicks, visibleBuckets, flowAnimation } = tradingSettings.dom;
   const { wallWindowPct, minWallNotional, wallTopN } = tradingSettings;
   const slot = useRef<DomHolders["slot"]["current"]>(null);
-  const params = useRef<DomParams>({ bucketTicks, visibleBuckets, wallWindowPct, minWallNotional, wallTopN });
+  const params = useRef<DomParams>({ bucketTicks, visibleBuckets, wallWindowPct, minWallNotional, wallTopN, flowAnimation });
   const refresh = useRef<() => void>(() => undefined);
   useEffect(() => {
-    params.current = { bucketTicks, visibleBuckets, wallWindowPct, minWallNotional, wallTopN };
+    params.current = { bucketTicks, visibleBuckets, wallWindowPct, minWallNotional, wallTopN, flowAnimation };
     refresh.current();
-  }, [bucketTicks, visibleBuckets, wallWindowPct, minWallNotional, wallTopN]);
+  }, [bucketTicks, visibleBuckets, wallWindowPct, minWallNotional, wallTopN, flowAnimation]);
   useEffect(() => {
     const candle = candlestickRef.current;
     if (candle === null) return;
-    return watchDom(candle, depthSymbol, enabled, {
-      slot, params, refresh, subscribeTrades: extras?.subscribeTrades,
-    });
+    return watchDom(candle, depthSymbol, enabled, { slot, params, refresh, subscribeTrades: extras?.subscribeTrades });
   }, [candlestickRef, depthSymbol, enabled, extras?.seriesType, extras?.subscribeTrades]);
 }

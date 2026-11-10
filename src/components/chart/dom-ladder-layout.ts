@@ -36,7 +36,13 @@ export const formatBucketWidth = (width: number): string => {
   return text.replace(/\.?0+$/, "");
 };
 
-/** Left edge of the price column. A missing last bar keeps the ladder on the right edge. */
+const CANDLE_GAP_PX = 4;
+
+/**
+ * Left edge of the price column. Bid bars grow left from it, so it sits one bar-width right of
+ * the forming candle: the bids fill the gap instead of covering candles, and sell flow runs
+ * along that gap into the candle. A missing last bar keeps the ladder on the right edge.
+ */
 export const ladderPriceColumnX = (
   lastBarX: number | null,
   barSpacing: number,
@@ -44,7 +50,9 @@ export const ladderPriceColumnX = (
   metrics: LadderMetrics,
 ): number => {
   const rightSpan = metrics.priceWidth + metrics.barMax + metrics.activityWidth;
-  const preferred = lastBarX === null ? paneWidth - rightSpan : lastBarX + barSpacing / 2;
+  const preferred = lastBarX === null
+    ? paneWidth - rightSpan
+    : lastBarX + barSpacing / 2 + CANDLE_GAP_PX + metrics.barMax;
   const minX = metrics.barMax;
   const maxX = Math.max(minX, paneWidth - rightSpan);
   return Math.min(maxX, Math.max(minX, preferred));

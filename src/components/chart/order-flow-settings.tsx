@@ -59,6 +59,7 @@ const WallSettings = ({ trading, quoteAsset, patch }: {
       <Check label="DOM ladder" checked={dom.enabled} onChange={(enabled) => patchDom({ enabled })} />
       <Row label="Bucket size"><ValidatedNumber integer value={dom.bucketTicks} min={1} max={10_000} unit="ticks" onChange={(bucketTicks) => patchDom({ bucketTicks })} /></Row>
       <Row label="Visible buckets"><ValidatedNumber integer value={dom.visibleBuckets} min={5} max={200} unit="rows" onChange={(visibleBuckets) => patchDom({ visibleBuckets })} /></Row>
+      <Check label="Trade flow animation" checked={dom.flowAnimation} onChange={(flowAnimation) => patchDom({ flowAnimation })} />
       <Row label="Top walls"><ValidatedNumber integer value={trading.wallTopN} min={1} max={20} unit="levels" onChange={(wallTopN) => patch("trading", { wallTopN })} /></Row>
       <HeatmapAndOutcomeSettings heatmap={heatmap} outcomes={outcomes} patch={patch} />
     </Group>

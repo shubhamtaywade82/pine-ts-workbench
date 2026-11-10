@@ -16,7 +16,7 @@ describe("normalizeChartSettings: defaults and migration", () => {
       wallLabel: "compact",
       wallWindowPct: 0.5,
       minWallNotional: 0,
-      dom: { enabled: false, bucketTicks: 10, visibleBuckets: 40 },
+      dom: { enabled: false, bucketTicks: 10, visibleBuckets: 40, flowAnimation: true },
       heatmap: { enabled: false, opacity: 0.5, minutes: 10 },
       wallTopN: 5,
       footprint: { enabled: false, mode: "delta", bucketTicks: 10 },
@@ -78,17 +78,24 @@ describe("normalizeChartSettings: validation", () => {
   });
 
   test("dom ladder defaults are off, with 10-tick buckets and 40 visible rows", () => {
-    expect(DEFAULT_CHART_SETTINGS.trading.dom).toEqual({ enabled: false, bucketTicks: 10, visibleBuckets: 40 });
+    expect(DEFAULT_CHART_SETTINGS.trading.dom).toEqual({ enabled: false, bucketTicks: 10, visibleBuckets: 40, flowAnimation: true });
     expect(trading({}).dom).toEqual(DEFAULT_CHART_SETTINGS.trading.dom);
   });
 
   test("dom integers are clamped and non-integers fall back", () => {
     expect(trading({ dom: { enabled: true, bucketTicks: 25, visibleBuckets: 80 } }).dom)
-      .toEqual({ enabled: true, bucketTicks: 25, visibleBuckets: 80 });
+      .toEqual({ enabled: true, bucketTicks: 25, visibleBuckets: 80, flowAnimation: true });
     expect(trading({ dom: { bucketTicks: 0, visibleBuckets: 1_000 } }).dom)
-      .toEqual({ enabled: false, bucketTicks: 1, visibleBuckets: 200 });
+      .toEqual({ enabled: false, bucketTicks: 1, visibleBuckets: 200, flowAnimation: true });
     expect(trading({ dom: { bucketTicks: 10.5, visibleBuckets: 40.2, enabled: "yes" } }).dom)
       .toEqual(DEFAULT_CHART_SETTINGS.trading.dom);
+  });
+
+  test("dom flowAnimation validates booleans and falls back to true", () => {
+    expect(trading({ dom: { flowAnimation: false } }).dom.flowAnimation).toBe(false);
+    expect(trading({ dom: { flowAnimation: true } }).dom.flowAnimation).toBe(true);
+    expect(trading({ dom: { flowAnimation: "invalid" } }).dom.flowAnimation).toBe(true);
+    expect(trading({ dom: { flowAnimation: null } }).dom.flowAnimation).toBe(true);
   });
 
   test("footprint defaults to off, delta mode, and 10-tick buckets", () => {
@@ -227,7 +234,7 @@ describe("rightOffsetPx", () => {
 
   test("should reserve room for the DOM ladder when it is enabled", () => {
     const dom = { ...DEFAULT_CHART_SETTINGS.trading.dom, enabled: true };
-    expect(rightOffsetPx(withTrading({ showOrderBookWalls: true, dom }))).toBe(240);
+    expect(rightOffsetPx(withTrading({ showOrderBookWalls: true, dom }))).toBe(320);
   });
 
   test("should keep the user's larger offset and fall back to it when overlays are off", () => {

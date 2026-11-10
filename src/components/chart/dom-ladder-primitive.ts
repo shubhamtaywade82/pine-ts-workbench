@@ -1,16 +1,13 @@
-import type {
-  IPrimitivePaneRenderer,
-  IPrimitivePaneView,
-  ISeriesPrimitive,
-  SeriesAttachedParameter,
-  Time,
-} from "lightweight-charts";
+import type { IPrimitivePaneRenderer, IPrimitivePaneView, ISeriesPrimitive, SeriesAttachedParameter, Time } from "lightweight-charts";
 import type { CanvasRenderingTarget2D } from "fancy-canvas";
 import type { DepthStatus } from "@/lib/depth-feed";
 import type { BookCoverage } from "@/lib/order-book";
 import type { PriceBucket } from "@/lib/price-buckets";
+import type { FlowParticle, TradeBatch } from "@/lib/trade-flow";
+import { nextParticles, particleFrame } from "@/lib/trade-flow";
 import { drawLadderStatus, paintLadder, placedRows } from "./dom-ladder-painters";
 import { ANIMATION_TAU_MS, easeToward, LADDER, ladderPriceColumnX } from "./dom-ladder-layout";
+import { createFlowGeometry, formingCloseY, paintTradeFlow, prefersReducedMotion } from "./trade-flow-painter";
 
 const DIM_ALPHA = 0.35;
 const SETTLE = 0.01;
@@ -23,10 +20,7 @@ export interface LadderFlow {
   readonly pulled: number;
 }
 
-export interface LadderWall {
-  readonly price: number;
-  readonly side: "bid" | "ask";
-}
+export interface LadderWall { readonly price: number; readonly side: "bid" | "ask" }
 
 export interface DomLadderBuckets {
   readonly status: DepthStatus;
@@ -37,6 +31,7 @@ export interface DomLadderBuckets {
   readonly walls?: readonly LadderWall[];
   readonly lastPrice?: number;
   readonly bucketLabel?: string;
+  readonly flowAnimation?: boolean;
 }
 
 interface RowMotion {
@@ -52,10 +47,10 @@ interface RowMotion {
 }
 
 const largestQuantity = (buckets: DomLadderBuckets): number =>
-  Math.max(0, ...buckets.bids.map((bucket) => bucket.quantity), ...buckets.asks.map((bucket) => bucket.quantity));
+  Math.max(0, ...buckets.bids.map((b) => b.quantity), ...buckets.asks.map((b) => b.quantity));
 
 const qtyByKey = (buckets: readonly PriceBucket[]): Map<number, number> =>
-  new Map(buckets.map((bucket) => [bucket.key, bucket.quantity]));
+  new Map(buckets.map((b) => [b.key, b.quantity]));
 
 const close = (current: number, target: number): boolean => Math.abs(current - target) <= SETTLE;
 
@@ -78,11 +73,12 @@ const freshRow = (bid: number, ask: number, flow: LadderFlow | undefined): RowMo
   };
 };
 
-/** Bid and ask depth beside the forming candle, with a 60s activity column. */
+/** Bid and ask depth beside the forming candle, with trade particle flows and a 60s activity column. */
 export class DomLadderPrimitive implements ISeriesPrimitive<Time> {
   private attachedTo: SeriesAttachedParameter<Time> | null = null;
   private buckets: DomLadderBuckets | undefined;
   private readonly rows = new Map<number, RowMotion>();
+  private particles: FlowParticle[] = [];
   private frame: number | null = null;
   private lastFrameAt = 0;
   private readonly view: IPrimitivePaneView = { renderer: () => this.renderer };
@@ -98,6 +94,7 @@ export class DomLadderPrimitive implements ISeriesPrimitive<Time> {
 
   public detached(): void {
     this.attachedTo = null;
+    this.particles = [];
     this.stopAnimation();
   }
 
@@ -107,6 +104,9 @@ export class DomLadderPrimitive implements ISeriesPrimitive<Time> {
 
   public setBuckets(next: DomLadderBuckets | undefined): void {
     this.buckets = next;
+    if (next === undefined || next.status !== "live" || next.flowAnimation === false) {
+      this.particles = [];
+    }
     if (next === undefined) {
       this.rows.clear();
       this.stopAnimation();
@@ -121,6 +121,17 @@ export class DomLadderPrimitive implements ISeriesPrimitive<Time> {
     }
     if (this.moving()) this.startAnimation();
     else this.attachedTo?.requestUpdate();
+  }
+
+  public pushTrades(batches: readonly TradeBatch[], minQuantity?: number, referenceQuantity?: number): void {
+    if (batches.length === 0 || this.buckets?.status !== "live" || this.buckets.flowAnimation === false) return;
+    if (prefersReducedMotion()) return;
+    this.particles = nextParticles(this.particles, batches, {
+      now: performance.now(),
+      minQuantity,
+      referenceQuantity,
+    });
+    if (this.particles.length > 0) this.startAnimation();
   }
 
   private retarget(buckets: DomLadderBuckets): void {
@@ -164,6 +175,7 @@ export class DomLadderPrimitive implements ISeriesPrimitive<Time> {
   }
 
   private moving(): boolean {
+    if (this.particles.length > 0) return true;
     for (const row of this.rows.values()) {
       if (!close(row.bidWidth, row.targetBid) || !close(row.askWidth, row.targetAsk)) return true;
       if (!close(row.alpha, row.targetAlpha)) return true;
@@ -180,7 +192,7 @@ export class DomLadderPrimitive implements ISeriesPrimitive<Time> {
   }
 
   private startAnimation(): void {
-    if (this.frame !== null) return;
+    if (this.frame !== null || typeof requestAnimationFrame === "undefined") return;
     this.lastFrameAt = performance.now();
     const step = (at: number) => {
       const elapsed = at - this.lastFrameAt;
@@ -198,7 +210,9 @@ export class DomLadderPrimitive implements ISeriesPrimitive<Time> {
   }
 
   private advance(elapsed: number): boolean {
-    let settled = true;
+    const now = performance.now();
+    this.advanceParticles(now);
+    let settled = this.particles.length === 0;
     for (const [key, row] of this.rows) {
       row.bidWidth = easeToward(row.bidWidth, row.targetBid, elapsed, ANIMATION_TAU_MS);
       row.askWidth = easeToward(row.askWidth, row.targetAsk, elapsed, ANIMATION_TAU_MS);
@@ -215,6 +229,18 @@ export class DomLadderPrimitive implements ISeriesPrimitive<Time> {
     return settled;
   }
 
+  private advanceParticles(now: number): void {
+    for (const p of this.particles) {
+      if (particleFrame(p, now).phase !== "in" && !p.arrived) {
+        // Trigger row flash when particle arrives at the candle and heads back to the ladder
+        p.arrived = true;
+        const row = this.rows.get(p.key);
+        if (row !== undefined) row.alpha = 1;
+      }
+    }
+    this.particles = this.particles.filter((p) => particleFrame(p, now).phase !== "done");
+  }
+
   private originX(paneWidth: number): number {
     const attached = this.attachedTo;
     if (attached === null) return ladderPriceColumnX(null, 6, paneWidth, LADDER);
@@ -223,6 +249,19 @@ export class DomLadderPrimitive implements ISeriesPrimitive<Time> {
     const lastX = lastIndex >= 0 ? scale.logicalToCoordinate(lastIndex as never) : null;
     const spacing = scale.options().barSpacing ?? 6;
     return ladderPriceColumnX(lastX, spacing, paneWidth, LADDER);
+  }
+
+  private paintFlow(context: CanvasRenderingContext2D, originX: number, toY: (price: number) => number | null): void {
+    const attached = this.attachedTo;
+    if (attached === null || this.particles.length === 0) return;
+    const scale = attached.chart.timeScale();
+    const lastIndex = attached.series.data().length - 1;
+    const candleX = lastIndex >= 0 ? scale.logicalToCoordinate(lastIndex as never) : null;
+    if (candleX === null) return;
+    const sample = this.buckets?.bids[0] ?? this.buckets?.asks[0];
+    const span = sample ? { from: sample.priceFrom, to: sample.priceTo } : undefined;
+    const geometry = createFlowGeometry(span, originX, { x: candleX, y: formingCloseY(attached.series, toY) }, toY);
+    paintTradeFlow({ context, particles: this.particles, geometry, now: performance.now() });
   }
 
   private paint(context: CanvasRenderingContext2D, paneWidth: number, paneHeight: number): void {
@@ -239,12 +278,16 @@ export class DomLadderPrimitive implements ISeriesPrimitive<Time> {
       paneHeight,
       toY,
     });
+    const originX = this.originX(paneWidth);
     context.save();
     if (buckets.status !== "live") context.globalAlpha = DIM_ALPHA;
     paintLadder({
-      context, paneWidth, paneHeight, originX: this.originX(paneWidth),
+      context, paneWidth, paneHeight, originX,
       bucketLabel: buckets.bucketLabel ?? "level", rows, coverage: buckets.coverage, toY,
     });
+    if (buckets.status === "live" && buckets.flowAnimation !== false) {
+      this.paintFlow(context, originX, toY);
+    }
     context.restore();
     if (buckets.status !== "live") drawLadderStatus(context, buckets.status, paneWidth);
   }

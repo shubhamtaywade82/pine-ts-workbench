@@ -71,6 +71,7 @@ Goal: match the reference screenshots (an index-futures order-flow tool) on Bina
   - `Strong Level (held)` marks a wall that price reached while it stayed.
   - Two collapsed sections: `N more further away` and `Recently pulled (N) — left before price reached them` (from `diffWalls`).
   - Summary cards at the top for the nearest buyer zone and the nearest seller zone.
+- Trade flow (added 2026-11-11): each batch of trades on a row (merged over 150 ms) animates as a comet. It curves from the ladder row it hit into the forming candle's close (the last-price dot): green from the ask side for taker buys, red from the bid side for taker sells. A thin pulse then runs back along the same curve to the row. Particle size is relative to recent batches, at most 40 are on screen, and setting `trading.dom.flowAnimation` (or reduced motion) turns it off. Bid bars sit between the candle and the price column so they never cover candles.
 - Wording: the screenshot says "pulled (cancelled)". We show only "pulled", because the public feed can't prove a cancellation.
 
 ### Phase 4 — Trade flow + footprint (M)
