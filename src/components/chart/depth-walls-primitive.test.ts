@@ -1,5 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { bubbleCenterX, DepthWallsPrimitive, formatAge, formatPct, separateLabels, wallLabel } from "./depth-walls-primitive";
+import {
+  bubbleCenterX,
+  DepthWallsPrimitive,
+  fitWallLabel,
+  formatAge,
+  formatPct,
+  formatWallPill,
+  separateLabels,
+  wallLabel,
+} from "./depth-walls-primitive";
 import { paintWallByStyle } from "./depth-wall-painters";
 import type { DepthWallStyle } from "@/lib/chart-settings";
 
@@ -9,6 +18,7 @@ const base = { wall, quoteAsset: "USDT", searchedPct: 0.5, clippedByCoverage: fa
 describe("depth wall bubbles", () => {
   test("labels spread one line apart around close walls, ask above bid", () => {
     expect(separateLabels(100, 102, 14)).toEqual({ ask: 94, bid: 108 });
+    expect(separateLabels(100, 102, 22)).toEqual({ ask: 90, bid: 112 });
   });
 
   test("labels stay on walls that are already far enough apart", () => {
@@ -17,7 +27,6 @@ describe("depth wall bubbles", () => {
   });
 
   test("sit just right of the forming candle", () => {
-    // half a bar (5) + gap (3) + radius (10)
     expect(bubbleCenterX(100, 10, 10, 800)).toBe(118);
   });
 
@@ -75,6 +84,28 @@ describe("wall labels", () => {
   });
 });
 
+describe("compact wall pill formatting", () => {
+  test("formats price and compact notional cleanly", () => {
+    expect(formatWallPill(wall)).toBe("79,500 · 2.05M");
+    expect(formatWallPill({ price: 2043.5, notional: 268_600 })).toBe("2,043.5 · 269k");
+    expect(formatWallPill({ price: 12.3456789, notional: 500 })).toBe("12.3456789 · 500");
+    expect(formatWallPill({ price: 100, notional: 0 })).toBe("100 · 0");
+  });
+
+  test("fitWallLabel prefers compact label when space permits", () => {
+    const labels = { compact: "82.94 · 1.0k", notionalOnly: "1.0k" };
+    const measure = (t: string) => t.length * 6;
+    expect(fitWallLabel(labels, 100, measure)).toBe("82.94 · 1.0k");
+  });
+
+  test("fitWallLabel falls back to notional-only label in narrow gaps", () => {
+    const labels = { compact: "82.94 · 1.0k", notionalOnly: "1.0k" };
+    const measure = (t: string) => t.length * 6;
+    expect(fitWallLabel(labels, 50, measure)).toBe("1.0k");
+    expect(fitWallLabel(labels, 10, measure)).toBe("1.0k");
+  });
+});
+
 describe("formatting", () => {
   test("observation length: under 10 s is shown, not hidden", () => {
     expect(formatAge(0)).toBe("<10s");
@@ -93,11 +124,14 @@ describe("formatting", () => {
 });
 
 describe("depth wall visual styles and painters", () => {
-  const createMockContext = () =>
-    ({
+  const createMockContext = () => {
+    const textCalls: Array<{ text: string; x: number; y: number }> = [];
+    let clipCount = 0;
+    return {
       save: () => {},
       restore: () => {},
       beginPath: () => {},
+      clip: () => { clipCount++; },
       arc: () => {},
       fill: () => {},
       stroke: () => {},
@@ -106,7 +140,7 @@ describe("depth wall visual styles and painters", () => {
       strokeRect: () => {},
       moveTo: () => {},
       lineTo: () => {},
-      fillText: () => {},
+      fillText: (text: string, x: number, y: number) => { textCalls.push({ text, x, y }); },
       setLineDash: () => {},
       measureText: (text: string) => ({ width: text.length * 6 }),
       globalAlpha: 1,
@@ -115,13 +149,20 @@ describe("depth wall visual styles and painters", () => {
       strokeStyle: "",
       textAlign: "left",
       textBaseline: "middle",
-    }) as unknown as CanvasRenderingContext2D;
+      _textCalls: textCalls,
+      _getClipCount: () => clipCount,
+    } as unknown as CanvasRenderingContext2D & {
+      _textCalls: typeof textCalls;
+      _getClipCount: () => number;
+    };
+  };
 
   const styles: DepthWallStyle[] = ["shelf", "dom", "bracket", "bubbles"];
 
   test("all 4 styles paint without throwing", () => {
     const ctx = createMockContext();
     const fullLabel = wallLabel({ ...base, status: "live" });
+    const compactLabel = formatWallPill(wall);
 
     for (const style of styles) {
       expect(() => {
@@ -141,18 +182,104 @@ describe("depth wall visual styles and painters", () => {
           clippedByCoverage: false,
           observedMs: 60_000,
           fullLabel,
+          compactLabel,
+          label: compactLabel,
+          minLabelX: 120,
         });
       }).not.toThrow();
     }
   });
 
-  test("DepthWallsPrimitive accepts style changes via setStyle", () => {
+  test("pills never start left of minLabelX even when pane is narrow", () => {
+    const ctx = createMockContext();
+    const compactLabel = formatWallPill(wall);
+    // minLabelX is 350, paneWidth is 400. Text width is length * 6 ~ 84.
+    // paneWidth - pillW - 4 < minLabelX, so it clamps to minLabelX (350).
+    paintWallByStyle("shelf", {
+      context: ctx,
+      side: "bid",
+      wall,
+      x: 300,
+      y: 200,
+      labelY: 200,
+      alpha: 1,
+      radius: 12,
+      paneWidth: 400,
+      status: "live",
+      quoteAsset: "USDT",
+      searchedPct: 0.5,
+      clippedByCoverage: false,
+      observedMs: 60_000,
+      fullLabel: "detailed",
+      compactLabel,
+      label: compactLabel,
+      minLabelX: 350,
+    });
+    const lastText = ctx._textCalls.at(-1);
+    expect(lastText).toBeDefined();
+    expect(lastText?.x).toBeGreaterThanOrEqual(350);
+  });
+
+  test("draws notional-only pill in compact mode when space to pane edge is narrow", () => {
+    const ctx = createMockContext();
+    paintWallByStyle("shelf", {
+      context: ctx,
+      side: "bid",
+      wall,
+      x: 340,
+      y: 200,
+      labelY: 200,
+      alpha: 1,
+      radius: 12,
+      paneWidth: 400,
+      status: "live",
+      quoteAsset: "USDT",
+      searchedPct: 0.5,
+      clippedByCoverage: false,
+      observedMs: 60_000,
+      fullLabel: "79,500 · 2.05M USDT",
+      compactLabel: "79,500 · 2.05M",
+      notionalOnly: "2.05M",
+      label: "79,500 · 2.05M",
+      minLabelX: 360,
+    });
+    expect(ctx._textCalls.at(-1)?.text).toBe("2.05M");
+  });
+
+  test("overflowing pill text is clipped rather than shifting left", () => {
+    const ctx = createMockContext();
+    const fullLabel = wallLabel({ ...base, status: "live" });
+    paintWallByStyle("shelf", {
+      context: ctx,
+      side: "bid",
+      wall,
+      x: 350,
+      y: 200,
+      labelY: 200,
+      alpha: 1,
+      radius: 12,
+      paneWidth: 400,
+      status: "live",
+      quoteAsset: "USDT",
+      searchedPct: 0.5,
+      clippedByCoverage: false,
+      observedMs: 60_000,
+      fullLabel,
+      compactLabel: formatWallPill(wall),
+      label: fullLabel, // ~60 chars * 6 = 360px wide, overflows 400px pane
+      minLabelX: 360,
+    });
+    expect(ctx._getClipCount()).toBeGreaterThan(0);
+  });
+
+  test("DepthWallsPrimitive accepts style and label mode changes", () => {
     const primitive = new DepthWallsPrimitive();
     expect(() => {
       primitive.setStyle("shelf");
       primitive.setStyle("dom");
-      primitive.setStyle("bracket");
-      primitive.setStyle("bubbles");
+      primitive.setLabel("compact");
+      primitive.setLabel("detailed");
+      primitive.setWallLabel("compact");
     }).not.toThrow();
   });
 });

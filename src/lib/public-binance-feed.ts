@@ -1,15 +1,16 @@
 "use client";
 
 import type { Bar } from "@nemesis-oss/pine-ts";
+import { BINANCE_REST_URL, BINANCE_STREAM_WS_URL } from "./binance-endpoints";
+import { isBinanceTrade } from "./binance-payloads";
 
 /**
  * Public Binance market data — no API key required.
  *
- * - Historical candles (REST): GET https://data-api.binance.vision/api/v3/klines
+ * - Historical candles (REST): GET ${BINANCE_REST_URL}/api/v3/klines
  *   Binance's market-data-only mirror, so heavy charting can't trip the
  *   trading API's IP rate limits.
- * - Real-time kline stream (WebSocket):
- *   wss://stream.binance.com:9443/ws/<symbol>@kline_<interval>
+ * - Real-time kline + trade stream (WebSocket): ${BINANCE_STREAM_WS_URL}/stream
  *   Emits a kline event per tick; the last event for a bar has `k.x === true` (closed).
  *
  * History and stream share one exchange, so the first live candle continues
@@ -59,23 +60,16 @@ export const QUOTE_ASSET: Record<BinanceSymbol, string> = {
   BNBUSDT: "USDT",
 };
 
-/** Maps Pine Script timeframe strings ("15", "60", "240", "D") to Binance intervals. */
-export const timeframeToChartInterval = (timeframe: string): ChartInterval | undefined => {
-  const norm = timeframe.trim().toLowerCase();
-  if (norm === "1s") return "1s";
-  if (norm === "1" || norm === "1m") return "1m";
-  if (norm === "3" || norm === "3m") return "3m";
-  if (norm === "5" || norm === "5m") return "5m";
-  if (norm === "15" || norm === "15m") return "15m";
-  if (norm === "30" || norm === "30m") return "30m";
-  if (norm === "60" || norm === "1h" || norm === "60m") return "1h";
-  if (norm === "120" || norm === "2h" || norm === "120m") return "2h";
-  if (norm === "240" || norm === "4h" || norm === "240m") return "4h";
-  if (norm === "d" || norm === "1d") return "1d";
-  if (norm === "w" || norm === "1w") return "1w";
-  if (norm === "1m-month") return "1M";
-  return undefined;
+const TIMEFRAME_INTERVAL_MAP: Record<string, ChartInterval> = {
+  "1s": "1s", "1": "1m", "1m": "1m", "3": "3m", "3m": "3m", "5": "5m", "5m": "5m",
+  "15": "15m", "15m": "15m", "30": "30m", "30m": "30m", "60": "1h", "1h": "1h",
+  "60m": "1h", "120": "2h", "2h": "2h", "120m": "2h", "240": "4h", "4h": "4h",
+  "240m": "4h", d: "1d", "1d": "1d", w: "1w", "1w": "1w", "1m-month": "1M",
 };
+
+/** Maps Pine Script timeframe strings ("15", "60", "240", "D") to Binance intervals. */
+export const timeframeToChartInterval = (timeframe: string): ChartInterval | undefined =>
+  TIMEFRAME_INTERVAL_MAP[timeframe.trim().toLowerCase()];
 
 const htfBarsCache = new Map<string, { loadedAt: number; bars: Bar[] }>();
 const HTF_CACHE_TTL_MS = 60_000;
@@ -112,7 +106,7 @@ export const INTERVAL_LABELS: Record<ChartInterval, string> = {
 
 // ---------- REST: historical candles ----------
 
-const KLINES_URL = "https://data-api.binance.vision/api/v3/klines";
+const KLINES_URL = `${BINANCE_REST_URL}/api/v3/klines`;
 /** Binance's per-request cap for /klines. */
 const MAX_KLINES_LIMIT = 1000;
 
@@ -182,17 +176,9 @@ export const fetchDeepHistoryBars = async (
 
 /** Bar duration per interval, to know when a trade starts a new candle. */
 export const INTERVAL_MS: Record<ChartInterval, number> = {
-  "1s": 1_000,
-  "1m": 60_000,
-  "3m": 180_000,
-  "5m": 300_000,
-  "15m": 900_000,
-  "30m": 1_800_000,
-  "1h": 3_600_000,
-  "2h": 7_200_000,
-  "4h": 14_400_000,
-  "1d": 86_400_000,
-  "1w": 604_800_000,
+  "1s": 1_000, "1m": 60_000, "3m": 180_000, "5m": 300_000, "15m": 900_000,
+  "30m": 1_800_000, "1h": 3_600_000, "2h": 7_200_000, "4h": 14_400_000,
+  "1d": 86_400_000, "1w": 604_800_000,
   // ponytail: months vary in length; 31 days keeps trades in the forming bar
   // until the kline stream opens the next month's bar (within ~2 s).
   "1M": 2_678_400_000,
@@ -217,9 +203,11 @@ export interface MarketStreamCallbacks {
   readonly onOpen: () => void;
   /** Socket closed or errored; the caller decides whether to reconnect. */
   readonly onClose: () => void;
+  /** Called once per unparseable or invalid stream frame, with the running drop count. */
+  readonly onMalformed?: (dropped: number) => void;
 }
 
-interface BinanceTrade { readonly e: "trade"; readonly p: string; readonly q: string; readonly T: number; readonly t: number; readonly m: boolean }
+export interface BinanceTrade { readonly e: "trade"; readonly p: string; readonly q: string; readonly T: number; readonly t: number; readonly m: boolean }
 
 export const toLiveTrade = (raw: BinanceTrade): LiveTrade => ({
   id: raw.t,
@@ -229,8 +217,44 @@ export const toLiveTrade = (raw: BinanceTrade): LiveTrade => ({
   aggressor: raw.m ? "sell" : "buy",
 });
 
+export const closeQuietly = (socket: WebSocket): void => {
+  // Sockets in CLOSING or CLOSED state can throw on close() in some browser implementations.
+  try { socket.close(1000, "Normal closure"); } catch { /* socket already closing or closed */ }
+};
+
+export const releaseSocket = (socket: WebSocket): void => {
+  socket.onmessage = null;
+  socket.onclose = null;
+  socket.onerror = null;
+  if (socket.readyState === WebSocket.CONNECTING) {
+    socket.onopen = () => closeQuietly(socket);
+    return;
+  }
+  socket.onopen = null;
+  if (socket.readyState === WebSocket.OPEN) closeQuietly(socket);
+};
+
+export type MarketStreamMessage =
+  | { readonly kind: "kline"; readonly bar: Bar }
+  | { readonly kind: "trade"; readonly trade: LiveTrade };
+
+export const parseMarketStreamMessage = (raw: string): MarketStreamMessage | null => {
+  try {
+    const { data } = JSON.parse(raw) as { data?: unknown };
+    if (typeof data === "object" && data !== null && (data as { e?: unknown }).e === "kline") {
+      return { kind: "kline", bar: toBar((data as BinanceKlineEvent).k) };
+    }
+    if (isBinanceTrade(data)) {
+      return { kind: "trade", trade: toLiveTrade(data) };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+};
+
 /** Binance mainnet combined-stream endpoint (public, no key). */
-const COMBINED_STREAM_URL = "wss://stream.binance.com:9443/stream";
+const COMBINED_STREAM_URL = `${BINANCE_STREAM_WS_URL}/stream`;
 
 const toBar = (k: BinanceKline): Bar => ({
   time: k.t,
@@ -253,33 +277,20 @@ export const openMarketStream = (
   interval: ChartInterval,
   callbacks: MarketStreamCallbacks,
 ): (() => void) => {
+  let malformedCount = 0;
   const lower = symbol.toLowerCase();
   const socket = new WebSocket(`${COMBINED_STREAM_URL}?streams=${lower}@kline_${interval}/${lower}@trade`);
   socket.onopen = callbacks.onOpen;
   socket.onclose = callbacks.onClose;
-  socket.onerror = () => {
-    if (socket.readyState === WebSocket.OPEN) {
-      try { socket.close(1000, "Normal closure"); } catch {}
-    }
-  };
+  socket.onerror = () => { if (socket.readyState === WebSocket.OPEN) closeQuietly(socket); };
   socket.onmessage = (event) => {
-    const { data } = JSON.parse(event.data as string) as { data: BinanceKlineEvent | BinanceTrade };
-    if (data.e === "kline") callbacks.onKline(toBar(data.k));
-    else callbacks.onTrade(toLiveTrade(data));
-  };
-  return () => {
-    socket.onmessage = null;
-    socket.onclose = null;
-    socket.onerror = null;
-    if (socket.readyState === WebSocket.CONNECTING) {
-      socket.onopen = () => {
-        try { socket.close(1000, "Normal closure"); } catch {}
-      };
-    } else if (socket.readyState === WebSocket.OPEN) {
-      socket.onopen = null;
-      try { socket.close(1000, "Normal closure"); } catch {}
-    } else {
-      socket.onopen = null;
+    const parsed = parseMarketStreamMessage(event.data as string);
+    if (!parsed) {
+      callbacks.onMalformed?.((malformedCount += 1));
+      return;
     }
+    if (parsed.kind === "kline") callbacks.onKline(parsed.bar);
+    else callbacks.onTrade(parsed.trade);
   };
+  return () => releaseSocket(socket);
 };

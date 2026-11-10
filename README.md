@@ -7,6 +7,7 @@ A complete TradingView replacement for Binance (and DhanHQ), built on [pine-ts](
 - **Interactive charting** — lightweight-charts v5 with pan/zoom/crosshair, multi-pane oscillators, candlestick + line series, trade markers (entry/exit arrows)
 - **Real-time streaming** — Binance WebSocket kline stream + Coinbase REST historical candles (no API key needed for market data)
 - **Order book walls** — live bubbles beside the forming candle at the largest resting bid (green) and ask (red) inside a search window around mid (default ±0.5%, set in Settings → Trading → Search window). Each bubble is labelled with its price, its notional in the chart's quote currency (derived from the symbol, never assumed to be USDT), how long this client has continuously observed it ("observed for"), and the window actually searched ("max in ±X%"). The bubble is the largest level inside that window, not the market-wide maximum. A minimum wall size (Settings → Trading) filters smaller levels, in the same quote currency. The search never reads prices outside the snapshot's verified coverage, so a wide window can be clipped and labelled "(coverage)". Observation restarts after a gap, a resync, a stall or a reconnect, so a wall seen again after one is not shown as continuously observed. A wall is displayed liquidity: it can be pulled or refilled at any time, and it is not traded volume or evidence of support or resistance. The local book follows Binance's snapshot + diff-depth sync rules (`data-stream.binance.vision` / `data-api.binance.vision`), resyncs on gaps, and greys the bubbles out ("stale" / "syncing") when the feed is not live.
+  Beyond the resting bubbles, the workbench provides order-flow tools: the DOM ladder for dynamic price-level depth, the liquidity heatmap for resting-depth history over time, the big-levels panel for tracking significant walls, footprint charts showing bid/ask traded volume per price level, the background microstructure collector (`mini-services/microstructure-collector`), and the outcome donut visualization. **Data limitations & caveats**: resting liquidity is not intent; an order removal is shown as "pulled", never as a cancellation; historical outcome percentages are descriptive, always shown with sample count $n$ and a 95% confidence interval; the microstructure collector requires running `npx prisma db push` once before use.
 - **Second-based intervals** — 1s charts (Binance spot 1s klines on REST + WebSocket)
 - **Deep history** — 5000 bars initial load via paged backward fetching (1000/request), with more pages loading as you scroll back
 - **Multi-chart grid** — 1/2/3/4/6/8/9/12/16 independent charts (TradingView Ultimate's 16-chart cap), each with its own symbol, timeframe, bars, indicators, and overlays
@@ -161,6 +162,14 @@ Use `getDhanClient()` from `src/lib/dhan-client.ts` (server-side only) — never
 4. Save
 
 API keys stored in browser localStorage. Recommend "Spot Trading + Read" permissions only. Never enable withdrawals.
+
+### Binance market data endpoints
+
+Public market-data endpoints default to Binance mainnet without requiring API keys. Overrides can be supplied via environment variables:
+
+- `NEXT_PUBLIC_BINANCE_REST_URL` — REST endpoint for depth snapshots (default: `https://data-api.binance.vision`).
+- `NEXT_PUBLIC_BINANCE_DATA_WS_URL` — WebSocket endpoint for order-book diff depth stream (default: `wss://data-stream.binance.vision`).
+- `NEXT_PUBLIC_BINANCE_STREAM_WS_URL` — WebSocket endpoint for kline, trade, and watchlist ticker streams (default: `wss://stream.binance.com:9443`).
 
 ## Architecture
 

@@ -1,10 +1,10 @@
 import type { DeepPartial, ChartOptions, CandlestickSeriesOptions, PriceScaleOptions } from "lightweight-charts";
 import type { CandleThemeId, CandleType } from "./candle-themes";
 import { CANDLE_THEMES, CANDLE_TYPES } from "./candle-themes";
-import { DEFAULT_TRADING, DEPTH_WALL_STYLES, normalizeTrading, type TradingSettings } from "./trading-settings";
+import { DEFAULT_TRADING, DEPTH_WALL_STYLES, WALL_LABELS, normalizeTrading, type TradingSettings } from "./trading-settings";
 
-export type { DepthWallStyle, FootprintMode, TradingSettings } from "./trading-settings";
-export { DEPTH_WALL_STYLES, normalizeTrading };
+export type { DepthWallStyle, FootprintMode, TradingSettings, WallLabel } from "./trading-settings";
+export { DEPTH_WALL_STYLES, WALL_LABELS, normalizeTrading };
 
 /**
  * Chart appearance shared by every chart cell, edited in the Settings dialog
@@ -175,6 +175,24 @@ export const toPriceScaleOptions = ({ scales, canvas }: ChartSettings): DeepPart
   scaleMargins: { top: canvas.marginTopPercent / 100, bottom: canvas.marginBottomPercent / 100 },
 });
 
+// LWC's default bar spacing; converts the user's "Right: N bars" into the pixel offset below.
+const DEFAULT_BAR_PX = 6;
+// Room right of the forming candle: a compact wall pill (~100 px) or the DOM ladder (price + ask bars + activity).
+const WALL_PILL_RESERVE_PX = 110;
+const DOM_LADDER_RESERVE_PX = 240;
+
+/**
+ * Right margin in pixels. LWC's `rightOffset` is in bars, so the gap collapses when zoomed
+ * out and order-flow labels land on the candles. Pixel mode cannot be switched off once set
+ * (applyOptions skips undefined), so it is always used and floored by the user's bar setting.
+ */
+export const rightOffsetPx = ({ canvas, trading }: ChartSettings): number => {
+  const userPx = canvas.rightOffsetBars * DEFAULT_BAR_PX;
+  if (trading.dom.enabled) return Math.max(userPx, DOM_LADDER_RESERVE_PX);
+  if (trading.showOrderBookWalls) return Math.max(userPx, WALL_PILL_RESERVE_PX);
+  return userPx;
+};
+
 export const toChartOptions = (settings: ChartSettings): DeepPartial<ChartOptions> => {
   const { canvas } = settings;
   return {
@@ -184,7 +202,7 @@ export const toChartOptions = (settings: ChartSettings): DeepPartial<ChartOption
       horzLines: { visible: canvas.showHorzGrid, color: canvas.gridColor },
     },
     crosshair: { vertLine: { color: canvas.crosshairColor }, horzLine: { color: canvas.crosshairColor } },
-    timeScale: { rightOffset: canvas.rightOffsetBars },
+    timeScale: { rightOffset: canvas.rightOffsetBars, rightOffsetPixels: rightOffsetPx(settings) },
     // One scale shows; every main- and sub-pane series is put on that side.
     rightPriceScale: { ...toPriceScaleOptions(settings), visible: settings.scales.placement === "right" },
     leftPriceScale: { ...toPriceScaleOptions(settings), visible: settings.scales.placement === "left" },

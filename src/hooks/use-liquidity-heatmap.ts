@@ -5,27 +5,11 @@ import type { ISeriesApi, SeriesType } from "lightweight-charts";
 import type { BinanceSymbol } from "@/lib/public-binance-feed";
 import { subscribeBook, type BookSubscription } from "@/lib/depth-feed-browser";
 import type { DepthFeedState } from "@/lib/depth-feed";
-import { bucketize, type PriceBucket } from "@/lib/price-buckets";
-import { fetchInstrumentFilters } from "@/lib/symbol-catalog";
+import { bucketizeWindow } from "@/lib/price-buckets";
+import { fallbackTickSize, loadTickSize } from "@/lib/symbol-catalog";
 import type { ChartSettings } from "@/lib/chart-settings";
 import { LiquidityHistory } from "@/lib/liquidity-history";
 import { LiquidityHeatmapPrimitive } from "@/components/chart/liquidity-heatmap-primitive";
-
-const ticks = new Map<string, Promise<number | undefined>>();
-
-const loadTick = (symbol: string): Promise<number | undefined> => {
-  const cached = ticks.get(symbol);
-  if (cached !== undefined) return cached;
-  const pending = fetchInstrumentFilters(symbol).then((filters) => filters?.tickSize).catch(() => undefined);
-  ticks.set(symbol, pending);
-  return pending;
-};
-
-const fallbackTickSize = (bestBid: number): number => {
-  const ratio = bestBid / 1e5;
-  if (!(ratio > 0) || !Number.isFinite(ratio)) return 1;
-  return 10 ** Math.round(Math.log10(ratio));
-};
 
 interface HeatParams {
   readonly windowPct: number;
@@ -42,35 +26,13 @@ interface HeatRun {
   readonly minutes: number;
 }
 
-const sideBuckets = (
-  state: DepthFeedState,
-  tick: number,
-  params: HeatParams,
-): { bids: PriceBucket[]; asks: PriceBucket[] } | undefined => {
-  const book = state.book;
-  if (book?.bestBid === undefined || book.bestAsk === undefined) return undefined;
-  const mid = (book.bestBid + book.bestAsk) / 2;
-  const span = mid * (params.windowPct / 100);
-  const shared = { tickSize: tick, bucketTicks: params.bucketTicks };
-  return {
-    bids: bucketize(book.levels("bid"), {
-      ...shared,
-      low: Math.max(mid - span, book.coverage.bidFloor),
-      high: mid,
-    }),
-    asks: bucketize(book.levels("ask"), {
-      ...shared,
-      low: mid,
-      high: Math.min(mid + span, book.coverage.askCeiling),
-    }),
-  };
-};
-
 interface HeatSession {
   readonly run: HeatRun;
   readonly params: { current: HeatParams };
   readonly history: LiquidityHistory;
   readonly tickBox: { tick: number | undefined };
+  lastBucketTicks: number;
+  lastTick: number | undefined;
   subscription: BookSubscription | null;
   latest: DepthFeedState | undefined;
 }
@@ -80,18 +42,22 @@ const paintHeat = (session: HeatSession): void => {
   const { subscription, history, run, params } = session;
   if (state === undefined || subscription === null) return;
   subscription.setWindow(params.current.windowPct);
-  if (state.status !== "live") {
-    history.clear();
-    run.primitive.setView([], params.current.opacity);
-    return;
-  }
   const book = state.book;
   if (book?.bestBid !== undefined && session.tickBox.tick === undefined) {
     session.tickBox.tick = fallbackTickSize(book.bestBid);
   }
   const tick = session.tickBox.tick;
-  const next = tick === undefined ? undefined : sideBuckets(state, tick, params.current);
-  if (next !== undefined) history.push({ at: Date.now(), bids: next.bids, asks: next.asks });
+  if (session.lastBucketTicks !== params.current.bucketTicks || (tick !== undefined && session.lastTick !== undefined && session.lastTick !== tick)) {
+    history.clear();
+    session.lastBucketTicks = params.current.bucketTicks;
+    session.lastTick = tick;
+  } else if (session.lastTick === undefined && tick !== undefined) {
+    session.lastTick = tick;
+  }
+  if (state.status === "live" && tick !== undefined && book !== undefined) {
+    const next = bucketizeWindow(book, { tickSize: tick, bucketTicks: params.current.bucketTicks, windowPct: params.current.windowPct });
+    if (next !== undefined) history.push({ at: Date.now(), bids: next.bids, asks: next.asks });
+  }
   run.primitive.setView(history.samples(), params.current.opacity);
 };
 
@@ -101,6 +67,8 @@ const startHeat = (run: HeatRun, params: { current: HeatParams }, refresh: { cur
     params,
     history: new LiquidityHistory(Math.max(1, run.minutes) * 60),
     tickBox: { tick: run.knownTick },
+    lastBucketTicks: params.current.bucketTicks,
+    lastTick: run.knownTick,
     subscription: null,
     latest: undefined,
   };
@@ -164,7 +132,7 @@ const watchHeat = (
   }
   let cancel = () => {};
   let stopped = false;
-  void loadTick(depthSymbol).then((knownTick) => {
+  void loadTickSize(depthSymbol).then((knownTick) => {
     if (stopped) return;
     const run = { series, symbol: depthSymbol, primitive, knownTick, minutes: holders.minutes };
     cancel = startHeat(run, holders.params, holders.refresh);

@@ -230,7 +230,7 @@ export default function Home() {
       />
       <ScriptSettingsDialog {...editor.settingsDialog} />
       <ChartSettingsDialog
-        open={isChartSettingsOpen} settings={chartSettings} quoteAsset={quoteAssetOf(cells.find((c) => c.id === activeCellId)?.symbol.binanceSymbol ?? SUPPORTED_SYMBOLS[0]!.binanceSymbol)}
+        open={isChartSettingsOpen} settings={chartSettings} interval={grid.activeCell.interval} quoteAsset={quoteAssetOf(cells.find((c) => c.id === activeCellId)?.symbol.binanceSymbol ?? SUPPORTED_SYMBOLS[0]!.binanceSymbol)}
         onOpenChange={setIsChartSettingsOpen} onApply={onChartSettingsChange}
       />
 

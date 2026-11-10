@@ -3,18 +3,11 @@
 import { useEffect, useRef, type RefObject } from "react";
 import type { ISeriesApi, SeriesType } from "lightweight-charts";
 import { INTERVAL_MS, type BinanceSymbol, type ChartInterval, type LiveTrade } from "@/lib/public-binance-feed";
-import { loadTickSize } from "@/lib/symbol-catalog";
+import { fallbackTickSize, loadTickSize } from "@/lib/symbol-catalog";
 import type { ChartSettings } from "@/lib/chart-settings";
 import type { FootprintMode } from "@/lib/trading-settings";
 import { addTrade, footprintSupported, type FootprintBar } from "@/lib/footprint";
 import { FootprintPrimitive } from "@/components/chart/footprint-primitive";
-
-/** Exchange tick is unknown: one part in 1e5 of the print, rounded to a power of ten. */
-const fallbackTickSize = (price: number): number => {
-  const ratio = price / 1e5;
-  if (!(ratio > 0) || !Number.isFinite(ratio)) return 1;
-  return 10 ** Math.round(Math.log10(ratio));
-};
 
 export interface FootprintInput {
   readonly seriesRef: RefObject<ISeriesApi<SeriesType> | null>;
@@ -87,6 +80,28 @@ interface TradeWatch {
   readonly options: { current: TradeOptions };
 }
 
+const fetchTradeChunk = async (symbol: string, from: number, to: number): Promise<LiveTrade[]> => {
+  const res = await fetch(`/api/microstructure/events?symbol=${symbol}&kind=trade&from=${from}&to=${to}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const data = (await res.json()) as { ok: boolean; events?: { payload: string }[] };
+  if (!data.ok || !Array.isArray(data.events)) return [];
+  return data.events.map((e) => JSON.parse(e.payload) as LiveTrade);
+};
+
+const fetchHistoricalTrades = async (symbol: string): Promise<LiveTrade[]> => {
+  const now = Date.now();
+  const chunkMs = 10 * 60 * 1000;
+  const chunks: Array<Promise<LiveTrade[]>> = [];
+  // 10-minute chunks covering up to the last 60 minutes of visible bars
+  for (let i = 6; i > 0; i -= 1) {
+    const from = now - i * chunkMs;
+    const to = from + chunkMs;
+    chunks.push(fetchTradeChunk(symbol, from, to));
+  }
+  const results = await Promise.all(chunks);
+  return results.flat();
+};
+
 const watchTrades = (watch: TradeWatch): (() => void) => {
   const session: TradeSession = {
     bars: watch.bars,
@@ -102,6 +117,20 @@ const watchTrades = (watch: TradeWatch): (() => void) => {
     session.tickBox.tick = known;
     unsubscribe = watch.subscribeTrades((trade) => onPrint(session, trade));
   });
+  void fetchHistoricalTrades(watch.symbol)
+    .then((trades) => {
+      if (stopped) return;
+      const { intervalMs, bucketTicks } = session.options.current;
+      for (const trade of trades) {
+        if (session.tickBox.tick === undefined) session.tickBox.tick = fallbackTickSize(trade.price);
+        addTrade(session.bars, trade, { intervalMs, tickSize: session.tickBox.tick, bucketTicks });
+      }
+      publish(session);
+    })
+    .catch((err: unknown) => {
+      // History fetch failure is warned once; live stream continues regardless.
+      console.warn(`[useFootprint] Could not load historical trades (collector may not be running): ${err instanceof Error ? err.message : String(err)}`);
+    });
   return () => {
     stopped = true;
     unsubscribe();

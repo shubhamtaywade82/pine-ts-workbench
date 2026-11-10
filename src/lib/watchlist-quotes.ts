@@ -13,6 +13,7 @@
  */
 
 import { useEffect, useState } from "react";
+import { BINANCE_STREAM_WS_URL } from "./binance-endpoints";
 
 export interface WatchQuote {
   readonly symbol: string;
@@ -28,7 +29,7 @@ type RawTicker = {
   readonly volume: string;
 };
 
-const STREAM_URL = "wss://stream.binance.com:9443/stream?streams=";
+const STREAM_URL = `${BINANCE_STREAM_WS_URL}/stream?streams=`;
 
 /** Fetches one snapshot of quotes for `symbols` (empty array → empty map). */
 export const fetchQuotes = async (symbols: readonly string[]): Promise<Map<string, WatchQuote>> => {

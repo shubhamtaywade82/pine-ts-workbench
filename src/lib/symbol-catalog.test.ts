@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, test } from "bun:test";
+import { describe, expect, it, test } from "bun:test";
 import {
   findSymbol,
   fuzzyScore,
@@ -110,41 +110,29 @@ describe("parseInstrumentFilters", () => {
 });
 
 describe("loadTickSize", () => {
-  const original = globalThis.fetch;
-  afterEach(() => { globalThis.fetch = original; });
-
-  const payload = (symbol: string, tickSize: string) => Response.json({
-    symbols: [{
-      symbol,
-      filters: [
-        { filterType: "PRICE_FILTER", tickSize },
-        { filterType: "LOT_SIZE", stepSize: "0.001" },
-      ],
-    }],
-  });
+  const filters = (tickSize: number) => ({ tickSize, stepSize: 0.001 });
 
   test("retries a failed lookup, then caches the tick", async () => {
     let calls = 0;
-    globalThis.fetch = (async () => {
+    const lookup = async () => {
       calls += 1;
-      if (calls === 1) return new Response("", { status: 503 });
-      return payload("BNBUSDT", "0.10000000");
-    }) as typeof fetch;
-    expect(await loadTickSize("BNBUSDT")).toBeUndefined();
-    expect(await loadTickSize("BNBUSDT")).toBe(0.1);
-    expect(await loadTickSize("BNBUSDT")).toBe(0.1);
+      if (calls === 1) throw new Error("exchange info unavailable");
+      return filters(0.1);
+    };
+    expect(await loadTickSize("BNBUSDT", lookup)).toBeUndefined();
+    expect(await loadTickSize("BNBUSDT", lookup)).toBe(0.1);
+    expect(await loadTickSize("BNBUSDT", lookup)).toBe(0.1);
     expect(calls).toBe(2);
   });
 
-  test("retries when the response has no tick size", async () => {
+  test("retries when the lookup returns no tick size", async () => {
     let calls = 0;
-    globalThis.fetch = (async () => {
+    const lookup = async () => {
       calls += 1;
-      if (calls === 1) return Response.json({ symbols: [] });
-      return payload("ETHUSDT", "0.01000000");
-    }) as typeof fetch;
-    expect(await loadTickSize("ETHUSDT")).toBeUndefined();
-    expect(await loadTickSize("ETHUSDT")).toBe(0.01);
+      return calls === 1 ? undefined : filters(0.01);
+    };
+    expect(await loadTickSize("ETHUSDT", lookup)).toBeUndefined();
+    expect(await loadTickSize("ETHUSDT", lookup)).toBe(0.01);
     expect(calls).toBe(2);
   });
 });

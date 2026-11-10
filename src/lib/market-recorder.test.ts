@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import {
   MarketRecorder,
   parseEventQuery,
+  parseInteractionQuery,
   parseSnapshotQuery,
+  syntheticGapSeq,
   type BookSnapshotRow,
   type MarketEventRow,
   type MarketStore,
@@ -71,9 +73,11 @@ describe("MarketRecorder", () => {
     const { recorder, timers } = recorderWith(store, 2);
     recorder.recordEvent(event(1));
     expect(store.events).toHaveLength(0);
+    expect(recorder.writtenCount).toBe(0);
     recorder.recordEvent(event(2));
     await recorder.flush();
     expect(store.events.map((row) => row.seq)).toEqual([1, 2]);
+    expect(recorder.writtenCount).toBe(2);
     await recorder.stop();
   });
 
@@ -140,6 +144,39 @@ describe("MarketRecorder", () => {
     expect(store.events.map((row) => row.seq)).toEqual([2, 3]);
     await recorder.stop();
   });
+
+  test("stop writes every queued row when the batch size is smaller", async () => {
+    const store = fakeStore();
+    const { recorder } = recorderWith(store, 200, 1_000);
+    for (let seq = 1; seq <= 1_000; seq += 1) recorder.recordEvent(event(seq));
+    expect(await recorder.stop()).toBe(0);
+    expect(store.events).toHaveLength(1_000);
+    expect(store.events[0]?.seq).toBe(1);
+    expect(store.events[999]?.seq).toBe(1_000);
+  });
+
+  test("reports the rows still queued when a batch fails", async () => {
+    const store = fakeStore();
+    const { recorder } = recorderWith(store, 2, 10);
+    recorder.recordEvent(event(1));
+    recorder.recordEvent(event(2));
+    recorder.recordEvent(event(3));
+    store.failEvents = true;
+    expect(await recorder.flush()).toBe(3);
+    expect(store.events).toHaveLength(0);
+    await recorder.stop();
+  });
+});
+
+describe("syntheticGapSeq", () => {
+  test("stays strictly decreasing across two process starts", () => {
+    const earlier = 1_700_000_000_000;
+    const first = Array.from({ length: 1_000 }, (_, counter) => syntheticGapSeq(earlier, counter));
+    const second = [0, 1].map((counter) => syntheticGapSeq(earlier + 1, counter));
+    const seqs = [...first, ...second];
+    expect(seqs).toEqual([...seqs].sort((left, right) => right - left));
+    expect(new Set(seqs).size).toBe(seqs.length);
+  });
 });
 
 describe("microstructure query parsing", () => {
@@ -153,5 +190,12 @@ describe("microstructure query parsing", () => {
   test("accepts a snapshot time for a known symbol", () => {
     expect(parseSnapshotQuery("ETHUSDT", "50")).toEqual({ symbol: "ETHUSDT", at: 50 });
     expect(parseSnapshotQuery("ETHUSDT", null)).toBeUndefined();
+  });
+
+  test("accepts an interaction range and a bid, ask, or all side", () => {
+    expect(parseInteractionQuery("BTCUSDT", "10", "20", null)).toEqual({ symbol: "BTCUSDT", from: 10, to: 20, side: "all" });
+    expect(parseInteractionQuery("BTCUSDT", "10", "20", "ask")).toEqual({ symbol: "BTCUSDT", from: 10, to: 20, side: "ask" });
+    expect(parseInteractionQuery("BTCUSDT", "10", "20", "both")).toBeUndefined();
+    expect(parseInteractionQuery("BTCUSDT", null, "20", "bid")).toBeUndefined();
   });
 });

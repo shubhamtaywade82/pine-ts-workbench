@@ -1,16 +1,13 @@
-import type {
-  IPrimitivePaneRenderer,
-  IPrimitivePaneView,
-  ISeriesPrimitive,
-  SeriesAttachedParameter,
-  Time,
-} from "lightweight-charts";
+import type { IPrimitivePaneRenderer, IPrimitivePaneView, ISeriesPrimitive, SeriesAttachedParameter, Time } from "lightweight-charts";
 import type { CanvasRenderingTarget2D } from "fancy-canvas";
 import type { DepthStatus, DepthWallsUpdate } from "@/lib/depth-feed";
 import { bubbleRadius, decayedReference, type Wall } from "@/lib/depth-walls";
 import type { BookSide } from "@/lib/order-book";
-import type { DepthWallStyle } from "@/lib/chart-settings";
-import { paintWallByStyle } from "./depth-wall-painters";
+import type { DepthWallStyle, WallLabel } from "@/lib/chart-settings";
+import { fitWallLabel, paintWallByStyle } from "./depth-wall-painters";
+import { formatCompact } from "./footprint-primitive";
+
+export { fitWallLabel };
 
 const RADIUS = { min: 5, max: 24 };
 // Bubble size is relative to a recent peak that halves every minute without a new one.
@@ -19,8 +16,8 @@ const REFERENCE_HALF_LIFE_MS = 60_000;
 const ANIMATION_TAU_MS = 150;
 const SETTLE_EPSILON = 0.01;
 const GAP_PX = 3;
-// 10px label text plus breathing room.
-const LABEL_LINE_PX = 14;
+// Pill height (20px) plus breathing room so stacked pills never overlap.
+const LABEL_LINE_PX = 22;
 const LABEL_FONT = "10px -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, sans-serif";
 
 interface Bubble {
@@ -31,6 +28,15 @@ interface Bubble {
   targetPrice: number;
   targetRadius: number;
   targetAlpha: number;
+}
+
+interface PaintParams {
+  readonly paneWidth: number;
+  readonly formingX: number;
+  readonly barSpacing: number;
+  readonly minLabelX: number;
+  readonly ys: { readonly ask: number | null; readonly bid: number | null };
+  readonly labelYs: { readonly ask: number | null; readonly bid: number | null };
 }
 
 /**
@@ -44,6 +50,7 @@ export class DepthWallsPrimitive implements ISeriesPrimitive<Time> {
   private update: DepthWallsUpdate | undefined;
   private readonly bubbles = new Map<BookSide, Bubble>();
   private style: DepthWallStyle = "shelf";
+  private labelMode: WallLabel = "compact";
   private reference = 0;
   private referenceAt = 0;
   private frame: number | null = null;
@@ -54,24 +61,21 @@ export class DepthWallsPrimitive implements ISeriesPrimitive<Time> {
       target.useMediaCoordinateSpace(({ context, mediaSize }) => this.paint(context, mediaSize.width)),
   };
 
-  public attached(param: SeriesAttachedParameter<Time>): void {
-    this.attachedTo = param;
-  }
-
-  public detached(): void {
-    this.attachedTo = null;
-    this.stopAnimation();
-  }
-
-  public paneViews(): readonly IPrimitivePaneView[] {
-    return [this.view];
-  }
+  public attached(param: SeriesAttachedParameter<Time>): void { this.attachedTo = param; }
+  public detached(): void { this.attachedTo = null; this.stopAnimation(); }
+  public paneViews(): readonly IPrimitivePaneView[] { return [this.view]; }
 
   public setStyle(style: DepthWallStyle): void {
     if (this.style === style) return;
     this.style = style;
     this.attachedTo?.requestUpdate();
   }
+  public setLabel(wallLabel: WallLabel): void {
+    if (this.labelMode === wallLabel) return;
+    this.labelMode = wallLabel;
+    this.attachedTo?.requestUpdate();
+  }
+  public setWallLabel(wallLabel: WallLabel): void { this.setLabel(wallLabel); }
 
   /** The latest subscription update, or `undefined` to clear (overlay off / symbol switched). */
   public setUpdate(update: DepthWallsUpdate | undefined, now = Date.now()): void {
@@ -163,14 +167,19 @@ export class DepthWallsPrimitive implements ISeriesPrimitive<Time> {
     };
     const labelYs = separateLabels(ys.ask, ys.bid, LABEL_LINE_PX);
     context.font = LABEL_FONT;
-    const { status, quoteAsset, frame, observedUntil } = this.update;
-    const isCurrent = status === "live";
-    const observationEnd = isCurrent ? Date.now() : observedUntil;
+    const minLabelX = formingX + barSpacing / 2 + 4;
+    this.paintBubbles(context, { paneWidth, formingX, barSpacing, minLabelX, ys, labelYs });
+    context.globalAlpha = 1;
+  }
 
+  private paintBubbles(context: CanvasRenderingContext2D, p: PaintParams): void {
+    if (this.update === undefined) return;
+    const { status, quoteAsset, frame, observedUntil } = this.update;
+    const observationEnd = status === "live" ? Date.now() : observedUntil;
     for (const [side, bubble] of this.bubbles) {
-      const y = ys[side];
+      const y = p.ys[side];
       if (y === null || bubble.wall === undefined) continue;
-      const x = bubbleCenterX(formingX, barSpacing, bubble.radius, paneWidth);
+      const x = bubbleCenterX(p.formingX, p.barSpacing, bubble.radius, p.paneWidth);
       const wall = bubble.wall;
       const fullLabel = wallLabel({
         wall, status, quoteAsset,
@@ -178,20 +187,21 @@ export class DepthWallsPrimitive implements ISeriesPrimitive<Time> {
         clippedByCoverage: frame?.clippedByCoverage ?? false,
         observedMs: observationEnd - wall.observedSince,
       });
-
+      const compactLabel = formatWallPill(wall);
+      const isCompact = this.labelMode === "compact";
+      const notionalOnly = isCompact ? formatCompact(wall.notional) : undefined;
+      const label = isCompact ? compactLabel : fullLabel;
       paintWallByStyle(this.style, {
         context, side, wall, x, y,
-        labelY: labelYs[side] ?? y,
-        alpha: bubble.alpha,
-        radius: bubble.radius,
-        paneWidth, status, quoteAsset,
+        labelY: p.labelYs[side] ?? y,
+        alpha: bubble.alpha, radius: bubble.radius,
+        paneWidth: p.paneWidth, status, quoteAsset,
         searchedPct: frame?.searchedPct ?? 0,
         clippedByCoverage: frame?.clippedByCoverage ?? false,
         observedMs: observationEnd - wall.observedSince,
-        fullLabel,
+        fullLabel, compactLabel, notionalOnly, label, minLabelX: p.minLabelX,
       });
     }
-    context.globalAlpha = 1;
   }
 
   private bubbleY(side: BookSide, toY: (price: number) => number | null): number | null {
@@ -225,6 +235,12 @@ export const formatNotional = (value: number): string => {
   return value.toFixed(0);
 };
 
+/** Compact price and notional only for on-chart pill: e.g. "2,043.5 · 269k". */
+export const formatWallPill = (wall: Pick<Wall, "price" | "notional">): string => {
+  const price = wall.price.toLocaleString("en-US", { maximumFractionDigits: 8 });
+  return `${price} · ${formatCompact(wall.notional)}`;
+};
+
 /** Observation length: "<10s" under 10 s (never blank, so a short observation isn't hidden), then "45s", "3m", "1h 5m". */
 export const formatAge = (ms: number): string => {
   const seconds = Math.max(0, Math.floor(ms / 1000));
@@ -242,10 +258,8 @@ export interface WallLabelInput {
   readonly wall: Wall;
   readonly status: DepthStatus;
   readonly quoteAsset: string;
-  /** The window actually searched (configured, or clipped to coverage). */
   readonly searchedPct: number;
   readonly clippedByCoverage: boolean;
-  /** Continuous observation length, measured to the end of observation. */
   readonly observedMs: number;
 }
 
@@ -253,20 +267,13 @@ export interface WallLabelInput {
 export const formatLiquidityStatus = (wall: Wall, observedMs: number): string => {
   const age = formatAge(observedMs);
   switch (wall.status) {
-    case "reduced":
-      return `reduced (${Math.round(wall.changePct ?? 0)}%) · ${age}`;
-    case "removed":
-      return `removed · ${age}`;
-    case "stacking":
-      return `stacking (+${Math.round(wall.changePct ?? 0)}%) · ${age}`;
-    case "tested":
-      return `tested (holding) · ${age}`;
-    case "pulled":
-      return "pulled";
-    case "holding":
-      return `holding · ${age}`;
-    default:
-      return `observed for ${age}`;
+    case "reduced": return `reduced (${Math.round(wall.changePct ?? 0)}%) · ${age}`;
+    case "removed": return `removed · ${age}`;
+    case "stacking": return `stacking (+${Math.round(wall.changePct ?? 0)}%) · ${age}`;
+    case "tested": return `tested (holding) · ${age}`;
+    case "pulled": return "pulled";
+    case "holding": return `holding · ${age}`;
+    default: return `observed for ${age}`;
   }
 };
 

@@ -1,4 +1,5 @@
 import type { BinanceSymbol } from "./public-binance-feed";
+import { BINANCE_REST_URL } from "./binance-endpoints";
 
 export type SymbolCategory = "all" | "crypto" | "index" | "stock";
 export type SymbolExchange = "BINANCE" | "NSE" | "BSE";
@@ -226,7 +227,7 @@ export const parseInstrumentFilters = (
   return { tickSize, stepSize };
 };
 
-const EXCHANGE_INFO_URL = "https://data-api.binance.vision/api/v3/exchangeInfo";
+const EXCHANGE_INFO_URL = `${BINANCE_REST_URL}/api/v3/exchangeInfo`;
 
 export const fetchInstrumentFilters = async (
   symbol: string,
@@ -236,6 +237,8 @@ export const fetchInstrumentFilters = async (
   return parseInstrumentFilters((await res.json()) as ExchangeInfo, symbol);
 };
 
+type TickLookup = (symbol: string) => Promise<{ tickSize: number; stepSize: number } | undefined>;
+
 const tickCache = new Map<string, Promise<number | undefined>>();
 
 const settleTick = (symbol: string, tick: number | undefined): number | undefined => {
@@ -244,12 +247,20 @@ const settleTick = (symbol: string, tick: number | undefined): number | undefine
 };
 
 /** Cached exchange tick. A miss is dropped so the next call tries the exchange again. */
-export const loadTickSize = (symbol: string): Promise<number | undefined> => {
+export const loadTickSize = (symbol: string, lookup: TickLookup = fetchInstrumentFilters): Promise<number | undefined> => {
   const cached = tickCache.get(symbol);
   if (cached !== undefined) return cached;
-  const pending = fetchInstrumentFilters(symbol)
+  const pending = lookup(symbol)
     .then((filters) => settleTick(symbol, filters?.tickSize))
     .catch(() => settleTick(symbol, undefined));
   tickCache.set(symbol, pending);
   return pending;
 };
+
+/** Fallback when exchange tick size is unknown: 1 part in 1e5, rounded to a power of 10. */
+export const fallbackTickSize = (price: number): number => {
+  const ratio = price / 1e5;
+  if (!(ratio > 0) || !Number.isFinite(ratio)) return 1;
+  return 10 ** Math.round(Math.log10(ratio));
+};
+

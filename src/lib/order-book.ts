@@ -100,7 +100,7 @@ export class LocalOrderBook {
    * and replays the buffered events. `snapshot-too-old`: the buffer starts
    * after it, fetch another. `gap`: the buffer itself is missing events.
    */
-  public applySnapshot(snapshot: DepthSnapshot, requestedLimit: number): SnapshotResult {
+  public applySnapshot(snapshot: DepthSnapshot, requestedLimit: number, stored?: BookCoverage): SnapshotResult {
     const first = this.buffer[0];
     if (first !== undefined && snapshot.lastUpdateId + 1 < first.U) return "snapshot-too-old";
 
@@ -108,10 +108,8 @@ export class LocalOrderBook {
     this.asks.clear();
     setLevels(this.bids, snapshot.bids);
     setLevels(this.asks, snapshot.asks);
-    this.covered = {
-      bidFloor: snapshot.bids.length >= requestedLimit ? Math.min(...this.bids.keys()) : 0,
-      askCeiling: snapshot.asks.length >= requestedLimit ? Math.max(...this.asks.keys()) : Number.POSITIVE_INFINITY,
-    };
+    // Recounting levels marks a full book as clipped once the count equals the fetch limit.
+    this.covered = stored ?? coverageOf(this.bids, this.asks, snapshot, requestedLimit);
     this.lastId = snapshot.lastUpdateId;
     this.synced = true;
 
@@ -157,6 +155,24 @@ export class LocalOrderBook {
     return side === "bid" ? Math.max(...prices) : Math.min(...prices);
   }
 }
+
+const openSide = (full: boolean, prices: Iterable<number>, open: number, pick: (values: number[]) => number): number =>
+  full ? pick([...prices]) : open;
+
+const coverageOf = (
+  bids: ReadonlyMap<number, number>,
+  asks: ReadonlyMap<number, number>,
+  snapshot: DepthSnapshot,
+  requestedLimit: number,
+): BookCoverage => ({
+  bidFloor: openSide(snapshot.bids.length >= requestedLimit, bids.keys(), 0, (prices) => Math.min(...prices)),
+  askCeiling: openSide(
+    snapshot.asks.length >= requestedLimit,
+    asks.keys(),
+    Number.POSITIVE_INFINITY,
+    (prices) => Math.max(...prices),
+  ),
+});
 
 const setLevels = (book: Map<number, number>, changes: readonly (readonly [string, string])[]): void => {
   for (const [priceText, quantityText] of changes) {

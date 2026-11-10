@@ -7,103 +7,50 @@ import { subscribeBook, subscribeDepthWalls } from "@/lib/depth-feed-browser";
 import type { DepthFeedState, DepthWallsUpdate } from "@/lib/depth-feed";
 import type { BookView } from "@/lib/depth-walls";
 import { wallOptionsFor, type Wall, type WallFrame } from "@/lib/depth-walls";
-import { bucketize } from "@/lib/price-buckets";
-import { fetchInstrumentFilters } from "@/lib/symbol-catalog";
+import { bucketizeWindow } from "@/lib/price-buckets";
+import { fallbackTickSize, loadTickSize } from "@/lib/symbol-catalog";
 import { LiquidityBaseline } from "@/lib/liquidity-baseline";
+import type { LifecycleWall } from "@/lib/wall-lifecycle";
 import type { ChartSettings } from "@/lib/chart-settings";
-import { formatAge, formatNotional, formatPct } from "@/components/chart/depth-walls-primitive";
+import {
+  BigLevelsBody,
+  bigLevelsModel,
+  pulledEvents,
+  reachedProximityPct,
+  type BigLevelInput,
+  type MonitorSnapshot,
+} from "@/components/chart/wall-monitor-rows";
 
 const BASELINE_SAMPLES = 60;
 const BASELINE_MIN = 10;
 const RENDER_MS = 250;
-const ticks = new Map<string, Promise<number | undefined>>();
-
-const loadTick = (symbol: string): Promise<number | undefined> => {
-  const cached = ticks.get(symbol);
-  if (cached !== undefined) return cached;
-  const pending = fetchInstrumentFilters(symbol).then((filters) => filters?.tickSize).catch(() => undefined);
-  ticks.set(symbol, pending);
-  return pending;
-};
-
-const fallbackTickSize = (bestBid: number): number => {
-  const ratio = bestBid / 1e5;
-  if (!(ratio > 0) || !Number.isFinite(ratio)) return 1;
-  return 10 ** Math.round(Math.log10(ratio));
-};
-
-interface MonitorRow {
-  readonly key: string;
-  readonly side: Wall["side"];
-  readonly price: string;
-  readonly notional: string;
-  readonly strength: string;
-  readonly distance: string;
-  readonly age: string;
-  readonly status: string;
-}
-
-interface MonitorView {
-  readonly caption: string;
-  readonly status: string;
-  readonly rows: readonly MonitorRow[];
-}
-
-const formatStrength = (ratio: number | null): string =>
-  ratio === null ? "—" : `${ratio.toFixed(1)}×`;
-
-const distancePct = (price: number, mid: number): string =>
-  mid > 0 ? `${((Math.abs(price - mid) / mid) * 100).toFixed(2)}%` : "—";
-
-interface RowContext {
-  readonly frame: WallFrame;
-  readonly baseline: LiquidityBaseline;
-  readonly quote: string;
-  readonly now: number;
-}
-
-const rowFor = (wall: Wall, ctx: RowContext): MonitorRow => ({
-  key: `${wall.side}:${wall.price}`,
-  side: wall.side,
-  price: wall.price.toLocaleString("en-US", { maximumFractionDigits: 8 }),
-  notional: `${formatNotional(wall.notional)} ${ctx.quote}`,
-  strength: formatStrength(ctx.baseline.relativeStrength(wall.notional)),
-  distance: distancePct(wall.price, ctx.frame.mid),
-  age: formatAge(Math.max(0, ctx.now - wall.observedSince)),
-  status: wall.status ?? "holding",
-});
-
-const rowsFrom = (frame: WallFrame, baseline: LiquidityBaseline, quote: string): MonitorRow[] => {
-  const ctx: RowContext = { frame, baseline, quote, now: Date.now() };
-  return [...frame.bids, ...frame.asks]
-    .sort((left, right) => right.notional - left.notional)
-    .map((wall) => rowFor(wall, ctx));
-};
-
-const viewFrom = (update: DepthWallsUpdate, baseline: LiquidityBaseline, windowPct: number, quote: string): MonitorView => {
-  const searched = update.frame?.searchedPct ?? windowPct;
-  const caption = `max within ±${formatPct(searched)}% window`;
-  if (update.status !== "live" || update.frame === undefined) return { caption, status: update.status, rows: [] };
-  return { caption, status: update.status, rows: rowsFrom(update.frame, baseline, quote) };
-};
+const PULLED_CAP = 30;
 
 const windowNotionals = (book: BookView, tick: number, windowPct: number): number[] => {
-  if (book.bestBid === undefined || book.bestAsk === undefined) return [];
-  const mid = (book.bestBid + book.bestAsk) / 2;
-  const span = mid * (windowPct / 100);
-  const shared = { tickSize: tick, bucketTicks: 1 };
-  const bids = bucketize(book.levels("bid"), { ...shared, low: Math.max(mid - span, book.coverage.bidFloor), high: mid });
-  const asks = bucketize(book.levels("ask"), { ...shared, low: mid, high: Math.min(mid + span, book.coverage.askCeiling) });
-  return [...bids, ...asks].map((bucket) => bucket.notional);
+  const buckets = bucketizeWindow(book, { tickSize: tick, bucketTicks: 1, windowPct });
+  if (buckets === undefined) return [];
+  return [...buckets.bids, ...buckets.asks].map((bucket) => bucket.notional);
 };
 
-interface BaselineBox {
+interface MonitorBox {
   baseline: LiquidityBaseline;
   tick: number | undefined;
   lastSampleAt: number;
+  previous: LifecycleWall[];
+  pulled: { side: Wall["side"]; price: number; notional: number; at: number }[];
+  held: Set<string>;
 }
 
-const noteSample = (box: BaselineBox, state: DepthFeedState, windowPct: number): void => {
+const freshBox = (): MonitorBox => ({
+  baseline: new LiquidityBaseline(BASELINE_SAMPLES, BASELINE_MIN),
+  tick: undefined,
+  lastSampleAt: 0,
+  previous: [],
+  pulled: [],
+  held: new Set(),
+});
+
+const noteSample = (box: MonitorBox, state: DepthFeedState, windowPct: number): void => {
   if (state.status !== "live" || state.book?.bestBid === undefined) {
     box.baseline = new LiquidityBaseline(BASELINE_SAMPLES, BASELINE_MIN);
     box.lastSampleAt = 0;
@@ -116,80 +63,115 @@ const noteSample = (box: BaselineBox, state: DepthFeedState, windowPct: number):
   box.lastSampleAt = now;
 };
 
-const RowLine = ({ row }: { row: MonitorRow }) => (
-  <li className="grid grid-cols-[2.2rem_1fr] gap-1">
-    <span className={row.side === "bid" ? "text-[#089981]" : "text-[#f23645]"}>{row.side}</span>
-    <span>{row.price} · {row.notional} · {row.strength} · {row.distance} · {row.age} · {row.status}</span>
-  </li>
-);
+const rememberPulls = (box: MonitorBox, frame: WallFrame, proximityPct: number): void => {
+  const current = [...frame.bids, ...frame.asks].map((wall) => ({
+    side: wall.side, price: wall.price, notional: wall.notional,
+  }));
+  const tick = box.tick ?? fallbackTickSize(frame.mid);
+  const events = pulledEvents(box.previous, current, { at: Date.now(), mid: frame.mid, proximityPct, bucketWidth: tick });
+  box.pulled.push(...events);
+  if (box.pulled.length > PULLED_CAP) box.pulled.splice(0, box.pulled.length - PULLED_CAP);
+  const live = new Set(current.map((wall) => `${wall.side}:${wall.price}`));
+  for (const key of box.held) if (!live.has(key)) box.held.delete(key);
+  for (const wall of current) {
+    const span = frame.mid > 0 ? (Math.abs(frame.mid - wall.price) / frame.mid) * 100 : 0;
+    if (span <= proximityPct) box.held.add(`${wall.side}:${wall.price}`);
+  }
+  box.previous = current;
+};
 
-const freshBox = (): BaselineBox => ({
-  baseline: new LiquidityBaseline(BASELINE_SAMPLES, BASELINE_MIN),
-  tick: undefined,
-  lastSampleAt: 0,
-});
+const noteWalls = (box: MonitorBox, update: DepthWallsUpdate, proximityPct: number): void => {
+  if (update.status !== "live" || update.frame === undefined) {
+    box.previous = [];
+    box.held.clear();
+    return;
+  }
+  rememberPulls(box, update.frame, proximityPct);
+};
+
+const levelsFrom = (frame: WallFrame, box: MonitorBox): BigLevelInput[] =>
+  [...frame.bids, ...frame.asks].map((wall) => ({
+    side: wall.side,
+    price: wall.price,
+    quantity: wall.quantity,
+    strength: box.baseline.relativeStrength(wall.notional),
+    observedSince: wall.observedSince,
+    held: box.held.has(`${wall.side}:${wall.price}`),
+  }));
+
+const snapshotFrom = (update: DepthWallsUpdate, box: MonitorBox, quote: string): MonitorSnapshot => {
+  const frame = update.frame;
+  const ctx = { mid: frame?.mid ?? 0, now: Date.now(), quote };
+  if (update.status !== "live" || frame === undefined) {
+    return { status: update.status, model: bigLevelsModel([], ctx, box.pulled) };
+  }
+  return { status: update.status, model: bigLevelsModel(levelsFrom(frame, box), ctx, box.pulled) };
+};
 
 interface MonitorRefs {
   readonly pending: { current: DepthWallsUpdate | null };
-  readonly box: { current: BaselineBox };
+  readonly box: { current: MonitorBox };
 }
 
 const paintLoop = (
   refs: MonitorRefs,
   symbol: BinanceSymbol,
-  windowPct: number,
-  setView: (view: MonitorView) => void,
+  setView: (view: MonitorSnapshot) => void,
 ): (() => void) => {
   const id = setInterval(() => {
     const update = refs.pending.current;
     if (update === null) return;
-    setView(viewFrom(update, refs.box.current.baseline, windowPct, quoteAssetOf(symbol)));
+    setView(snapshotFrom(update, refs.box.current, quoteAssetOf(symbol)));
   }, RENDER_MS);
   return () => clearInterval(id);
 };
 
+interface MonitorOptions {
+  wallWindowPct: number;
+  minWallNotional: number;
+  wallTopN: number;
+}
+
 const subscribeMonitor = (
   enabled: boolean,
   symbol: BinanceSymbol | undefined,
-  options: { wallWindowPct: number; minWallNotional: number; wallTopN: number },
+  options: MonitorOptions,
   refs: MonitorRefs,
 ): (() => void) | undefined => {
   if (!enabled || symbol === undefined) return undefined;
   refs.box.current = freshBox();
+  const proximity = reachedProximityPct(options.wallWindowPct);
   const walls = subscribeDepthWalls(
     symbol,
     wallOptionsFor(options.wallWindowPct, options.minWallNotional, options.wallTopN),
-    (update) => { refs.pending.current = update; },
+    (update) => {
+      noteWalls(refs.box.current, update, proximity);
+      refs.pending.current = update;
+    },
   );
   const book = subscribeBook(symbol, options.wallWindowPct, (state) => {
     noteSample(refs.box.current, state, options.wallWindowPct);
   });
   let live = true;
-  void loadTick(symbol).then((tick) => {
+  void loadTickSize(symbol).then((tick) => {
     if (live && tick !== undefined) refs.box.current.tick = tick;
   });
-  return () => {
-    live = false;
-    walls.unsubscribe();
-    book.unsubscribe();
-    refs.pending.current = null;
-  };
+  return () => { live = false; walls.unsubscribe(); book.unsubscribe(); refs.pending.current = null; };
 };
 
-const useWallSnapshot = (symbol: BinanceSymbol | undefined, trading: ChartSettings["trading"]): MonitorView | null => {
+const useWallSnapshot = (symbol: BinanceSymbol | undefined, trading: ChartSettings["trading"]): MonitorSnapshot | null => {
   const pending = useRef<DepthWallsUpdate | null>(null);
-  const box = useRef<BaselineBox>(freshBox());
+  const box = useRef<MonitorBox>(freshBox());
   const enabled = trading.showOrderBookWalls;
-  const [view, setView] = useState<MonitorView | null>(null);
+  const [view, setView] = useState<MonitorSnapshot | null>(null);
   const { wallWindowPct, minWallNotional, wallTopN } = trading;
   useEffect(() => {
-    // Clears on symbol change so the old symbol's walls never paint for the new symbol.
     setView(null);
-  }, [symbol, setView]);
+  }, [symbol]);
   useEffect(() => {
     if (symbol === undefined || !enabled) return undefined;
-    return paintLoop({ pending, box }, symbol, wallWindowPct, setView);
-  }, [box, enabled, pending, symbol, wallWindowPct]);
+    return paintLoop({ pending, box }, symbol, setView);
+  }, [box, enabled, pending, symbol]);
   useEffect(
     () => subscribeMonitor(enabled, symbol, { wallWindowPct, minWallNotional, wallTopN }, { pending, box }),
     [box, enabled, minWallNotional, pending, symbol, wallTopN, wallWindowPct],
@@ -197,21 +179,60 @@ const useWallSnapshot = (symbol: BinanceSymbol | undefined, trading: ChartSettin
   return view;
 };
 
+const storageKeyForCell = (cellId?: string): string => `pine:wall-monitor:expanded:${cellId ?? "default"}`;
+
+export const readExpandedState = (cellId?: string): boolean => {
+  try {
+    if (typeof window === "undefined" || !window.localStorage) return false;
+    return window.localStorage.getItem(storageKeyForCell(cellId)) === "true";
+  } catch (error) {
+    console.warn("Failed to read wall monitor expanded state from localStorage", error);
+    return false;
+  }
+};
+
+export const writeExpandedState = (cellId: string | undefined, expanded: boolean): void => {
+  try {
+    if (typeof window === "undefined" || !window.localStorage) return;
+    window.localStorage.setItem(storageKeyForCell(cellId), String(expanded));
+  } catch (error) {
+    console.warn("Failed to write wall monitor expanded state to localStorage", error);
+  }
+};
+
+const useExpandedState = (cellId?: string): [boolean, () => void] => {
+  const [expanded, setExpanded] = useState(false);
+  useEffect(() => {
+    setExpanded(readExpandedState(cellId));
+  }, [cellId]);
+  const toggle = () => {
+    setExpanded((prev) => {
+      const next = !prev;
+      writeExpandedState(cellId, next);
+      return next;
+    });
+  };
+  return [expanded, toggle];
+};
+
+export interface WallMonitorPanelProps {
+  readonly cellId?: string;
+  readonly symbol: BinanceSymbol | undefined;
+  readonly trading: ChartSettings["trading"];
+}
+
 /** Depth is ~10 Hz. The list paints at 4 Hz so the chart shell is not rendered per book event. */
-export function WallMonitorPanel({ symbol, trading }: {
-  symbol: BinanceSymbol | undefined;
-  trading: ChartSettings["trading"];
-}) {
+export function WallMonitorPanel({ cellId, symbol, trading }: WallMonitorPanelProps) {
   const view = useWallSnapshot(symbol, trading);
+  const [expanded, toggleExpanded] = useExpandedState(cellId);
   if (!trading.showOrderBookWalls || symbol === undefined) return null;
-  const caption = view?.caption ?? `max within ±${formatPct(trading.wallWindowPct)}% window`;
+  const snapshot = view ?? {
+    status: "syncing",
+    model: bigLevelsModel([], { mid: 0, now: Date.now(), quote: quoteAssetOf(symbol) }, []),
+  };
   return (
-    <aside className="pointer-events-auto absolute bottom-8 left-2 z-20 max-h-48 w-72 overflow-auto rounded border border-border bg-popover/90 p-1.5 font-mono text-[10px] text-muted-foreground shadow">
-      <p>{caption}</p>
-      {view !== null && view.status !== "live" && <p>{view.status}</p>}
-      <ul className="mt-1 flex flex-col gap-0.5">
-        {view?.rows.map((row) => <RowLine key={row.key} row={row} />)}
-      </ul>
+    <aside className="pointer-events-auto absolute bottom-8 left-2 z-20 max-h-80 w-80 overflow-auto rounded border border-border bg-popover/90 p-1.5 font-mono text-[10px] text-muted-foreground shadow">
+      <BigLevelsBody snapshot={snapshot} isExpanded={expanded} onToggle={toggleExpanded} />
     </aside>
   );
 }

@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 import { Checkbox } from "@/components/ui/checkbox";
-import type { ChartSettings, DepthWallStyle, FootprintMode } from "@/lib/chart-settings";
+import type { ChartSettings, DepthWallStyle, FootprintMode, WallLabel } from "@/lib/chart-settings";
 import { footprintSupported } from "@/lib/footprint";
 import type { ChartInterval } from "@/lib/public-binance-feed";
 import { WALL_WINDOW_LIMITS_PCT } from "@/lib/depth-walls";
@@ -18,15 +18,21 @@ type SettingsPatch = <K extends keyof ChartSettings>(section: K, values: Partial
 const WallSettings = ({ trading, quoteAsset, patch }: {
   trading: ChartSettings["trading"]; quoteAsset: string; patch: SettingsPatch;
 }) => {
-  const { wallWindowPct, minWallNotional, dom, heatmap } = trading;
+  const { wallWindowPct, minWallNotional, dom, heatmap, outcomes } = trading;
   const patchDom = (values: Partial<typeof dom>) => patch("trading", { dom: { ...dom, ...values } });
   const patchHeat = (values: Partial<typeof heatmap>) => patch("trading", { heatmap: { ...heatmap, ...values } });
+  const patchOutcomes = (values: Partial<typeof outcomes>) => patch("trading", { outcomes: { ...outcomes, ...values } });
   return (
     <Group title="Order book walls">
       <Check label="Show the largest resting bid and ask" checked={trading.showOrderBookWalls} onChange={(showOrderBookWalls) => patch("trading", { showOrderBookWalls })} />
       <Row label="Display style">
         <select value={trading.depthWallStyle} onChange={(e) => patch("trading", { depthWallStyle: e.target.value as DepthWallStyle })} className="h-8 rounded border border-border bg-background px-2 text-xs text-foreground focus:outline-none">
           <option value="shelf">Horizontal Shelf & Ray</option><option value="dom">Right-Margin DOM Shelf</option><option value="bracket">Micro-DOM Bracket</option><option value="bubbles">Floating Bubbles</option>
+        </select>
+      </Row>
+      <Row label="Wall labels">
+        <select value={trading.wallLabel} onChange={(e) => patch("trading", { wallLabel: e.target.value as WallLabel })} className="h-8 rounded border border-border bg-background px-2 text-xs text-foreground focus:outline-none">
+          <option value="compact">Compact</option><option value="detailed">Detailed</option>
         </select>
       </Row>
       <Row label="Search window (±)"><ValidatedNumber value={wallWindowPct} min={WALL_WINDOW_LIMITS_PCT.min} max={WALL_WINDOW_LIMITS_PCT.max} unit="%" onChange={(next) => patch("trading", { wallWindowPct: next })} /></Row>
@@ -38,6 +44,7 @@ const WallSettings = ({ trading, quoteAsset, patch }: {
       <Check label="Liquidity heatmap" checked={heatmap.enabled} onChange={(enabled) => patchHeat({ enabled })} />
       <Row label="Heatmap opacity"><ValidatedNumber value={heatmap.opacity} min={0.05} max={1} unit="" onChange={(opacity) => patchHeat({ opacity })} /></Row>
       <Row label="Heatmap history"><ValidatedNumber integer value={heatmap.minutes} min={1} max={60} unit="min" onChange={(minutes) => patchHeat({ minutes })} /></Row>
+      <Check label="Big-level outcomes (needs the collector)" checked={outcomes.enabled} onChange={(enabled) => patchOutcomes({ enabled })} />
     </Group>
   );
 };
@@ -63,13 +70,13 @@ const FootprintSettings = ({ trading, interval, patch }: {
   );
 };
 
-export function OrderFlowSettings({ trading, quoteAsset, patch }: {
-  trading: ChartSettings["trading"]; quoteAsset: string; patch: SettingsPatch;
+export function OrderFlowSettings({ trading, quoteAsset, interval, patch }: {
+  trading: ChartSettings["trading"]; quoteAsset: string; interval: ChartInterval; patch: SettingsPatch;
 }) {
   return (
     <>
       <WallSettings trading={trading} quoteAsset={quoteAsset} patch={patch} />
-      <FootprintSettings trading={trading} patch={patch} />
+      <FootprintSettings trading={trading} interval={interval} patch={patch} />
     </>
   );
 }

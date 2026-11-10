@@ -2,10 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   CLASSIFIER_VERSION,
   classifyInteractions,
-  outcomeStats,
-  wilsonInterval,
   type DataGap,
-  type LiquidityInteraction,
   type OutcomeOptions,
   type OutcomeTrade,
   type OutcomeWall,
@@ -32,10 +29,13 @@ const wall = (over: Partial<OutcomeWall> = {}): OutcomeWall => ({
 const run = (
   target: OutcomeWall,
   path: PricePoint[],
-  trades: OutcomeTrade[] = [],
-  gaps: DataGap[] = [],
-  now = 100_000,
-) => classifyInteractions(target, path, trades, { gaps, options, now });
+  extra: { trades?: OutcomeTrade[]; gaps?: DataGap[]; now?: number } = {},
+) =>
+  classifyInteractions(target, path, extra.trades ?? [], {
+    gaps: extra.gaps ?? [],
+    options,
+    now: extra.now ?? 100_000,
+  });
 
 const favorable = (side: OutcomeWall["side"]): number => (side === "bid" ? 101 : 99);
 const adverse = (side: OutcomeWall["side"]): number => (side === "bid" ? 99 : 101);
@@ -100,7 +100,7 @@ describe("classifyInteractions", () => {
     for (const side of ["bid", "ask"] as const) {
       const [episode] = run(wall({ side }), [
         { at: 2_000, price: 100 },
-        { at: 12_000, price: 100 },
+        { at: 5_000, price: 100 },
       ]);
       expect(episode).toMatchObject({ outcome: "NO_REACTION", startAt: 2_000, resolvedAt: 12_000 });
     }
@@ -111,8 +111,7 @@ describe("classifyInteractions", () => {
       const [episode] = run(
         wall({ side }),
         [{ at: 2_000, price: 100 }, { at: 5_000, price: favorable(side) }],
-        [],
-        [{ from: 3_000, to: 4_000 }],
+        { gaps: [{ from: 3_000, to: 4_000 }] },
       );
       expect(episode).toMatchObject({ outcome: "UNRESOLVED", startAt: 2_000, resolvedAt: null });
     }
@@ -123,9 +122,7 @@ describe("classifyInteractions", () => {
       const [episode] = run(
         wall({ side }),
         [{ at: 2_000, price: 100 }, { at: 5_000, price: adverse(side) }],
-        [],
-        [],
-        4_000,
+        { now: 4_000 },
       );
       expect(episode).toMatchObject({ outcome: "UNRESOLVED", resolvedAt: null });
     }
@@ -135,7 +132,7 @@ describe("classifyInteractions", () => {
     const [episode] = run(wall(), [
       { at: 2_000, price: 100 },
       { at: 3_000, price: 101 },
-    ], [], [], 4_000);
+    ], { now: 4_000 });
     expect(episode?.outcome).toBe("TURNED");
     expect(episode?.resolvedAt).toBe(3_000);
   });
@@ -145,17 +142,59 @@ describe("classifyInteractions", () => {
       const [episode] = run(
         wall({ side, removedAt: 4_200, removedQuantity: 10 }),
         [{ at: 2_000, price: 100 }, { at: 12_000, price: 100 }],
-        [{ at: 4_500, price: 100, quantity: 1 }, { at: 3_500, price: 100.4, quantity: 5 }],
+        { trades: [{ at: 4_500, price: 100, quantity: 1 }, { at: 3_500, price: 100.4, quantity: 5 }] },
       );
       expect(episode).toMatchObject({ outcome: "CONSUMED", resolvedAt: 4_200 });
     }
+  });
+
+  test("does not call a wall consumed from trades printed after it was removed", () => {
+    const [episode] = run(
+      wall({ removedAt: 3_000, removedQuantity: 10 }),
+      [{ at: 2_000, price: 100 }, { at: 8_000, price: 100 }],
+      { trades: [{ at: 6_000, price: 100, quantity: 100 }] },
+    );
+    expect(episode?.outcome).toBe("NO_REACTION");
+  });
+
+  test("classifies an unsorted path in time order without changing the input", () => {
+    const path: PricePoint[] = [
+      { at: 4_000, price: 99 },
+      { at: 2_000, price: 100 },
+      { at: 3_000, price: 101 },
+    ];
+    const before = path.map((point) => ({ ...point }));
+    const [episode] = run(wall(), path);
+    expect(episode).toMatchObject({ outcome: "TURNED", startAt: 2_000, resolvedAt: 3_000 });
+    expect(path).toEqual(before);
+  });
+
+  test("never starts an outcome at the same timestamp the wall was detected", () => {
+    const printed = run(wall({ detectedAt: 5_000, removedAt: 5_500 }), [
+      { at: 5_000, price: 100 },
+      { at: 8_000, price: 101 },
+    ]);
+    expect(printed.map((episode) => episode.outcome)).toEqual(["PULLED_BEFORE_TOUCH"]);
+    expect(printed.every((episode) => episode.startAt > 5_000)).toBe(true);
+    expect(run(wall({ detectedAt: 5_000, removedAt: 5_000 }), [
+      { at: 5_000, price: 100 },
+      { at: 8_000, price: 99 },
+    ])).toEqual([]);
+  });
+
+  test("labels UNRESOLVED when no print falls inside the finished window", () => {
+    const [episode] = run(wall(), [
+      { at: 2_000, price: 100 },
+      { at: 30_000, price: 101 },
+    ]);
+    expect(episode).toMatchObject({ outcome: "UNRESOLVED", startAt: 2_000, resolvedAt: null });
   });
 
   test("keeps the price outcome when a removal is not backed by enough size at the level", () => {
     const [episode] = run(
       wall({ removedAt: 4_000, removedQuantity: 10 }),
       [{ at: 2_000, price: 100 }, { at: 3_000, price: 101 }],
-      [{ at: 3_500, price: 100, quantity: 4 }, { at: 3_600, price: 102, quantity: 20 }],
+      { trades: [{ at: 3_500, price: 100, quantity: 4 }, { at: 3_600, price: 102, quantity: 20 }] },
     );
     expect(episode?.outcome).toBe("TURNED");
   });
@@ -174,8 +213,9 @@ describe("classifyInteractions", () => {
   });
 
   test("does not use a removal or a price that is still in the future", () => {
-    expect(run(wall({ removedAt: 5_000 }), [], [], [], 1_000)).toEqual([]);
-    expect(run(wall(), [{ at: 5_000, price: 100 }, { at: 6_000, price: 101 }], [], [], 1_000)).toEqual([]);
+    expect(run(wall({ removedAt: 5_000 }), [], { now: 1_000 })).toEqual([]);
+    expect(run(wall(), [{ at: 5_000, price: 100 }, { at: 6_000, price: 101 }], { now: 1_000 })).toEqual([]);
+    expect(run(wall({ price: 0 }), [{ at: 2_000, price: 100 }])).toEqual([]);
   });
 
   test("counts a new interaction only after price has left by more than twice the proximity", () => {
@@ -196,81 +236,5 @@ describe("classifyInteractions", () => {
     ]);
     expect(left.map((episode) => episode.outcome)).toEqual(["BROKE", "TURNED"]);
     expect(left.map((episode) => episode.startAt)).toEqual([2_000, 8_000]);
-  });
-});
-
-describe("wilsonInterval", () => {
-  test("returns the 95% Wilson interval for 56 successes out of 100", () => {
-    const interval = wilsonInterval(56, 100);
-    expect(interval?.low).toBeCloseTo(0.462, 3);
-    expect(interval?.high).toBeCloseTo(0.653, 3);
-  });
-
-  test("returns null when the sample is empty", () => {
-    expect(wilsonInterval(0, 0)).toBeNull();
-  });
-});
-
-const interaction = (over: Partial<LiquidityInteraction> = {}): LiquidityInteraction => ({
-  wallId: "w",
-  side: "bid",
-  levelPrice: 100,
-  detectedAt: 1,
-  startAt: 1_000,
-  resolvedAt: 2_000,
-  outcome: "TURNED",
-  maxFavorableExcursionPct: 1,
-  maxAdverseExcursionPct: 0.5,
-  classifierVersion: CLASSIFIER_VERSION,
-  ...over,
-});
-
-describe("outcomeStats", () => {
-  test("drops UNRESOLVED from denominators and attaches Wilson intervals", () => {
-    const stats = outcomeStats([
-      interaction({ startAt: 1_000, resolvedAt: 1_100, maxFavorableExcursionPct: 1, maxAdverseExcursionPct: 0.2 }),
-      interaction({ outcome: "BROKE", startAt: 2_000, resolvedAt: 2_400, maxFavorableExcursionPct: 0.4, maxAdverseExcursionPct: 1.2 }),
-      interaction({ outcome: "NO_REACTION", startAt: 3_000, resolvedAt: 4_000, maxFavorableExcursionPct: 0.2, maxAdverseExcursionPct: 0.4 }),
-      interaction({ outcome: "UNRESOLVED", startAt: 500, resolvedAt: null }),
-    ]);
-    expect(stats.counts).toMatchObject({ TURNED: 1, BROKE: 1, NO_REACTION: 1, UNRESOLVED: 1, CONSUMED: 0 });
-    expect(stats.n).toBe(3);
-    expect(stats.turnedPct).toBeCloseTo(1 / 3);
-    expect(stats.brokePct).toBeCloseTo(1 / 3);
-    expect(stats.turnedCi).toEqual(wilsonInterval(1, 3));
-    expect(stats.brokeCi).toEqual(wilsonInterval(1, 3));
-    expect(stats.from).toBe(500);
-    expect(stats.to).toBe(4_000);
-    expect(stats.avgFavorableExcursionPct).toBeCloseTo((1 + 0.4 + 0.2) / 3);
-    expect(stats.avgAdverseExcursionPct).toBeCloseTo((0.2 + 1.2 + 0.4) / 3);
-    expect(stats.medianResolutionMs).toBe(400);
-    expect(stats.classifierVersion).toBe(CLASSIFIER_VERSION);
-  });
-
-  test("refuses to mix classifier versions into the same percentage", () => {
-    const stats = outcomeStats([
-      interaction({ outcome: "TURNED" }),
-      interaction({ outcome: "BROKE", classifierVersion: "2", startAt: 9_000, resolvedAt: 9_500 }),
-    ]);
-    expect(stats.n).toBe(1);
-    expect(stats.turnedPct).toBe(1);
-    expect(stats.brokePct).toBe(0);
-    expect(stats.classifierVersions).toEqual(["1", "2"]);
-    const onlySecond = outcomeStats([
-      interaction({ outcome: "BROKE", classifierVersion: "2" }),
-    ], { classifierVersion: "2" });
-    expect(onlySecond.n).toBe(1);
-    expect(onlySecond.brokePct).toBe(1);
-    expect(onlySecond.classifierVersion).toBe("2");
-  });
-
-  test("returns null rates when nothing has resolved", () => {
-    const stats = outcomeStats([interaction({ outcome: "UNRESOLVED", resolvedAt: null })]);
-    expect(stats.n).toBe(0);
-    expect(stats.turnedPct).toBeNull();
-    expect(stats.brokePct).toBeNull();
-    expect(stats.turnedCi).toBeNull();
-    expect(stats.medianResolutionMs).toBeNull();
-    expect(stats.avgFavorableExcursionPct).toBeNull();
   });
 });

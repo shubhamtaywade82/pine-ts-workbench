@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { LiveTrade } from "./public-binance-feed";
-import { addTrade, footprintSupported, MAX_BARS, type FootprintBar } from "./footprint";
+import { addTrade, footprintSupported, mergeHistoryAndLive, MAX_BARS, type FootprintBar } from "./footprint";
 
 const options = { intervalMs: 60_000, tickSize: 0.01, bucketTicks: 10 };
 
@@ -156,5 +156,28 @@ describe("footprintSupported", () => {
     expect(footprintSupported("1d")).toBe(true);
     expect(footprintSupported("1w")).toBe(false);
     expect(footprintSupported("1M")).toBe(false);
+  });
+});
+
+describe("mergeHistoryAndLive", () => {
+  test("sorts history and live trades into ascending id order", () => {
+    const history = [trade({ id: 10, time: 100 }), trade({ id: 30, time: 300 })];
+    const live = [trade({ id: 20, time: 200 }), trade({ id: 40, time: 400 })];
+    const merged = mergeHistoryAndLive(history, live);
+    expect(merged.map((t) => t.id)).toEqual([10, 20, 30, 40]);
+  });
+
+  test("deduplicates overlapping trade ids between history and live", () => {
+    const history = [trade({ id: 1, time: 10 }), trade({ id: 2, time: 20 })];
+    const live = [trade({ id: 2, time: 20 }), trade({ id: 3, time: 30 })];
+    const merged = mergeHistoryAndLive(history, live);
+    expect(merged.map((t) => t.id)).toEqual([1, 2, 3]);
+  });
+
+  test("handles empty arrays on either or both sides", () => {
+    const sample = [trade({ id: 5, time: 50 })];
+    expect(mergeHistoryAndLive([], sample).map((t) => t.id)).toEqual([5]);
+    expect(mergeHistoryAndLive(sample, []).map((t) => t.id)).toEqual([5]);
+    expect(mergeHistoryAndLive([], [])).toEqual([]);
   });
 });

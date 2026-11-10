@@ -16,10 +16,8 @@ import { ScriptDrawingsPrimitive, type ChartDrawing } from "@/components/chart/s
 import { PriceScaleMenu } from "@/components/chart/price-scale-menu";
 import { useOverlaySeries } from "@/hooks/use-overlay-series";
 import { useTradeMarkers } from "@/hooks/use-trade-markers";
-import { useDepthWalls } from "@/hooks/use-depth-walls";
-import { useDomLadder } from "@/hooks/use-dom-ladder";
-import { useLiquidityHeatmap } from "@/hooks/use-liquidity-heatmap";
-import { useFootprint } from "@/hooks/use-footprint";
+import { useOrderFlowLayers } from "@/hooks/use-order-flow-layers";
+import { OutcomePanel } from "@/components/chart/outcome-panel";
 import { WallMonitorPanel } from "@/components/chart/wall-monitor-panel";
 import { useChartDrawings } from "@/hooks/use-chart-drawings";
 import { DrawingToolbar } from "@/components/chart/drawing-toolbar";
@@ -82,12 +80,14 @@ export interface ChartWorkbenchProps {
   readonly subscribeTrades?: (listener: (trade: LiveTrade) => void) => () => void;
   /** IANA zone for the time axis and crosshair label (e.g. "Asia/Kolkata"); defaults to the browser's zone. */
   readonly timeZone?: string;
+  readonly cellId?: string;
 }
 
 export function ChartWorkbench({
   bars, subscribeBars, mainOverlays, subPanes, tradeMarkers, drawings,
   settings = DEFAULT_CHART_SETTINGS, onSettingsChange, onOpenSettings,
   title, interval, onNeedOlderBars, onIndicatorAction, depthSymbol, subscribeTrades, timeZone,
+  cellId,
 }: ChartWorkbenchProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -241,18 +241,7 @@ export function ChartWorkbench({
     drawingsRef.current.primitive.setDrawings(drawings ?? []);
   }, [drawings, candlestickRef, settings.candles.type]);
 
-  // Live order book walls.
-  useDepthWalls(candlestickRef, depthSymbol, settings.trading, settings.candles.type);
-  useDomLadder(candlestickRef, depthSymbol, settings.trading, settings.candles.type);
-  useLiquidityHeatmap(candlestickRef, depthSymbol, settings.trading, settings.candles.type);
-  useFootprint({
-    seriesRef: candlestickRef,
-    symbol: depthSymbol,
-    interval,
-    trading: settings.trading,
-    subscribeTrades,
-    seriesType: settings.candles.type,
-  });
+  useOrderFlowLayers({ seriesRef: candlestickRef, depthSymbol, trading: settings.trading, seriesType: settings.candles.type, interval, subscribeTrades });
 
   // User interactive drawing tools (trendline, ray, fibonacci, rectangle, measure).
   const { activeTool, setActiveTool, drawings: userDrawings, clearDrawings, isDrawing } = useChartDrawings(
@@ -268,7 +257,8 @@ export function ChartWorkbench({
   return (
     <div className={`relative h-full w-full ${activeTool !== "cursor" ? "cursor-crosshair" : ""}`}>
       <div ref={containerRef} className="h-full w-full" />
-      <WallMonitorPanel symbol={depthSymbol} trading={settings.trading} />
+      <WallMonitorPanel cellId={cellId} symbol={depthSymbol} trading={settings.trading} />
+      {settings.trading.outcomes.enabled && <OutcomePanel symbol={depthSymbol} />}
       <DrawingToolbar
         activeTool={activeTool}
         onSelectTool={setActiveTool}

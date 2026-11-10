@@ -3,6 +3,9 @@ import { DEFAULT_MIN_WALL_NOTIONAL, DEFAULT_TOP_WALLS, DEFAULT_WALL_WINDOW_PCT, 
 export type DepthWallStyle = "shelf" | "dom" | "bracket" | "bubbles";
 export const DEPTH_WALL_STYLES: readonly DepthWallStyle[] = ["shelf", "dom", "bracket", "bubbles"] as const;
 
+export type WallLabel = "compact" | "detailed";
+export const WALL_LABELS: readonly WallLabel[] = ["compact", "detailed"] as const;
+
 export type FootprintMode = "bid-ask" | "delta" | "total";
 const FOOTPRINT_MODES: readonly FootprintMode[] = ["bid-ask", "delta", "total"];
 
@@ -17,6 +20,8 @@ export interface TradingSettings {
   readonly showBidAskLines: boolean;
   /** Visual representation style for depth walls. */
   readonly depthWallStyle: DepthWallStyle;
+  /** Label format for depth wall pills (compact price + notional vs detailed status + age). */
+  readonly wallLabel: WallLabel;
   /** Half-width of the wall search around mid, in percent. Clipped to the snapshot's verified coverage. */
   readonly wallWindowPct: number;
   /** Smallest wall, in the chart's quote currency. */
@@ -41,6 +46,9 @@ export interface TradingSettings {
     /** Price levels per footprint row. */
     readonly bucketTicks: number;
   };
+  readonly outcomes: {
+    readonly enabled: boolean;
+  };
 }
 
 export const DEFAULT_TRADING: TradingSettings = {
@@ -49,12 +57,14 @@ export const DEFAULT_TRADING: TradingSettings = {
   showOrderBookWalls: true,
   showBidAskLines: true,
   depthWallStyle: "shelf",
+  wallLabel: "compact",
   wallWindowPct: DEFAULT_WALL_WINDOW_PCT,
   minWallNotional: DEFAULT_MIN_WALL_NOTIONAL,
   dom: { enabled: false, bucketTicks: 10, visibleBuckets: 40 },
   heatmap: { enabled: false, opacity: 0.5, minutes: 10 },
   wallTopN: DEFAULT_TOP_WALLS,
   footprint: { enabled: false, mode: "delta", bucketTicks: 10 },
+  outcomes: { enabled: false },
 };
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -107,6 +117,14 @@ const normalizeFootprint = (stored: unknown): TradingSettings["footprint"] => {
 const isDepthWallStyle = (val: unknown): val is DepthWallStyle =>
   typeof val === "string" && (DEPTH_WALL_STYLES as readonly string[]).includes(val);
 
+const isWallLabel = (val: unknown): val is WallLabel =>
+  typeof val === "string" && (WALL_LABELS as readonly string[]).includes(val);
+
+const normalizeOutcomes = (stored: unknown): TradingSettings["outcomes"] => {
+  const raw = isRecord(stored) ? stored : {};
+  return { enabled: booleanOr(raw["enabled"], DEFAULT_TRADING.outcomes.enabled) };
+};
+
 export const normalizeTrading = (stored: unknown): TradingSettings => {
   const raw = isRecord(stored) ? stored : {};
   const defaults = DEFAULT_TRADING;
@@ -116,11 +134,13 @@ export const normalizeTrading = (stored: unknown): TradingSettings => {
     showOrderBookWalls: booleanOr(raw["showOrderBookWalls"], defaults.showOrderBookWalls),
     showBidAskLines: booleanOr(raw["showBidAskLines"], defaults.showBidAskLines),
     depthWallStyle: isDepthWallStyle(raw["depthWallStyle"]) ? raw["depthWallStyle"] : defaults.depthWallStyle,
+    wallLabel: isWallLabel(raw["wallLabel"]) ? raw["wallLabel"] : defaults.wallLabel,
     wallWindowPct: numberIn(raw["wallWindowPct"], WALL_WINDOW_LIMITS_PCT.min, WALL_WINDOW_LIMITS_PCT.max, defaults.wallWindowPct),
     minWallNotional: numberIn(raw["minWallNotional"], 0, Number.POSITIVE_INFINITY, defaults.minWallNotional),
     dom: normalizeDom(raw["dom"]),
     heatmap: normalizeHeatmap(raw["heatmap"]),
     wallTopN: integerIn(raw["wallTopN"], 1, 20, defaults.wallTopN),
     footprint: normalizeFootprint(raw["footprint"]),
+    outcomes: normalizeOutcomes(raw["outcomes"]),
   };
 };

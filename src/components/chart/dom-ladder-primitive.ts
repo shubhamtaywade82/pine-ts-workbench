@@ -9,124 +9,82 @@ import type { CanvasRenderingTarget2D } from "fancy-canvas";
 import type { DepthStatus } from "@/lib/depth-feed";
 import type { BookCoverage } from "@/lib/order-book";
 import type { PriceBucket } from "@/lib/price-buckets";
+import { drawLadderStatus, paintLadder, placedRows } from "./dom-ladder-painters";
+import { ANIMATION_TAU_MS, easeToward, LADDER, ladderPriceColumnX } from "./dom-ladder-layout";
 
-const BID_COLOR = "#089981";
-const ASK_COLOR = "#f23645";
-const BAR_MAX_PX = 112;
-const BAR_HEIGHT_PX = 3;
 const DIM_ALPHA = 0.35;
-const HATCH_GAP_PX = 6;
-const HATCH_COLOR = "rgba(178, 181, 190, 0.35)";
-const LABEL_FONT = "10px -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, sans-serif";
+const SETTLE = 0.01;
+const REST_ALPHA = 0.72;
+
+export interface LadderFlow {
+  readonly key: number;
+  readonly bought: number;
+  readonly sold: number;
+  readonly pulled: number;
+}
+
+export interface LadderWall {
+  readonly price: number;
+  readonly side: "bid" | "ask";
+}
 
 export interface DomLadderBuckets {
   readonly status: DepthStatus;
   readonly bids: readonly PriceBucket[];
   readonly asks: readonly PriceBucket[];
   readonly coverage?: BookCoverage;
+  readonly activity?: readonly LadderFlow[];
+  readonly walls?: readonly LadderWall[];
+  readonly lastPrice?: number;
+  readonly bucketLabel?: string;
 }
 
-interface BarPaint {
-  readonly context: CanvasRenderingContext2D;
-  readonly color: string;
-  readonly maxQuantity: number;
-  readonly paneWidth: number;
-  readonly toY: (price: number) => number | null;
+interface RowMotion {
+  bidWidth: number;
+  askWidth: number;
+  targetBid: number;
+  targetAsk: number;
+  alpha: number;
+  targetAlpha: number;
+  bought: number;
+  sold: number;
+  pulled: number;
 }
-
-interface HatchPaint {
-  readonly context: CanvasRenderingContext2D;
-  readonly toY: (price: number) => number | null;
-  readonly paneWidth: number;
-  readonly paneHeight: number;
-}
-
-/** Shared rows split ask above bid; a one-sided row keeps the full height. */
-export const rowSlice = (side: "bid" | "ask", sharesRow: boolean): { top: number; height: number } => {
-  if (!sharesRow) return { top: 0, height: 1 };
-  return side === "ask" ? { top: 0, height: 0.5 } : { top: 0.5, height: 0.5 };
-};
 
 const largestQuantity = (buckets: DomLadderBuckets): number =>
   Math.max(0, ...buckets.bids.map((bucket) => bucket.quantity), ...buckets.asks.map((bucket) => bucket.quantity));
 
-const rowKeys = (buckets: readonly PriceBucket[]): Set<number> =>
-  new Set(buckets.map((bucket) => bucket.priceFrom));
+const qtyByKey = (buckets: readonly PriceBucket[]): Map<number, number> =>
+  new Map(buckets.map((bucket) => [bucket.key, bucket.quantity]));
 
-const drawBars = (
-  buckets: readonly PriceBucket[],
-  otherRows: ReadonlySet<number>,
-  side: "bid" | "ask",
-  paint: BarPaint,
-): void => {
-  const { context, color, maxQuantity, paneWidth, toY } = paint;
-  if (!(maxQuantity > 0)) return;
-  const limit = Math.min(BAR_MAX_PX, paneWidth);
-  context.fillStyle = color;
-  for (const bucket of buckets) {
-    const y = toY((bucket.priceFrom + bucket.priceTo) / 2);
-    if (y === null) continue;
-    const slice = rowSlice(side, otherRows.has(bucket.priceFrom));
-    const width = (bucket.quantity / maxQuantity) * limit;
-    const top = y - BAR_HEIGHT_PX / 2 + BAR_HEIGHT_PX * slice.top;
-    context.fillRect(paneWidth - width, top, width, BAR_HEIGHT_PX * slice.height);
-  }
+const close = (current: number, target: number): boolean => Math.abs(current - target) <= SETTLE;
+
+const motionOf = (flow: LadderFlow | undefined): { bought: number; sold: number; pulled: number } => ({
+  bought: flow?.bought ?? 0,
+  sold: flow?.sold ?? 0,
+  pulled: flow?.pulled ?? 0,
+});
+
+const anyActivity = (motion: { bought: number; sold: number; pulled: number }): boolean =>
+  motion.bought > 0 || motion.sold > 0 || motion.pulled > 0;
+
+const freshRow = (bid: number, ask: number, flow: LadderFlow | undefined): RowMotion => {
+  const motion = motionOf(flow);
+  const visible = anyActivity(motion);
+  return {
+    bidWidth: 0, askWidth: 0, targetBid: bid, targetAsk: ask,
+    alpha: visible ? 1 : 0, targetAlpha: visible ? REST_ALPHA : 0,
+    ...motion,
+  };
 };
 
-const drawStatus = (context: CanvasRenderingContext2D, status: DepthStatus, paneWidth: number): void => {
-  context.font = LABEL_FONT;
-  context.fillStyle = "#b2b5be";
-  context.textAlign = "right";
-  context.textBaseline = "top";
-  context.fillText(status, paneWidth - 6, 6);
-};
-
-const positiveFinite = (value: number): boolean => Number.isFinite(value) && value > 0;
-
-const hatchBand = (
-  context: CanvasRenderingContext2D,
-  strip: { left: number; width: number },
-  top: number,
-  height: number,
-): void => {
-  if (!(height > 0) || !(strip.width > 0)) return;
-  context.save();
-  context.beginPath();
-  context.rect(strip.left, top, strip.width, height);
-  context.clip();
-  context.strokeStyle = HATCH_COLOR;
-  context.lineWidth = 1;
-  context.beginPath();
-  const reach = strip.width + height;
-  for (let step = -height; step < reach; step += HATCH_GAP_PX) {
-    context.moveTo(strip.left + step, top);
-    context.lineTo(strip.left + step - height, top + height);
-  }
-  context.stroke();
-  context.restore();
-};
-
-const drawCoverage = (coverage: BookCoverage | undefined, paint: HatchPaint): void => {
-  if (coverage === undefined) return;
-  const { context, toY, paneWidth, paneHeight } = paint;
-  const strip = { left: Math.max(0, paneWidth - BAR_MAX_PX), width: Math.min(BAR_MAX_PX, paneWidth) };
-  if (positiveFinite(coverage.bidFloor)) {
-    const y = toY(coverage.bidFloor);
-    if (y !== null) {
-      const top = Math.min(Math.max(y, 0), paneHeight);
-      hatchBand(context, strip, top, paneHeight - top);
-    }
-  }
-  if (positiveFinite(coverage.askCeiling)) {
-    const y = toY(coverage.askCeiling);
-    if (y !== null) hatchBand(context, strip, 0, Math.min(Math.max(y, 0), paneHeight));
-  }
-};
-
-/** Bid and ask depth as horizontal bars on the right edge of the pane. */
+/** Bid and ask depth beside the forming candle, with a 60s activity column. */
 export class DomLadderPrimitive implements ISeriesPrimitive<Time> {
   private attachedTo: SeriesAttachedParameter<Time> | null = null;
   private buckets: DomLadderBuckets | undefined;
+  private readonly rows = new Map<number, RowMotion>();
+  private frame: number | null = null;
+  private lastFrameAt = 0;
   private readonly view: IPrimitivePaneView = { renderer: () => this.renderer };
   private readonly renderer: IPrimitivePaneRenderer = {
     draw: (target: CanvasRenderingTarget2D) =>
@@ -140,6 +98,7 @@ export class DomLadderPrimitive implements ISeriesPrimitive<Time> {
 
   public detached(): void {
     this.attachedTo = null;
+    this.stopAnimation();
   }
 
   public paneViews(): readonly IPrimitivePaneView[] {
@@ -148,7 +107,122 @@ export class DomLadderPrimitive implements ISeriesPrimitive<Time> {
 
   public setBuckets(next: DomLadderBuckets | undefined): void {
     this.buckets = next;
-    this.attachedTo?.requestUpdate();
+    if (next === undefined) {
+      this.rows.clear();
+      this.stopAnimation();
+      this.attachedTo?.requestUpdate();
+      return;
+    }
+    this.retarget(next);
+    if (typeof requestAnimationFrame === "undefined") {
+      this.snap();
+      this.attachedTo?.requestUpdate();
+      return;
+    }
+    if (this.moving()) this.startAnimation();
+    else this.attachedTo?.requestUpdate();
+  }
+
+  private retarget(buckets: DomLadderBuckets): void {
+    const maxQty = largestQuantity(buckets);
+    const bids = qtyByKey(buckets.bids);
+    const asks = qtyByKey(buckets.asks);
+    const flows = new Map((buckets.activity ?? []).map((flow) => [flow.key, flow]));
+    const seen = new Set<number>([...bids.keys(), ...asks.keys()]);
+    for (const key of seen) {
+      this.retargetRow(key, { bid: bids.get(key) ?? 0, ask: asks.get(key) ?? 0 }, maxQty, flows.get(key));
+    }
+    for (const [key, row] of this.rows) {
+      if (seen.has(key)) continue;
+      row.targetBid = 0;
+      row.targetAsk = 0;
+      row.targetAlpha = 0;
+    }
+  }
+
+  private retargetRow(
+    key: number,
+    quantities: { bid: number; ask: number },
+    maxQty: number,
+    flow: LadderFlow | undefined,
+  ): void {
+    const bid = maxQty > 0 ? quantities.bid / maxQty : 0;
+    const ask = maxQty > 0 ? quantities.ask / maxQty : 0;
+    const motion = motionOf(flow);
+    const row = this.rows.get(key);
+    if (row === undefined) {
+      this.rows.set(key, freshRow(bid, ask, flow));
+      return;
+    }
+    if (motion.bought > row.bought || motion.sold > row.sold || motion.pulled > row.pulled) row.alpha = 1;
+    row.targetBid = bid;
+    row.targetAsk = ask;
+    row.targetAlpha = anyActivity(motion) ? REST_ALPHA : 0;
+    row.bought = motion.bought;
+    row.sold = motion.sold;
+    row.pulled = motion.pulled;
+  }
+
+  private moving(): boolean {
+    for (const row of this.rows.values()) {
+      if (!close(row.bidWidth, row.targetBid) || !close(row.askWidth, row.targetAsk)) return true;
+      if (!close(row.alpha, row.targetAlpha)) return true;
+    }
+    return false;
+  }
+
+  private snap(): void {
+    for (const row of this.rows.values()) {
+      row.bidWidth = row.targetBid;
+      row.askWidth = row.targetAsk;
+      row.alpha = row.targetAlpha;
+    }
+  }
+
+  private startAnimation(): void {
+    if (this.frame !== null) return;
+    this.lastFrameAt = performance.now();
+    const step = (at: number) => {
+      const elapsed = at - this.lastFrameAt;
+      this.lastFrameAt = at;
+      const settled = this.advance(elapsed);
+      this.attachedTo?.requestUpdate();
+      this.frame = settled ? null : requestAnimationFrame(step);
+    };
+    this.frame = requestAnimationFrame(step);
+  }
+
+  private stopAnimation(): void {
+    if (this.frame !== null && typeof cancelAnimationFrame !== "undefined") cancelAnimationFrame(this.frame);
+    this.frame = null;
+  }
+
+  private advance(elapsed: number): boolean {
+    let settled = true;
+    for (const [key, row] of this.rows) {
+      row.bidWidth = easeToward(row.bidWidth, row.targetBid, elapsed, ANIMATION_TAU_MS);
+      row.askWidth = easeToward(row.askWidth, row.targetAsk, elapsed, ANIMATION_TAU_MS);
+      row.alpha = easeToward(row.alpha, row.targetAlpha, elapsed, ANIMATION_TAU_MS);
+      if (!close(row.bidWidth, row.targetBid) || !close(row.askWidth, row.targetAsk) || !close(row.alpha, row.targetAlpha)) {
+        settled = false;
+        continue;
+      }
+      row.bidWidth = row.targetBid;
+      row.askWidth = row.targetAsk;
+      row.alpha = row.targetAlpha;
+      if (row.targetBid === 0 && row.targetAsk === 0 && row.targetAlpha === 0) this.rows.delete(key);
+    }
+    return settled;
+  }
+
+  private originX(paneWidth: number): number {
+    const attached = this.attachedTo;
+    if (attached === null) return ladderPriceColumnX(null, 6, paneWidth, LADDER);
+    const scale = attached.chart.timeScale();
+    const lastIndex = attached.series.data().length - 1;
+    const lastX = lastIndex >= 0 ? scale.logicalToCoordinate(lastIndex as never) : null;
+    const spacing = scale.options().barSpacing ?? 6;
+    return ladderPriceColumnX(lastX, spacing, paneWidth, LADDER);
   }
 
   private paint(context: CanvasRenderingContext2D, paneWidth: number, paneHeight: number): void {
@@ -156,19 +230,22 @@ export class DomLadderPrimitive implements ISeriesPrimitive<Time> {
     const buckets = this.buckets;
     if (attached === null || buckets === undefined) return;
     const toY = (price: number) => attached.series.priceToCoordinate(price);
-    context.save();
-    drawCoverage(buckets.coverage, { context, toY, paneWidth, paneHeight });
-    if (buckets.status !== "live") context.globalAlpha = DIM_ALPHA;
-    const paint: BarPaint = {
-      context,
-      color: BID_COLOR,
-      maxQuantity: largestQuantity(buckets),
-      paneWidth,
+    const rows = placedRows({
+      bids: buckets.bids,
+      asks: buckets.asks,
+      motion: this.rows,
+      walls: buckets.walls ?? [],
+      lastPrice: buckets.lastPrice,
+      paneHeight,
       toY,
-    };
-    drawBars(buckets.bids, rowKeys(buckets.asks), "bid", paint);
-    drawBars(buckets.asks, rowKeys(buckets.bids), "ask", { ...paint, color: ASK_COLOR });
-    if (buckets.status !== "live") drawStatus(context, buckets.status, paneWidth);
+    });
+    context.save();
+    if (buckets.status !== "live") context.globalAlpha = DIM_ALPHA;
+    paintLadder({
+      context, paneWidth, paneHeight, originX: this.originX(paneWidth),
+      bucketLabel: buckets.bucketLabel ?? "level", rows, coverage: buckets.coverage, toY,
+    });
     context.restore();
+    if (buckets.status !== "live") drawLadderStatus(context, buckets.status, paneWidth);
   }
 }

@@ -38,7 +38,7 @@ export function useDepthWalls(
 
   const syncLines = (series: ISeriesApi<SeriesType>, update: DepthWallsUpdate) => {
     const { bestBid, bestAsk } = update.frame ?? {};
-    if (!showBidAskLines || bestBid === undefined || bestAsk === undefined) { clearLines(series); return; }
+    if (!showBidAskLines || update.status !== "live" || bestBid === undefined || bestAsk === undefined) { clearLines(series); return; }
     if (bidLineRef.current === null) {
       bidLineRef.current = series.createPriceLine({
         price: bestBid, color: BID_COLOR, lineWidth: 1, lineStyle: 2,
@@ -64,6 +64,7 @@ export function useDepthWalls(
       clearLines(depthWallsRef.current?.series);
       const primitive = new DepthWallsPrimitive();
       primitive.setStyle(tradingSettings.depthWallStyle);
+      primitive.setLabel(tradingSettings.wallLabel);
       candle.attachPrimitive(primitive);
       depthWallsRef.current = { series: candle, primitive };
     }
@@ -94,4 +95,8 @@ export function useDepthWalls(
   useEffect(() => {
     depthWallsRef.current?.primitive.setStyle(tradingSettings.depthWallStyle);
   }, [tradingSettings.depthWallStyle]);
+
+  useEffect(() => {
+    depthWallsRef.current?.primitive.setLabel(tradingSettings.wallLabel);
+  }, [tradingSettings.wallLabel]);
 }

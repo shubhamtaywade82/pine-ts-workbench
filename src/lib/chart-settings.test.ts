@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { DEFAULT_CHART_SETTINGS, normalizeChartSettings, toCandleOptions } from "./chart-settings";
+import { DEFAULT_CHART_SETTINGS, normalizeChartSettings, rightOffsetPx, toCandleOptions } from "./chart-settings";
 
 describe("normalizeChartSettings: defaults and migration", () => {
   test("settings saved before the wall options existed load with the defaults", () => {
@@ -13,18 +13,29 @@ describe("normalizeChartSettings: defaults and migration", () => {
       showOrderBookWalls: false,
       showBidAskLines: true,
       depthWallStyle: "shelf",
+      wallLabel: "compact",
       wallWindowPct: 0.5,
       minWallNotional: 0,
       dom: { enabled: false, bucketTicks: 10, visibleBuckets: 40 },
       heatmap: { enabled: false, opacity: 0.5, minutes: 10 },
       wallTopN: 5,
       footprint: { enabled: false, mode: "delta", bucketTicks: 10 },
+      outcomes: { enabled: false },
     });
   });
 
   test("with no stored settings, the defaults are unchanged: 0.5% window, no minimum", () => {
     expect(normalizeChartSettings(undefined)).toEqual(DEFAULT_CHART_SETTINGS);
-    expect(DEFAULT_CHART_SETTINGS.trading).toMatchObject({ wallWindowPct: 0.5, minWallNotional: 0 });
+    expect(DEFAULT_CHART_SETTINGS.trading).toMatchObject({ wallWindowPct: 0.5, minWallNotional: 0, outcomes: { enabled: false } });
+  });
+
+  test("validates trading.outcomes toggle and defaults to false", () => {
+    const enabled = normalizeChartSettings({ trading: { outcomes: { enabled: true } } });
+    expect(enabled.trading.outcomes.enabled).toBe(true);
+    const disabled = normalizeChartSettings({ trading: { outcomes: { enabled: false } } });
+    expect(disabled.trading.outcomes.enabled).toBe(false);
+    const fallback = normalizeChartSettings({ trading: { outcomes: { enabled: "invalid" } } });
+    expect(fallback.trading.outcomes.enabled).toBe(false);
   });
 
   test("other sections keep their stored values and gain their defaults for new keys", () => {
@@ -121,6 +132,12 @@ describe("normalizeChartSettings: validation", () => {
     expect(trading({ depthWallStyle: "invalid" }).depthWallStyle).toBe("shelf");
   });
 
+  test("wallLabel keeps valid options and falls back to compact on invalid", () => {
+    expect(trading({ wallLabel: "detailed" }).wallLabel).toBe("detailed");
+    expect(trading({ wallLabel: "compact" }).wallLabel).toBe("compact");
+    expect(trading({ wallLabel: "invalid" }).wallLabel).toBe("compact");
+  });
+
   test("a trading section that is not an object yields the defaults", () => {
     expect(normalizeChartSettings({ trading: 42 }).trading).toEqual(DEFAULT_CHART_SETTINGS.trading);
   });
@@ -194,5 +211,27 @@ describe("toCandleOptions", () => {
     expect(opts.wickVisible).toBe(false);
     expect(opts.wickUpColor).toBe("#555555");
     expect(opts.wickDownColor).toBe("#666666");
+  });
+});
+
+describe("rightOffsetPx", () => {
+  const withTrading = (trading: Partial<typeof DEFAULT_CHART_SETTINGS.trading>, rightOffsetBars = 10) => ({
+    ...DEFAULT_CHART_SETTINGS,
+    canvas: { ...DEFAULT_CHART_SETTINGS.canvas, rightOffsetBars },
+    trading: { ...DEFAULT_CHART_SETTINGS.trading, ...trading },
+  });
+
+  test("should reserve room for wall pills when walls are shown", () => {
+    expect(rightOffsetPx(withTrading({ showOrderBookWalls: true }))).toBe(110);
+  });
+
+  test("should reserve room for the DOM ladder when it is enabled", () => {
+    const dom = { ...DEFAULT_CHART_SETTINGS.trading.dom, enabled: true };
+    expect(rightOffsetPx(withTrading({ showOrderBookWalls: true, dom }))).toBe(240);
+  });
+
+  test("should keep the user's larger offset and fall back to it when overlays are off", () => {
+    expect(rightOffsetPx(withTrading({ showOrderBookWalls: true }, 30))).toBe(180);
+    expect(rightOffsetPx(withTrading({ showOrderBookWalls: false }, 10))).toBe(60);
   });
 });

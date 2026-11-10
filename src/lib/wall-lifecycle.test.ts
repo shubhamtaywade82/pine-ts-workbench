@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { diffWalls, type LifecycleContext, type LifecycleWall } from "./wall-lifecycle";
+import { diffWalls, wallIdentityWidth, type LifecycleContext, type LifecycleWall } from "./wall-lifecycle";
 
 const wall = (side: LifecycleWall["side"], price: number, notional: number): LifecycleWall =>
   ({ side, price, notional });
@@ -43,5 +43,13 @@ describe("diffWalls", () => {
   test("a jump of more than one bucket is a departure plus a detection", () => {
     const events = diffWalls([wall("bid", 90, 100)], [wall("bid", 92, 100)], ctx());
     expect(events.map((event) => event.kind)).toEqual(["detected", "pulled"]);
+  });
+});
+
+describe("wallIdentityWidth", () => {
+  test("uses tick when known, else mid * 0.0001", () => {
+    expect(wallIdentityWidth(50_000, 0.1)).toBe(0.1);
+    expect(wallIdentityWidth(50_000, undefined)).toBe(5);
+    expect(wallIdentityWidth(100, 0)).toBe(0.01);
   });
 });

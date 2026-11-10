@@ -92,3 +92,21 @@ model WallTransition {
 
   @@index([symbol, at])
 }
+
+model LiquidityInteraction {
+  id                Int    @id @default(autoincrement())
+  wallId            String
+  symbol            String
+  side              String
+  levelPrice        Float
+  detectedAt        Float
+  startAt           Float
+  resolvedAt        Float?
+  outcome           String
+  mfePct            Float?
+  maePct            Float?
+  classifierVersion String
+
+  @@unique([wallId, startAt, classifierVersion])
+  @@index([symbol, startAt])
+}

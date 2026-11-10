@@ -20,8 +20,8 @@ const TABS: readonly { id: Tab; label: string; icon: ReactNode }[] = [
   { id: "trading", label: "Trading", icon: <TrendingUp className="h-4 w-4" /> },
 ];
 
-export function ChartSettingsDialog({ open, settings, quoteAsset, onOpenChange, onApply }: {
-  open: boolean; settings: ChartSettings; quoteAsset: string;
+export function ChartSettingsDialog({ open, settings, quoteAsset, interval, onOpenChange, onApply }: {
+  open: boolean; settings: ChartSettings; quoteAsset: string; interval: ChartInterval;
   onOpenChange: (open: boolean) => void; onApply: (settings: ChartSettings) => void;
 }) {
   const [tab, setTab] = useState<Tab>("symbol");
@@ -46,7 +46,7 @@ export function ChartSettingsDialog({ open, settings, quoteAsset, onOpenChange, 
             {tab === "statusLine" && <StatusLineTab draft={draft} onChange={setDraft} />}
             {tab === "scales" && <ScalesTab draft={draft} onChange={setDraft} />}
             {tab === "canvas" && <CanvasTab draft={draft} onChange={setDraft} />}
-            {tab === "trading" && <TradingTab draft={draft} onChange={setDraft} quoteAsset={quoteAsset} />}
+            {tab === "trading" && <TradingTab draft={draft} onChange={setDraft} quoteAsset={quoteAsset} interval={interval} />}
           </div>
         </div>
         <div className="flex items-center justify-between border-t border-border px-6 py-3">
@@ -182,7 +182,7 @@ function CanvasTab(props: TabProps) {
   );
 }
 
-function TradingTab(props: TabProps & { readonly quoteAsset: string }) {
+function TradingTab(props: TabProps & { readonly quoteAsset: string; readonly interval: ChartInterval }) {
   const { trading } = props.draft;
   const patch = patcher(props);
   return (
@@ -192,7 +192,7 @@ function TradingTab(props: TabProps & { readonly quoteAsset: string }) {
         <Check label="Execution labels" checked={trading.showExecutionLabels} onChange={(showExecutionLabels) => patch("trading", { showExecutionLabels })} />
         <Check label="Bid and ask lines" checked={trading.showBidAskLines} onChange={(showBidAskLines) => patch("trading", { showBidAskLines })} />
       </Group>
-      <OrderFlowSettings trading={trading} quoteAsset={props.quoteAsset} patch={patch} />
+      <OrderFlowSettings trading={trading} quoteAsset={props.quoteAsset} interval={props.interval} patch={patch} />
     </>
   );
 }

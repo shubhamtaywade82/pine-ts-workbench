@@ -110,3 +110,14 @@ export const addTrade = (bars: FootprintBar[], trade: LiveTrade, options: AddTra
   shiftCumulative(bars, index, addToBar(bar, trade));
   return trimBars(bars);
 };
+
+/** Merges historical and buffered live trades in trade id order without duplicates. */
+export const mergeHistoryAndLive = (
+  history: readonly LiveTrade[],
+  live: readonly LiveTrade[],
+): LiveTrade[] => {
+  const byId = new Map<number, LiveTrade>();
+  for (const trade of history) byId.set(trade.id, trade);
+  for (const trade of live) byId.set(trade.id, trade);
+  return [...byId.values()].sort((a, b) => a.id - b.id);
+};

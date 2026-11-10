@@ -1,7 +1,9 @@
 "use client";
 
 import type { BinanceSymbol } from "./public-binance-feed";
-import { quoteAssetOf } from "./public-binance-feed";
+import { closeQuietly, quoteAssetOf, releaseSocket } from "./public-binance-feed";
+import { BINANCE_REST_URL } from "./binance-endpoints";
+import { isDepthSnapshot, isDepthUpdate } from "./binance-payloads";
 import type { WallOptions } from "./depth-walls";
 import type { DepthSnapshot, DepthUpdate } from "./order-book";
 import {
@@ -12,40 +14,40 @@ import {
   type DepthWallsUpdate,
 } from "./depth-feed";
 
-const DEPTH_SNAPSHOT_URL = "https://data-api.binance.vision/api/v3/depth";
+const DEPTH_SNAPSHOT_URL = `${BINANCE_REST_URL}/api/v3/depth`;
 
-const closeQuietly = (socket: WebSocket): void => {
-  try { socket.close(1000, "Normal closure"); } catch { /* already closing */ }
-};
-
-const releaseSocket = (socket: WebSocket): void => {
-  socket.onmessage = null;
-  socket.onclose = null;
-  socket.onerror = null;
-  if (socket.readyState === WebSocket.CONNECTING) {
-    socket.onopen = () => closeQuietly(socket);
-    return;
-  }
-  socket.onopen = null;
-  if (socket.readyState === WebSocket.OPEN) closeQuietly(socket);
-};
-
-const openDepthSocket: DepthFeedDeps["openSocket"] = (url, handlers) => {
+export const openDepthSocket: DepthFeedDeps["openSocket"] = (url, handlers) => {
   const socket = new WebSocket(url);
   socket.onopen = handlers.onOpen;
   socket.onclose = handlers.onClose;
   socket.onerror = () => { if (socket.readyState === WebSocket.OPEN) closeQuietly(socket); };
   socket.onmessage = (message) => {
-    const { data } = JSON.parse(message.data as string) as { data: DepthUpdate & { e?: string } };
-    if (data.e === "depthUpdate") handlers.onMessage(data);
+    let update: DepthUpdate | undefined;
+    let malformed = false;
+    try {
+      const { data } = JSON.parse(message.data as string) as { data?: unknown };
+      if (isDepthUpdate(data)) update = data;
+      else malformed = true;
+    } catch {
+      malformed = true;
+    }
+    if (malformed) handlers.onMalformed();
+    else if (update) handlers.onMessage(update);
   };
   return () => releaseSocket(socket);
 };
 
-const fetchSnapshot: DepthFeedDeps["fetchSnapshot"] = async (symbol, limit) => {
+const truncateText = (text: string, maxLen = 200): string =>
+  text.length > maxLen ? `${text.slice(0, maxLen)}...` : text;
+
+export const fetchSnapshot: DepthFeedDeps["fetchSnapshot"] = async (symbol, limit) => {
   const res = await fetch(`${DEPTH_SNAPSHOT_URL}?symbol=${symbol}&limit=${limit}`);
-  if (!res.ok) throw new Error(`HTTP ${res.status}: ${await res.text()}`);
-  return (await res.json()) as DepthSnapshot;
+  if (!res.ok) throw new Error(`HTTP ${res.status}: ${truncateText(await res.text())}`);
+  const body: unknown = await res.json();
+  if (!isDepthSnapshot(body)) {
+    throw new Error(`Invalid depth snapshot for ${symbol}: ${truncateText(JSON.stringify(body))}`);
+  }
+  return body;
 };
 
 const browserDeps: DepthFeedDeps = {

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterEach, describe, expect, test } from "bun:test";
 import {
   quoteAssetOf,
   SUPPORTED_SYMBOLS,
@@ -9,6 +9,8 @@ import {
   INTERVAL_LABELS,
   fetchDeepHistoryBars,
   toLiveTrade,
+  openMarketStream,
+  parseMarketStreamMessage,
   type ChartInterval,
 } from "./public-binance-feed";
 
@@ -127,5 +129,88 @@ describe("fetchDeepHistoryBars", () => {
     } finally {
       globalThis.fetch = originalFetch;
     }
+  });
+});
+
+describe("parseMarketStreamMessage", () => {
+  test("parses kline event", () => {
+    const raw = JSON.stringify({
+      data: {
+        e: "kline",
+        E: 1_000,
+        s: "BTCUSDT",
+        k: { t: 0, T: 60_000, o: "100", h: "105", l: "99", c: "102", v: "10", x: false },
+      },
+    });
+    const parsed = parseMarketStreamMessage(raw);
+    expect(parsed?.kind).toBe("kline");
+    if (parsed?.kind === "kline") {
+      expect(parsed.bar).toMatchObject({ open: 100, high: 105, low: 99, close: 102, volume: 10, isClosed: false });
+    }
+  });
+
+  test("parses trade event", () => {
+    const raw = JSON.stringify({
+      data: { e: "trade", t: 123, p: "100.5", q: "2", T: 500, m: true },
+    });
+    const parsed = parseMarketStreamMessage(raw);
+    expect(parsed?.kind).toBe("trade");
+    if (parsed?.kind === "trade") {
+      expect(parsed.trade).toMatchObject({ id: 123, price: 100.5, quantity: 2, aggressor: "sell" });
+    }
+  });
+
+  test("returns null for malformed or unrecognized frames", () => {
+    expect(parseMarketStreamMessage("not json")).toBeNull();
+    expect(parseMarketStreamMessage(JSON.stringify({ data: { e: "unknown" } }))).toBeNull();
+  });
+});
+
+describe("openMarketStream error handling", () => {
+  class MockSocket {
+    static instances: MockSocket[] = [];
+    url: string;
+    readyState = 1;
+    onopen: (() => void) | null = null;
+    onclose: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    onmessage: ((ev: { data: string }) => void) | null = null;
+    constructor(url: string) {
+      this.url = url;
+      MockSocket.instances.push(this);
+    }
+    close() { this.readyState = 3; }
+  }
+
+  const origWs = globalThis.WebSocket;
+  afterEach(() => { globalThis.WebSocket = origWs; });
+
+  test("throwing consumer surfaces exception and is not counted as malformed", () => {
+    globalThis.WebSocket = MockSocket as never;
+    let malformedCount = 0;
+    const close = openMarketStream("BTCUSDT", "1m", {
+      onOpen: () => {},
+      onClose: () => {},
+      onKline: () => { throw new Error("consumer exploded"); },
+      onTrade: () => {},
+      onMalformed: (count) => { malformedCount = count; },
+    });
+    const ws = MockSocket.instances.at(-1)!;
+    const klineEvent = JSON.stringify({
+      data: {
+        e: "kline",
+        E: 1_000,
+        s: "BTCUSDT",
+        k: { t: 0, T: 60_000, o: "1", h: "2", l: "1", c: "2", v: "10", x: false },
+      },
+    });
+
+    expect(() => ws.onmessage?.({ data: klineEvent })).toThrow("consumer exploded");
+    expect(malformedCount).toBe(0);
+
+    // Truly malformed data is reported to onMalformed
+    ws.onmessage?.({ data: "not json" });
+    expect(malformedCount).toBe(1);
+    close();
   });
 });

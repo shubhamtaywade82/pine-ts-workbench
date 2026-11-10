@@ -45,6 +45,8 @@ export interface MarketRecorderOptions {
   readonly maxBatch: number;
   readonly maxPending?: number;
   readonly schedule?: (run: () => void, delayMs: number) => () => void;
+  readonly onDrop?: (total: number, pending: number) => void;
+  readonly onWriteError?: (error: unknown, remaining: number, dropped: number) => void;
 }
 
 type EventInput = Omit<MarketEventRow, "exchangeTime" | "schemaVersion"> & {
@@ -54,9 +56,6 @@ type EventInput = Omit<MarketEventRow, "exchangeTime" | "schemaVersion"> & {
 
 const DEFAULT_MAX_PENDING = 10_000;
 const SCHEMA_VERSION = 1;
-
-const eventKey = (row: Pick<MarketEventRow, "symbol" | "kind" | "seq">): string =>
-  `${row.symbol}\0${row.kind}\0${row.seq}`;
 
 // Number(null) is 0, so a missing query param must be rejected before coercion.
 const milliseconds = (value: string | null): number | undefined => {
@@ -80,6 +79,10 @@ const defaultSchedule = (run: () => void, delayMs: number): (() => void) => {
   return () => clearInterval(timer);
 };
 
+// A per-process counter repeats after restart and the unique (symbol, kind, seq) key drops the new gap.
+export const syntheticGapSeq = (nowMs: number, counter: number): number =>
+  -(nowMs * 1000 + (counter % 1000));
+
 export const isBinanceSymbol = (value: string): value is BinanceSymbol =>
   SYMBOL_CATALOG.some((row) => row.provider === "binance" && row.ticker === value);
 
@@ -101,6 +104,30 @@ export const parseEventQuery = (
   return { symbol, from: start, to: end };
 };
 
+export type InteractionSide = "all" | "bid" | "ask";
+
+export interface InteractionQuery extends EventQuery {
+  readonly side: InteractionSide;
+}
+
+const interactionSide = (value: string | null): InteractionSide | undefined => {
+  if (value === null || value.trim() === "" || value === "all") return "all";
+  if (value === "bid" || value === "ask") return value;
+  return undefined;
+};
+
+export const parseInteractionQuery = (
+  symbol: string | null,
+  from: string | null,
+  to: string | null,
+  side: string | null,
+): InteractionQuery | undefined => {
+  const range = parseEventQuery(symbol, from, to);
+  const picked = interactionSide(side);
+  if (range === undefined || picked === undefined) return undefined;
+  return { ...range, side: picked };
+};
+
 export const parseSnapshotQuery = (
   symbol: string | null,
   at: string | null,
@@ -117,10 +144,15 @@ export class MarketRecorder {
   private readonly transitions: WallTransitionRow[] = [];
   private readonly maxBatch: number;
   private readonly maxPending: number;
+  private readonly onDrop: MarketRecorderOptions["onDrop"];
+  private readonly onWriteError: MarketRecorderOptions["onWriteError"];
   private cancelTimer: (() => void) | undefined;
   private tail: Promise<void> = Promise.resolve();
   private failure: unknown;
   private dropped = 0;
+  private written = 0;
+  // Flushes already queued behind a failed batch must not retry it immediately.
+  private skipQueued = false;
 
   public constructor(
     private readonly store: MarketStore,
@@ -128,6 +160,8 @@ export class MarketRecorder {
   ) {
     this.maxBatch = options.maxBatch;
     this.maxPending = options.maxPending ?? DEFAULT_MAX_PENDING;
+    this.onDrop = options.onDrop;
+    this.onWriteError = options.onWriteError;
     const schedule = options.schedule ?? defaultSchedule;
     this.cancelTimer = schedule(() => { void this.flush(); }, options.batchIntervalMs);
   }
@@ -136,14 +170,16 @@ export class MarketRecorder {
     return this.dropped;
   }
 
+  public get writtenCount(): number {
+    return this.written;
+  }
+
   public get lastError(): unknown {
     return this.failure;
   }
 
   public recordEvent(input: EventInput): void {
-    const row = normalizeEvent(input);
-    if (this.events.some((existing) => eventKey(existing) === eventKey(row))) return;
-    this.events.push(row);
+    this.events.push(normalizeEvent(input));
     this.afterRecord();
   }
 
@@ -157,13 +193,14 @@ export class MarketRecorder {
     this.afterRecord();
   }
 
-  public flush(): Promise<void> {
+  public flush(): Promise<number> {
+    this.skipQueued = false;
     const run = this.tail.then(() => this.writeAll());
     this.tail = run.then(() => undefined, () => undefined);
     return run;
   }
 
-  public stop(): Promise<void> {
+  public stop(): Promise<number> {
     this.cancelTimer?.();
     this.cancelTimer = undefined;
     return this.flush();
@@ -179,10 +216,14 @@ export class MarketRecorder {
   }
 
   private trim(): void {
+    let droppedNow = 0;
     while (this.pending() > this.maxPending) {
       this.dropOldest();
-      this.dropped += 1;
+      droppedNow += 1;
     }
+    if (droppedNow === 0) return;
+    this.dropped += droppedNow;
+    this.onDrop?.(this.dropped, this.pending());
   }
 
   private dropOldest(): void {
@@ -197,22 +238,40 @@ export class MarketRecorder {
     this.transitions.shift();
   }
 
-  private async writeAll(): Promise<void> {
-    const eventError = await this.writeRows(this.events, (rows) => this.store.insertEvents(rows));
-    const snapshotError = await this.writeRows(this.snapshots, (rows) => this.store.insertSnapshots(rows));
-    const transitionError = await this.writeRows(this.transitions, (rows) => this.store.insertTransitions(rows));
-    this.failure = eventError ?? snapshotError ?? transitionError;
+  private async writeAll(): Promise<number> {
+    if (this.skipQueued) return this.pending();
+    const error = await this.firstError();
+    this.failure = error;
+    this.skipQueued = error !== undefined;
+    return this.pending();
   }
 
-  private async writeRows<T>(queue: T[], insert: (rows: readonly T[]) => Promise<void>): Promise<unknown> {
+  private async firstError(): Promise<unknown> {
+    const eventError = await this.drain(this.events, (rows) => this.store.insertEvents(rows));
+    if (eventError !== undefined) return eventError;
+    const snapshotError = await this.drain(this.snapshots, (rows) => this.store.insertSnapshots(rows));
+    if (snapshotError !== undefined) return snapshotError;
+    return this.drain(this.transitions, (rows) => this.store.insertTransitions(rows));
+  }
+
+  private async drain<T>(queue: T[], insert: (rows: readonly T[]) => Promise<void>): Promise<unknown> {
+    while (queue.length > 0) {
+      const error = await this.sendBatch(queue, insert);
+      if (error !== undefined) return error;
+    }
+    return undefined;
+  }
+
+  private async sendBatch<T>(queue: T[], insert: (rows: readonly T[]) => Promise<void>): Promise<unknown> {
     const rows = queue.splice(0, this.maxBatch);
-    if (rows.length === 0) return undefined;
     try {
       await insert(rows);
+      this.written += rows.length;
       return undefined;
     } catch (error) {
       queue.unshift(...rows);
       this.trim();
+      this.onWriteError?.(error, this.pending(), this.dropped);
       return error;
     }
   }

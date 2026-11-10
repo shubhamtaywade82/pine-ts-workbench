@@ -17,6 +17,7 @@ import { ReplayControls } from "@/components/chart/replay-controls";
 import { buildSinks, dispatchScriptAlerts, formatScriptAlertMessage, loadAlertSettings } from "@/lib/alert-sinks";
 import { loadSettings as loadBinanceSettings } from "@/components/trading/settings-dialog";
 import { toast } from "@/hooks/use-toast";
+import { DepthDiagnostics } from "@/components/chart/depth-diagnostics";
 import {
   computeOverlays,
   runMounted,
@@ -192,6 +193,7 @@ export function ChartCell({
         {!replay.isReplay ? (
           <>
             <LiveBadge status={status} health={health} interval={interval} symbol={symbol.displayName} />
+            <DepthDiagnostics symbol={isDhan ? undefined : symbol.binanceSymbol} tradeAgeMs={health.lastTickAgeMs} />
             <Button
               variant="ghost"
               size="sm"
@@ -222,6 +224,7 @@ export function ChartCell({
           </div>
         ) : (
           <ChartWorkbench
+            cellId={cellId}
             title={`${symbol.displayName} · ${interval} · ${feedName}${replay.isReplay ? " (Replay)" : ""}`}
             interval={interval}
             bars={visibleBars}

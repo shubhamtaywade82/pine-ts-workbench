@@ -36,6 +36,11 @@ owner wave and lands as its own commit + PR.
 | 6 | Layouts, workspace persistence, 16-chart grid | ✅ | saved layouts |
 | 6 | Symbol search (fuzzy, recent, favorites) | ✅ | subsequence ranking + stars + recents |
 | 6 | Watchlists (reorder, columns: last/chg%/vol) | ✅ | ticker stream + drag-reorder |
+| 7.1 | Order book walls & DOM ladder | ✅ | resting liquidity bubbles + dynamic DOM ladder |
+| 7.2 | Liquidity heatmap & big levels panel | ✅ | visual depth history + resting wall tracking |
+| 7.3 | Footprint chart & trade flow | ✅ | bid/ask volume distribution per price level |
+| 7.4 | Microstructure collector & outcome stats | 🟡 | background SQLite collector + outcome donut (needs live verification) |
+| 7.5 | Depth diagnostics & health popover | ✅ | feed latency, tick age, gaps, coverage |
 | 8 | Provider health badge, data-quality warnings | ✅ | tick age + stale detect + gap count |
 | 10 | Examples gallery, in-app docs, hotkey sheet | ✅ | Docs dialog (4 tabs) |
 | 10 | Empty states that teach | 🟡 | tester has one |
@@ -46,7 +51,7 @@ owner wave and lands as its own commit + PR.
 
 - Second intervals ✅ (1s shipped) · tick intervals ❌
 - Bar replay 🟡 (hook + controls; strategy-fill replay ❌)
-- Volume Profile / Footprint / TPO ❌ · compare/symbol overlay ❌
+- Volume Profile ❌ / Footprint ✅ / TPO ❌ · compare/symbol overlay ❌
 - Screener ❌ · A/B backtests ❌ · parameter sweep ❌
 - Server-side alerts ❌ · alert markers on chart ❌
 - Share links ❌ · mobile read-only 🟡 · OMS reconciliation ❌

@@ -111,7 +111,7 @@ Goal: match the reference screenshots (an index-futures order-flow tool) on Bina
     | `UNRESOLVED` | Data gap, or the window is still open |
     | `CONSUMED` | Trades at the level during the touch window sum to ≥ X% of the removed quantity; otherwise the outcome stays `BROKE` or `REMOVED` |
 
-  - Each touch episode of a wall counts as one interaction. A re-touch counts only after price has left the zone by `proximityPct × 2`.
+  - One interaction per wall life (its first touch, or pulled before touch). Re-touches are not counted as new observations (spec §13.4); this keeps repeated collector scans idempotent.
 - The collector classifies and stores interactions as they resolve. Each row keeps its `classifierVersion`; old rows are never rewritten.
 - New `src/components/chart/outcome-panel.tsx`: counts, %, **Wilson 95% CI**, n, date range, and filters (side, size bucket, distance). Unresolved outcomes are excluded from denominators.
   - Headline: a "Big levels: did price turn or break?" donut showing turned vs broke %, with counts and "since <date> · N sessions" (as in the reference screenshot). The CI and n are always shown beside it.

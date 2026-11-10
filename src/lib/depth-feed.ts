@@ -1,9 +1,10 @@
 import type { BinanceSymbol } from "./public-binance-feed";
-import { WallTracker, type WallFrame, type WallOptions, type BookView } from "./depth-walls";
+import { BINANCE_DATA_WS_URL } from "./binance-endpoints";
+import type { BookView } from "./depth-walls";
 import { LocalOrderBook, type DepthSnapshot, type DepthUpdate } from "./order-book";
 
 
-const DEPTH_STREAM_URL = "wss://data-stream.binance.vision/stream";
+const DEPTH_STREAM_URL = `${BINANCE_DATA_WS_URL}/stream`;
 
 export type DepthStatus = "syncing" | "live" | "stale" | "disconnected";
 
@@ -13,25 +14,27 @@ export interface DepthFeedState {
   readonly error?: string;
   readonly resyncCount: number;
   readonly gapCount: number;
+  readonly malformedCount: number;
+  readonly snapshotFailureCount: number;
   readonly lastMessageAt?: number;
   /** Present while the book is synced. The collector stores this on each snapshot. */
   readonly updateId?: number;
 }
 
-export interface DepthWallsUpdate {
-  readonly status: DepthStatus;
-  readonly frame: WallFrame | undefined;
-  readonly observedUntil: number;
-  readonly quoteAsset: string;
-  readonly error?: string;
-}
+export { WallObserver } from "./depth-wall-observer";
+export type { DepthWallsUpdate } from "./depth-wall-observer";
 
 export interface DepthFeedDeps {
   readonly now: () => number;
   readonly schedule: (run: () => void, delayMs: number) => () => void;
   readonly openSocket: (
     url: string,
-    handlers: { readonly onOpen: () => void; readonly onMessage: (event: DepthUpdate) => void; readonly onClose: () => void },
+    handlers: {
+      readonly onOpen: () => void;
+      readonly onMessage: (event: DepthUpdate) => void;
+      readonly onMalformed: () => void;
+      readonly onClose: () => void;
+    },
   ) => () => void;
   readonly fetchSnapshot: (symbol: BinanceSymbol, limit: number) => Promise<DepthSnapshot>;
   readonly onApplied?: (event: DepthUpdate) => void;
@@ -46,6 +49,7 @@ const MAX_RETRY_MS = 30_000;
 const RECONNECT_DELAY_MS = 3_000;
 // depth@100ms is silent only when the book does not change; this long means the feed is not current.
 const STALE_AFTER_MS = 10_000;
+const DEAD_SOCKET_AFTER_MS = 3 * STALE_AFTER_MS;
 // A snapshot costs 250 request weight, so the book is re-centred at most this often.
 const COVERAGE_REFRESH_MS = 60_000;
 
@@ -56,70 +60,28 @@ const coverageHeadroomPct = (book: BookView): number => {
   return Math.min((mid - bidFloor) / mid, (askCeiling - mid) / mid) * 100;
 };
 
-export class WallObserver {
-  private readonly tracker: WallTracker;
-  private lastState: DepthFeedState | undefined;
-  private frame: WallFrame | undefined;
-  private observing = false;
-  private observedUntil = 0;
-
-  public constructor(
-    options: WallOptions,
-    private readonly quoteAsset: string,
-    private readonly now: () => number,
-    private readonly emit: (update: DepthWallsUpdate) => void,
-  ) {
-    this.tracker = new WallTracker(options);
-  }
-
-  public receive(state: DepthFeedState): void {
-    this.lastState = state;
-    this.apply(state);
-    this.publish(state);
-  }
-
-  public setOptions(options: WallOptions): void {
-    this.tracker.setOptions(options);
-    if (this.lastState !== undefined) this.receive(this.lastState);
-  }
-
-  private apply(state: DepthFeedState): void {
-    if (state.status === "live" && state.book !== undefined) {
-      const now = this.now();
-      this.frame = this.tracker.update(state.book, now);
-      this.observedUntil = now;
-      this.observing = true;
-      return;
-    }
-    if (this.observing) {
-      this.tracker.reset();
-      this.observing = false;
-    }
-  }
-
-  private publish(state: DepthFeedState): void {
-    this.emit({
-      status: state.status,
-      frame: this.frame,
-      observedUntil: this.observedUntil,
-      quoteAsset: this.quoteAsset,
-      ...(state.error === undefined ? {} : { error: state.error }),
-    });
-  }
-}
-
 export class DepthFeed {
   private readonly listeners = new Set<(state: DepthFeedState) => void>();
   private readonly windows = new Map<object, number>();
   private readonly book = new LocalOrderBook();
-  private state: DepthFeedState = { status: "syncing", book: undefined, resyncCount: 0, gapCount: 0 };
+  private state: DepthFeedState = {
+    status: "syncing",
+    book: undefined,
+    resyncCount: 0,
+    gapCount: 0,
+    malformedCount: 0,
+    snapshotFailureCount: 0,
+  };
   private resyncCount = 0;
   private gapCount = 0;
+  private malformedCount = 0;
+  private snapshotFailureCount = 0;
   private lastMessageAt: number | undefined;
   private hasSynced = false;
   private closeSocket: (() => void) | undefined;
   private cancelRetry: (() => void) | undefined;
   private cancelWatchdog: (() => void) | undefined;
+  private cancelDeadSocket: (() => void) | undefined;
   private cancelReconnect: (() => void) | undefined;
   private snapshotInFlight = false;
   private retryMs = FIRST_RETRY_MS;
@@ -137,6 +99,11 @@ export class DepthFeed {
 
   public get isStopped(): boolean {
     return this.stopped;
+  }
+
+  /** Counts a frame the socket wiring rejected as malformed; the next emit carries the total. */
+  public noteMalformed(): void {
+    this.malformedCount += 1;
   }
 
   public subscribe(listener: (state: DepthFeedState) => void): () => void {
@@ -164,6 +131,7 @@ export class DepthFeed {
     this.closeSocket?.();
     this.cancelRetry?.();
     this.cancelWatchdog?.();
+    this.cancelDeadSocket?.();
     this.cancelReconnect?.();
   }
   private connect(): void {
@@ -179,6 +147,7 @@ export class DepthFeed {
         // Events buffer from here, so a snapshot taken now can be continued by them.
         onOpen: () => { if (generation === this.generation) this.fetchSnapshot(); },
         onMessage: (event) => { if (generation === this.generation) this.onEvent(event); },
+        onMalformed: () => { if (generation === this.generation) this.noteMalformed(); },
         onClose: () => { if (generation === this.generation) this.onSocketClosed(); },
       },
     );
@@ -246,6 +215,7 @@ export class DepthFeed {
     this.emit("live");
   }
   private onSnapshotError(generation: number, error: unknown): void {
+    this.snapshotFailureCount += 1;
     if (generation !== this.generation) return;
     this.snapshotInFlight = false;
     const message = error instanceof Error ? error.message : String(error);
@@ -264,6 +234,7 @@ export class DepthFeed {
   private onSocketClosed(): void {
     this.closeSocket = undefined;
     this.cancelWatchdog?.();
+    this.cancelDeadSocket?.();
     this.generation += 1;
     this.cancelRetry?.();
     this.cancelRetry = undefined;
@@ -278,10 +249,35 @@ export class DepthFeed {
   }
   private armWatchdog(): void {
     this.cancelWatchdog?.();
+    this.cancelDeadSocket?.();
+    this.cancelDeadSocket = undefined;
     this.cancelWatchdog = this.deps.schedule(() => {
       this.cancelWatchdog = undefined;
-      if (this.state.status === "live") this.emit("stale");
+      if (this.state.status === "live") {
+        this.emit("stale");
+        this.armDeadSocketWatchdog();
+      }
     }, STALE_AFTER_MS);
+  }
+  private armDeadSocketWatchdog(): void {
+    this.cancelDeadSocket?.();
+    this.cancelDeadSocket = this.deps.schedule(() => {
+      this.cancelDeadSocket = undefined;
+      if (this.state.status === "stale") this.forceReconnect();
+    }, DEAD_SOCKET_AFTER_MS);
+  }
+  private forceReconnect(): void {
+    if (this.stopped) return;
+    // Advance generation first so closing the dead socket cannot trigger onSocketClosed.
+    this.generation += 1;
+    const close = this.closeSocket;
+    this.closeSocket = undefined;
+    this.cancelWatchdog?.();
+    this.cancelDeadSocket?.();
+    this.cancelReconnect?.();
+    close?.();
+    this.emit("syncing");
+    this.connect();
   }
   private emit(status: DepthStatus, error?: string): void {
     this.state = {
@@ -289,6 +285,8 @@ export class DepthFeed {
       book: this.book.isSynced ? this.book : undefined,
       resyncCount: this.resyncCount,
       gapCount: this.gapCount,
+      malformedCount: this.malformedCount,
+      snapshotFailureCount: this.snapshotFailureCount,
       ...(this.lastMessageAt === undefined ? {} : { lastMessageAt: this.lastMessageAt }),
       ...(error === undefined ? {} : { error }),
       ...(this.book.isSynced ? { updateId: this.book.updateId } : {}),

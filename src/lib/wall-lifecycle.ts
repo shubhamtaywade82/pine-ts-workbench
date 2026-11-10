@@ -84,6 +84,11 @@ const leftEvent = (wall: LifecycleWall, context: LifecycleContext): WallEvent =>
   return wallEvent(kind, wall, context.at);
 };
 
+export const wallIdentityWidth = (mid: number, tickSize?: number): number => {
+  if (tickSize !== undefined && tickSize > 0) return tickSize;
+  return mid * 0.0001;
+};
+
 export const diffWalls = (
   previous: readonly LifecycleWall[],
   current: readonly LifecycleWall[],
