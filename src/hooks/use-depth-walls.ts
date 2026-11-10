@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, type RefObject } from "react";
 import type { IPriceLine, ISeriesApi, SeriesType } from "lightweight-charts";
 import type { BinanceSymbol } from "@/lib/public-binance-feed";
-import { subscribeDepthWalls, type DepthWallsUpdate, type WallsSubscription } from "@/lib/depth-feed";
+import { subscribeDepthWalls, type WallsSubscription } from "@/lib/depth-feed-browser";
+import type { DepthWallsUpdate } from "@/lib/depth-feed";
 import { wallOptionsFor } from "@/lib/depth-walls";
 import { DepthWallsPrimitive } from "@/components/chart/depth-walls-primitive";
 import type { ChartSettings } from "@/lib/chart-settings";
@@ -21,8 +22,11 @@ export function useDepthWalls(
   const bidLineRef = useRef<IPriceLine | null>(null);
   const askLineRef = useRef<IPriceLine | null>(null);
 
-  const { showOrderBookWalls, showBidAskLines, wallWindowPct, minWallNotional } = tradingSettings;
-  const wallOptions = useMemo(() => wallOptionsFor(wallWindowPct, minWallNotional), [wallWindowPct, minWallNotional]);
+  const { showOrderBookWalls, showBidAskLines, wallWindowPct, minWallNotional, wallTopN } = tradingSettings;
+  const wallOptions = useMemo(
+    () => wallOptionsFor(wallWindowPct, minWallNotional, wallTopN),
+    [wallWindowPct, minWallNotional, wallTopN],
+  );
   const wallOptionsRef = useRef(wallOptions);
 
   const clearLines = (target?: ISeriesApi<SeriesType> | null) => {

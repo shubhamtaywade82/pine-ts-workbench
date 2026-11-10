@@ -1,8 +1,10 @@
-import { describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it, test } from "bun:test";
 import {
   findSymbol,
   fuzzyScore,
   fuzzySearchSymbols,
+  loadTickSize,
+  parseInstrumentFilters,
   searchSymbols,
   SYMBOL_CATALOG,
 } from "./symbol-catalog";
@@ -77,5 +79,72 @@ describe("fuzzy symbol search", () => {
   it("scores prefixes higher than mid-string matches", () => {
     expect(fuzzyScore("btc", "BTCUSDT")).toBeGreaterThan(fuzzyScore("tcs", "NSE:TCS") - 1000);
     expect(fuzzyScore("zzz", "BTCUSDT")).toBe(-1);
+  });
+});
+
+describe("parseInstrumentFilters", () => {
+  const exchangeInfo = {
+    symbols: [
+      {
+        symbol: "BTCUSDT",
+        filters: [
+          { filterType: "PRICE_FILTER", tickSize: "0.01000000" },
+          { filterType: "LOT_SIZE", stepSize: "0.00001000" },
+          { filterType: "NOTIONAL", minNotional: "5" },
+        ],
+      },
+    ],
+  };
+
+  test("reads PRICE_FILTER.tickSize and LOT_SIZE.stepSize for the symbol", () => {
+    expect(parseInstrumentFilters(exchangeInfo, "BTCUSDT")).toEqual({ tickSize: 0.01, stepSize: 0.00001 });
+  });
+
+  test("returns undefined when the symbol or a size filter is missing or not a positive finite number", () => {
+    expect(parseInstrumentFilters(exchangeInfo, "ETHUSDT")).toBeUndefined();
+    expect(parseInstrumentFilters({ symbols: [{ symbol: "BTCUSDT", filters: [] }] }, "BTCUSDT")).toBeUndefined();
+    expect(parseInstrumentFilters({
+      symbols: [{ symbol: "BTCUSDT", filters: [{ filterType: "PRICE_FILTER", tickSize: "Infinity" }, { filterType: "LOT_SIZE", stepSize: "0.01" }] }],
+    }, "BTCUSDT")).toBeUndefined();
+  });
+});
+
+describe("loadTickSize", () => {
+  const original = globalThis.fetch;
+  afterEach(() => { globalThis.fetch = original; });
+
+  const payload = (symbol: string, tickSize: string) => Response.json({
+    symbols: [{
+      symbol,
+      filters: [
+        { filterType: "PRICE_FILTER", tickSize },
+        { filterType: "LOT_SIZE", stepSize: "0.001" },
+      ],
+    }],
+  });
+
+  test("retries a failed lookup, then caches the tick", async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls += 1;
+      if (calls === 1) return new Response("", { status: 503 });
+      return payload("BNBUSDT", "0.10000000");
+    }) as typeof fetch;
+    expect(await loadTickSize("BNBUSDT")).toBeUndefined();
+    expect(await loadTickSize("BNBUSDT")).toBe(0.1);
+    expect(await loadTickSize("BNBUSDT")).toBe(0.1);
+    expect(calls).toBe(2);
+  });
+
+  test("retries when the response has no tick size", async () => {
+    let calls = 0;
+    globalThis.fetch = (async () => {
+      calls += 1;
+      if (calls === 1) return Response.json({ symbols: [] });
+      return payload("ETHUSDT", "0.01000000");
+    }) as typeof fetch;
+    expect(await loadTickSize("ETHUSDT")).toBeUndefined();
+    expect(await loadTickSize("ETHUSDT")).toBe(0.01);
+    expect(calls).toBe(2);
   });
 });

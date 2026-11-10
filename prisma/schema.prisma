@@ -51,3 +51,44 @@ model SavedLayout {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+// Millisecond clocks do not fit Prisma's signed 32-bit Int. Binance update and trade ids do not either.
+model MarketEvent {
+  id            Int     @id @default(autoincrement())
+  symbol        String
+  kind          String
+  seq           BigInt
+  exchangeTime  Float?
+  receivedAt    Float
+  payload       String
+  schemaVersion Int     @default(1)
+
+  @@unique([symbol, kind, seq])
+  @@index([symbol, receivedAt])
+}
+
+model BookSnapshot {
+  id           Int    @id @default(autoincrement())
+  symbol       String
+  capturedAt   Float
+  lastUpdateId BigInt
+  bids         String
+  asks         String
+  coverage     String
+
+  @@index([symbol, capturedAt])
+}
+
+model WallTransition {
+  id              Int    @id @default(autoincrement())
+  wallId          String
+  symbol          String
+  side            String
+  price           Float
+  kind            String
+  notional        Float
+  at              Float
+  detectorVersion String
+
+  @@index([symbol, at])
+}

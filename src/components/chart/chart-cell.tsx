@@ -233,6 +233,7 @@ export function ChartCell({
             tradeMarkers={tradeMarkers}
             drawings={drawings}
             depthSymbol={replay.isReplay || isDhan ? undefined : symbol.binanceSymbol}
+            subscribeTrades={replay.isReplay || isDhan ? undefined : binanceFeed.subscribeTrades}
             timeZone={isDhan ? "Asia/Kolkata" : undefined}
             settings={chartSettings}
             onSettingsChange={onChartSettingsChange}

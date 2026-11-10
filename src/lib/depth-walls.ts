@@ -15,6 +15,7 @@ export const DEFAULT_WALL_WINDOW_PCT = 0.5;
 /** Bounds of the configurable window. A window wider than the snapshot covers is clipped, not rejected. */
 export const WALL_WINDOW_LIMITS_PCT = { min: 0.05, max: 5 } as const;
 export const DEFAULT_MIN_WALL_NOTIONAL = 0;
+export const DEFAULT_TOP_WALLS = 5;
 const SWITCH_MARGIN_PCT = 15;
 // Float tolerance when comparing the searched window with the configured one.
 const WINDOW_EPSILON_PCT = 1e-9;
@@ -30,8 +31,8 @@ export interface BookView {
 
 export type LiquidityStatus =
   | "holding"
-  | "absorbing"
-  | "absorbed"
+  | "reduced"
+  | "removed"
   | "stacking"
   | "tested"
   | "pulled";
@@ -50,7 +51,7 @@ export interface Wall {
   readonly initialNotional?: number;
   /** Real-time liquidity behavior status. */
   readonly status?: LiquidityStatus;
-  /** Percentage change from peak (when absorbing) or initial (when stacking). */
+  /** Percentage change from peak (when reduced) or initial (when stacking). */
   readonly changePct?: number;
 }
 
@@ -61,12 +62,15 @@ export interface WallOptions {
   readonly minNotional: number;
   /** A challenger must exceed the current wall's notional by this % to replace it. */
   readonly switchMarginPct: number;
+  /** How many levels `bids` / `asks` keep. `bid` / `ask` stay the single hysteresis wall. */
+  readonly topN: number;
 }
 
-export const wallOptionsFor = (windowPct: number, minNotional: number): WallOptions => ({
+export const wallOptionsFor = (windowPct: number, minNotional: number, topN = DEFAULT_TOP_WALLS): WallOptions => ({
   windowPct,
   minNotional,
   switchMarginPct: SWITCH_MARGIN_PCT,
+  topN,
 });
 
 export const DEFAULT_WALL_OPTIONS = wallOptionsFor(DEFAULT_WALL_WINDOW_PCT, DEFAULT_MIN_WALL_NOTIONAL);
@@ -77,6 +81,9 @@ export interface WallFrame {
   readonly bestAsk?: number;
   readonly bid: Wall | undefined;
   readonly ask: Wall | undefined;
+  /** Largest notionals inside the window. Independent of the hysteresis pick in `bid` / `ask`. */
+  readonly bids: readonly Wall[];
+  readonly asks: readonly Wall[];
   /** The window actually searched: the configured one, narrowed to verified snapshot coverage. */
   readonly searchedPct: number;
   /** Coverage is narrower than the configured window, so some levels were not searched. */
@@ -96,6 +103,7 @@ interface CurrentWalls {
 
 export class WallTracker {
   private current: CurrentWalls = {};
+  private ranked: { bid: Map<number, Wall>; ask: Map<number, Wall> } = { bid: new Map(), ask: new Map() };
 
   public constructor(private options: WallOptions) {}
 
@@ -116,16 +124,16 @@ export class WallTracker {
     const bidLow = Math.max(mid * (1 - distance), coverage.bidFloor);
     const askHigh = Math.min(mid * (1 + distance), coverage.askCeiling);
 
-    const bid = this.next("bid", levelsWithin(book.levels("bid"), bidLow, Number.POSITIVE_INFINITY), now, mid);
-    const ask = this.next("ask", levelsWithin(book.levels("ask"), 0, askHigh), now, mid);
+    const bidLevels = levelsWithin(book.levels("bid"), bidLow, Number.POSITIVE_INFINITY);
+    const askLevels = levelsWithin(book.levels("ask"), 0, askHigh);
+    const bid = this.next("bid", bidLevels, now, mid);
+    const ask = this.next("ask", askLevels, now, mid);
     this.current = { bid, ask };
     const searchedPct = Math.max(0, Math.min((mid - bidLow) / mid, (askHigh - mid) / mid)) * 100;
     return {
-      mid,
-      bestBid,
-      bestAsk,
-      bid,
-      ask,
+      mid, bestBid, bestAsk, bid, ask,
+      bids: this.listed("bid", bidLevels, now, mid),
+      asks: this.listed("ask", askLevels, now, mid),
       searchedPct,
       clippedByCoverage: searchedPct < this.options.windowPct - WINDOW_EPSILON_PCT,
     };
@@ -134,6 +142,7 @@ export class WallTracker {
   /** Forgets the walls. The next observation of any level starts a new `observedSince`. */
   public reset(): void {
     this.current = {};
+    this.ranked = { bid: new Map(), ask: new Map() };
   }
 
   /** Hysteresis: keep the incumbent unless it is gone or clearly beaten, so near-equal levels don't flicker. */
@@ -155,15 +164,21 @@ export class WallTracker {
     if (sameLevel && incumbent !== undefined) {
       return this.evolveWall(side, strongest, incumbent, mid);
     }
-    return {
-      side,
-      ...strongest,
-      observedSince: now,
-      peakNotional: strongest.notional,
-      initialNotional: strongest.notional,
-      status: "holding",
-      changePct: 0,
-    };
+    return freshWall(side, strongest, now);
+  }
+
+  private listed(side: BookSide, levels: readonly Level[], now: number, mid: number): Wall[] {
+    const eligible = levels.filter((level) => level.notional >= this.options.minNotional);
+    const prior = this.ranked[side];
+    const walls = topWalls(eligible, this.options.topN, mid).map((level) =>
+      this.wallAt(side, level, prior.get(level.price), { now, mid }));
+    this.ranked[side] = new Map(walls.map((wall) => [wall.price, wall]));
+    return walls;
+  }
+
+  private wallAt(side: BookSide, level: Level, prior: Wall | undefined, clock: { now: number; mid: number }): Wall {
+    if (prior === undefined) return freshWall(side, level, clock.now);
+    return this.evolveWall(side, level, prior, clock.mid);
   }
 
   private evolveWall(side: BookSide, level: Level, incumbent: Wall, mid: number): Wall {
@@ -183,7 +198,7 @@ export class WallTracker {
   }
 }
 
-/** Classifies liquidity dynamics: absorbing (orders filled), stacking (orders added), tested, or holding. */
+/** Classifies resting-size change. A drop is reduced or removed, never a proven fill. */
 export const deriveLiquidityStatus = (
   currentNotional: number,
   peakNotional: number,
@@ -191,10 +206,10 @@ export const deriveLiquidityStatus = (
   isNearMid: boolean,
 ): { status: LiquidityStatus; changePct: number } => {
   if (peakNotional > 0 && currentNotional <= peakNotional * 0.25) {
-    return { status: "absorbed", changePct: ((currentNotional - peakNotional) / peakNotional) * 100 };
+    return { status: "removed", changePct: ((currentNotional - peakNotional) / peakNotional) * 100 };
   }
   if (peakNotional > 0 && currentNotional <= peakNotional * 0.85) {
-    return { status: "absorbing", changePct: ((currentNotional - peakNotional) / peakNotional) * 100 };
+    return { status: "reduced", changePct: ((currentNotional - peakNotional) / peakNotional) * 100 };
   }
   if (initialNotional > 0 && currentNotional >= initialNotional * 1.15) {
     return { status: "stacking", changePct: ((currentNotional - initialNotional) / initialNotional) * 100 };
@@ -202,6 +217,29 @@ export const deriveLiquidityStatus = (
   if (isNearMid) return { status: "tested", changePct: 0 };
   return { status: "holding", changePct: 0 };
 };
+
+const freshWall = (side: BookSide, level: Level, now: number): Wall => ({
+  side,
+  ...level,
+  observedSince: now,
+  peakNotional: level.notional,
+  initialNotional: level.notional,
+  status: "holding",
+  changePct: 0,
+});
+
+const byNotional = (mid: number) => (a: { price: number; notional: number }, b: { price: number; notional: number }): number => {
+  if (a.notional !== b.notional) return b.notional - a.notional;
+  const byDistance = Math.abs(a.price - mid) - Math.abs(b.price - mid);
+  return byDistance !== 0 ? byDistance : a.price - b.price;
+};
+
+/** `mid` is the book mid: a level does not know which price the tie should prefer. */
+export const topWalls = <T extends { price: number; notional: number }>(
+  levels: readonly T[],
+  count: number,
+  mid: number,
+): T[] => (count > 0 ? [...levels].sort(byNotional(mid)).slice(0, count) : []);
 
 const levelsWithin = (levels: Iterable<readonly [number, number]>, low: number, high: number): Level[] => {
   const within: Level[] = [];

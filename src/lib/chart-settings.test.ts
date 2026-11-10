@@ -15,6 +15,10 @@ describe("normalizeChartSettings: defaults and migration", () => {
       depthWallStyle: "shelf",
       wallWindowPct: 0.5,
       minWallNotional: 0,
+      dom: { enabled: false, bucketTicks: 10, visibleBuckets: 40 },
+      heatmap: { enabled: false, opacity: 0.5, minutes: 10 },
+      wallTopN: 5,
+      footprint: { enabled: false, mode: "delta", bucketTicks: 10 },
     });
   });
 
@@ -60,6 +64,48 @@ describe("normalizeChartSettings: validation", () => {
     expect(trading({ minWallNotional: -5 }).minWallNotional).toBe(0);
     expect(trading({ minWallNotional: 250_000 }).minWallNotional).toBe(250_000);
     expect(trading({ minWallNotional: "1000" }).minWallNotional).toBe(0);
+  });
+
+  test("dom ladder defaults are off, with 10-tick buckets and 40 visible rows", () => {
+    expect(DEFAULT_CHART_SETTINGS.trading.dom).toEqual({ enabled: false, bucketTicks: 10, visibleBuckets: 40 });
+    expect(trading({}).dom).toEqual(DEFAULT_CHART_SETTINGS.trading.dom);
+  });
+
+  test("dom integers are clamped and non-integers fall back", () => {
+    expect(trading({ dom: { enabled: true, bucketTicks: 25, visibleBuckets: 80 } }).dom)
+      .toEqual({ enabled: true, bucketTicks: 25, visibleBuckets: 80 });
+    expect(trading({ dom: { bucketTicks: 0, visibleBuckets: 1_000 } }).dom)
+      .toEqual({ enabled: false, bucketTicks: 1, visibleBuckets: 200 });
+    expect(trading({ dom: { bucketTicks: 10.5, visibleBuckets: 40.2, enabled: "yes" } }).dom)
+      .toEqual(DEFAULT_CHART_SETTINGS.trading.dom);
+  });
+
+  test("footprint defaults to off, delta mode, and 10-tick buckets", () => {
+    expect(DEFAULT_CHART_SETTINGS.trading.footprint).toEqual({ enabled: false, mode: "delta", bucketTicks: 10 });
+    expect(trading({}).footprint).toEqual(DEFAULT_CHART_SETTINGS.trading.footprint);
+    expect(trading({ footprint: { enabled: true, mode: "bid-ask", bucketTicks: 25 } }).footprint)
+      .toEqual({ enabled: true, mode: "bid-ask", bucketTicks: 25 });
+    expect(trading({ footprint: { enabled: true, mode: "total", bucketTicks: 10_000 } }).footprint.mode).toBe("total");
+    expect(trading({ footprint: { mode: "diagonal", bucketTicks: 10.5, enabled: "yes" } }).footprint)
+      .toEqual(DEFAULT_CHART_SETTINGS.trading.footprint);
+    expect(trading({ footprint: { bucketTicks: 0 } }).footprint.bucketTicks).toBe(1);
+    expect(trading({ footprint: { bucketTicks: 20_000 } }).footprint.bucketTicks).toBe(10_000);
+  });
+
+  test("heatmap and wallTopN fall back or clamp", () => {
+    expect(DEFAULT_CHART_SETTINGS.trading.heatmap).toEqual({ enabled: false, opacity: 0.5, minutes: 10 });
+    expect(DEFAULT_CHART_SETTINGS.trading.wallTopN).toBe(5);
+    expect(trading({ heatmap: { enabled: true, opacity: 0.2, minutes: 15 }, wallTopN: 8 }).heatmap)
+      .toEqual({ enabled: true, opacity: 0.2, minutes: 15 });
+    expect(trading({ wallTopN: 8 }).wallTopN).toBe(8);
+    expect(trading({ heatmap: { opacity: 2, minutes: 0 }, wallTopN: 50 }).heatmap.opacity).toBe(1);
+    expect(trading({ heatmap: { opacity: 2, minutes: 0 }, wallTopN: 50 }).heatmap.minutes).toBe(1);
+    expect(trading({ heatmap: { opacity: 0.01, minutes: 10.5 } }).heatmap)
+      .toEqual({ enabled: false, opacity: 0.05, minutes: 10 });
+    expect(trading({ heatmap: { opacity: "no", minutes: "x" } }).heatmap)
+      .toEqual(DEFAULT_CHART_SETTINGS.trading.heatmap);
+    expect(trading({ wallTopN: 3.2 }).wallTopN).toBe(5);
+    expect(trading({ wallTopN: 0 }).wallTopN).toBe(1);
   });
 
   test("boolean flags with a wrong type fall back to their defaults", () => {

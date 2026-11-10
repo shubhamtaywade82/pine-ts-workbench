@@ -196,3 +196,60 @@ export function saveWatchlist(tickers: readonly string[]): void {
     window.localStorage.setItem(WATCHLIST_STORAGE_KEY, JSON.stringify(tickers));
   } catch { /* localStorage unavailable */ }
 }
+
+interface SymbolFilter {
+  readonly filterType: string;
+  readonly tickSize?: string;
+  readonly stepSize?: string;
+}
+
+interface ExchangeInfo {
+  readonly symbols?: readonly { readonly symbol: string; readonly filters?: readonly SymbolFilter[] }[];
+}
+
+const positiveSize = (value: string | undefined): number | undefined => {
+  if (value === undefined) return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+};
+
+/** Tick and step from `PRICE_FILTER` and `LOT_SIZE`. Undefined when either size is missing. */
+export const parseInstrumentFilters = (
+  exchangeInfo: ExchangeInfo,
+  symbol: string,
+): { tickSize: number; stepSize: number } | undefined => {
+  const filters = exchangeInfo.symbols?.find((row) => row.symbol === symbol)?.filters;
+  if (filters === undefined) return undefined;
+  const tickSize = positiveSize(filters.find((filter) => filter.filterType === "PRICE_FILTER")?.tickSize);
+  const stepSize = positiveSize(filters.find((filter) => filter.filterType === "LOT_SIZE")?.stepSize);
+  if (tickSize === undefined || stepSize === undefined) return undefined;
+  return { tickSize, stepSize };
+};
+
+const EXCHANGE_INFO_URL = "https://data-api.binance.vision/api/v3/exchangeInfo";
+
+export const fetchInstrumentFilters = async (
+  symbol: string,
+): Promise<{ tickSize: number; stepSize: number } | undefined> => {
+  const res = await fetch(`${EXCHANGE_INFO_URL}?symbol=${symbol}`);
+  if (!res.ok) return undefined;
+  return parseInstrumentFilters((await res.json()) as ExchangeInfo, symbol);
+};
+
+const tickCache = new Map<string, Promise<number | undefined>>();
+
+const settleTick = (symbol: string, tick: number | undefined): number | undefined => {
+  if (tick === undefined) tickCache.delete(symbol);
+  return tick;
+};
+
+/** Cached exchange tick. A miss is dropped so the next call tries the exchange again. */
+export const loadTickSize = (symbol: string): Promise<number | undefined> => {
+  const cached = tickCache.get(symbol);
+  if (cached !== undefined) return cached;
+  const pending = fetchInstrumentFilters(symbol)
+    .then((filters) => settleTick(symbol, filters?.tickSize))
+    .catch(() => settleTick(symbol, undefined));
+  tickCache.set(symbol, pending);
+  return pending;
+};

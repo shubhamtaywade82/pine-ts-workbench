@@ -88,6 +88,7 @@ export function useDhanBars(ticker: string, interval: ChartInterval, enabled: bo
 
   // Older history isn't paged yet: the chart opens with the latest HISTORY_BARS.
   const loadOlder = useCallback(() => undefined, []);
+  const subscribeTrades = useCallback(() => () => undefined, []);
 
   const intervalMs = INTERVAL_MS[interval];
   const lastTickAgeMs = lastTickAt === undefined ? undefined : nowTick - lastTickAt;
@@ -98,5 +99,5 @@ export function useDhanBars(ticker: string, interval: ChartInterval, enabled: bo
     lastBarTime: bars.at(-1)?.time,
   };
 
-  return { bars, status, error, health, loadOlder, subscribe };
+  return { bars, status, error, health, loadOlder, subscribe, subscribeTrades };
 }

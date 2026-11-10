@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { DepthFeed, WallObserver, type DepthFeedDeps, type DepthWallsUpdate } from "./depth-feed";
+import { DepthFeed, WallObserver, type DepthFeedDeps, type DepthFeedState, type DepthWallsUpdate } from "./depth-feed";
+import { bindDepthFeed } from "./depth-feed-browser";
 import { wallOptionsFor } from "./depth-walls";
 import type { DepthSnapshot, DepthUpdate } from "./order-book";
 
@@ -169,7 +170,7 @@ describe("DepthFeed: observation is not continued across a break", () => {
     feed.stop();
   });
 
-  test("a dropped socket is stale, and after reconnecting the walls are observed from the reconnect", async () => {
+  test("a dropped socket is disconnected, and after reconnecting the walls are observed from the reconnect", async () => {
     const h = harness();
     const feed = new DepthFeed("BTCUSDT", h.deps);
     h.observe(feed);
@@ -179,7 +180,7 @@ describe("DepthFeed: observation is not continued across a break", () => {
     await h.advance(2_000);
 
     h.sockets[0]!.onClose();
-    expect(lastUpdate(h)).toMatchObject({ status: "stale", observedUntil: 0 });
+    expect(lastUpdate(h)).toMatchObject({ status: "disconnected", observedUntil: 0 });
     expect(lastUpdate(h).frame?.bid?.price).toBe(99);
 
     await h.advance(8_000);
@@ -229,6 +230,80 @@ describe("DepthFeed: options and coverage", () => {
   });
 });
 
+const statesOf = (feed: DepthFeed): DepthFeedState[] => {
+  const states: DepthFeedState[] = [];
+  feed.subscribe((state) => states.push(state));
+  return states;
+};
+
+describe("DepthFeed: diagnostics", () => {
+  test("a sequence gap increments gapCount and the next snapshot fetch increments resyncCount", async () => {
+    const h = harness();
+    const feed = new DepthFeed("BTCUSDT", h.deps);
+    const states = statesOf(feed);
+    h.sockets[0]!.onOpen();
+    h.snapshotRequests[0]!.resolve(snap(10));
+    await h.settle();
+    expect(states.at(-1)).toMatchObject({ status: "live", resyncCount: 0, gapCount: 0 });
+
+    h.sockets[0]!.onMessage(event(20, 21));
+    expect(states.at(-1)).toMatchObject({ status: "syncing", gapCount: 1, resyncCount: 0 });
+
+    const beforeRetry = states.length;
+    await h.advance(1_000);
+    expect(states).toHaveLength(beforeRetry);
+    h.snapshotRequests[1]!.resolve(snap(20));
+    await h.settle();
+    expect(states.at(-1)).toMatchObject({ status: "live", gapCount: 1, resyncCount: 1 });
+    feed.stop();
+  });
+
+  test("a snapshot that cannot continue the buffer increments gapCount", async () => {
+    const h = harness();
+    const feed = new DepthFeed("BTCUSDT", h.deps);
+    const states = statesOf(feed);
+    h.sockets[0]!.onOpen();
+    h.sockets[0]!.onMessage(event(90, 95));
+    h.sockets[0]!.onMessage(event(103, 104));
+    h.snapshotRequests[0]!.resolve(snap(100));
+    await h.settle();
+    expect(states.at(-1)).toMatchObject({ status: "syncing", gapCount: 1 });
+    feed.stop();
+  });
+
+  test("a snapshot resolving after the socket closes stays disconnected until reconnect", async () => {
+    const h = harness();
+    const feed = new DepthFeed("BTCUSDT", h.deps);
+    const states = statesOf(feed);
+    h.sockets[0]!.onOpen();
+    h.sockets[0]!.onClose();
+    expect(states.at(-1)?.status).toBe("disconnected");
+
+    const afterClose = states.length;
+    h.snapshotRequests[0]!.resolve(snap(10));
+    await h.settle();
+    const later = states.slice(afterClose).map((state) => state.status);
+    expect(later.every((status) => status !== "live" && status !== "syncing")).toBe(true);
+    expect(states.at(-1)?.status).toBe("disconnected");
+    feed.stop();
+  });
+
+  test("lastMessageAt is the injected clock time of each received depth event", async () => {
+    const h = harness();
+    const feed = new DepthFeed("BTCUSDT", h.deps);
+    const states = statesOf(feed);
+    h.sockets[0]!.onOpen();
+    h.snapshotRequests[0]!.resolve(snap(10));
+    await h.settle();
+
+    await h.advance(4_000);
+    h.sockets[0]!.onMessage(event(11, 11));
+    expect(states.at(-1)?.lastMessageAt).toBe(4_000);
+    feed.stop();
+  });
+
+});
+
 describe("DepthFeed: subscribers", () => {
   test("a late subscriber gets the current state, and the feed stops when the last one leaves", async () => {
     const h = harness();
@@ -250,5 +325,114 @@ describe("DepthFeed: subscribers", () => {
     feed.stop();
     expect(h.sockets[0]!.closed).toBe(true);
     expect(feed.isStopped).toBe(true);
+  });
+});
+
+describe("DepthFeed: recorder hooks", () => {
+  test("reports each applied event, and not a buffered or stale one", async () => {
+    const h = harness();
+    const applied: number[] = [];
+    const gaps: Array<number | undefined> = [];
+    const feed = new DepthFeed("BTCUSDT", {
+      ...h.deps,
+      onApplied: (event) => applied.push(event.u),
+      onGap: (event) => gaps.push(event?.u),
+    });
+    const states = statesOf(feed);
+    h.sockets[0]!.onOpen();
+    h.sockets[0]!.onMessage(event(11, 12, [["99", "4"]]));
+    expect(applied).toEqual([]);
+    h.snapshotRequests[0]!.resolve(snap(10));
+    await h.settle();
+    expect(applied).toEqual([]);
+    expect(states.at(-1)?.updateId).toBe(12);
+
+    h.sockets[0]!.onMessage(event(13, 13));
+    h.sockets[0]!.onMessage(event(13, 13));
+    expect(applied).toEqual([13]);
+    h.sockets[0]!.onMessage(event(20, 21));
+    expect(gaps).toEqual([21]);
+    feed.stop();
+  });
+
+  test("a snapshot that cannot continue the buffer reports a gap without an event", async () => {
+    const h = harness();
+    const gaps: Array<number | undefined> = [];
+    const feed = new DepthFeed("BTCUSDT", {
+      ...h.deps,
+      onGap: (event) => gaps.push(event?.u),
+    });
+    feed.subscribe(() => {});
+    h.sockets[0]!.onOpen();
+    h.sockets[0]!.onMessage(event(90, 95));
+    h.sockets[0]!.onMessage(event(103, 104));
+    h.snapshotRequests[0]!.resolve(snap(100));
+    await h.settle();
+    expect(gaps).toEqual([undefined]);
+    feed.stop();
+  });
+});
+
+describe("bindDepthFeed", () => {
+  test("forwards the synced book and stops the feed when it was the last subscriber", async () => {
+    const h = harness();
+    const feed = new DepthFeed("BTCUSDT", h.deps);
+    const states: DepthFeedState[] = [];
+    const subscription = bindDepthFeed(feed, 0.5, (state) => states.push(state));
+    h.sockets[0]!.onOpen();
+    h.snapshotRequests[0]!.resolve(snap(10));
+    await h.settle();
+    expect(states.at(-1)).toMatchObject({ status: "live" });
+    expect(states.at(-1)?.book?.bestBid).toBe(100);
+    expect(states.at(-1)?.book?.bestAsk).toBe(101);
+    subscription.unsubscribe();
+    expect(feed.isStopped).toBe(true);
+  });
+
+  test("registers a coverage window that re-centres the book", async () => {
+    const h = harness();
+    const feed = new DepthFeed("BTCUSDT", h.deps);
+    bindDepthFeed(feed, 0.5, () => {});
+    h.sockets[0]!.onOpen();
+    h.snapshotRequests[0]!.resolve(wideSnapshot(10));
+    await h.settle();
+    const asksBelow = Array.from({ length: 3000 }, (_, i) => [(100.0001 + 0.0002 * i).toFixed(4), "0"] as [string, string]);
+    h.sockets[0]!.onMessage(event(11, 11, [["100.6", "1"]], asksBelow));
+    await h.settle();
+    expect(h.snapshotRequests).toHaveLength(2);
+    feed.stop();
+  });
+
+  test("unsubscribe drops the coverage window", async () => {
+    const h = harness();
+    const feed = new DepthFeed("BTCUSDT", h.deps);
+    feed.subscribe(() => {});
+    bindDepthFeed(feed, 0.5, () => {}).unsubscribe();
+    h.sockets[0]!.onOpen();
+    h.snapshotRequests[0]!.resolve(wideSnapshot(10));
+    await h.settle();
+    const asksBelow = Array.from({ length: 3000 }, (_, i) => [(100.0001 + 0.0002 * i).toFixed(4), "0"] as [string, string]);
+    h.sockets[0]!.onMessage(event(11, 11, [["100.6", "1"]], asksBelow));
+    await h.settle();
+    expect(h.snapshotRequests).toHaveLength(1);
+    feed.stop();
+  });
+
+  test("setWindow registers a coverage window that was omitted at subscribe time", async () => {
+    const h = harness();
+    const feed = new DepthFeed("BTCUSDT", h.deps);
+    const subscription = bindDepthFeed(feed, undefined, () => {});
+    h.sockets[0]!.onOpen();
+    h.snapshotRequests[0]!.resolve(wideSnapshot(10));
+    await h.settle();
+    const asksBelow = Array.from({ length: 3000 }, (_, i) => [(100.0001 + 0.0002 * i).toFixed(4), "0"] as [string, string]);
+    h.sockets[0]!.onMessage(event(11, 11, [["100.6", "1"]], asksBelow));
+    await h.settle();
+    expect(h.snapshotRequests).toHaveLength(1);
+    subscription.setWindow(0.5);
+    h.sockets[0]!.onMessage(event(12, 12, [["100.6", "1"]], asksBelow));
+    await h.settle();
+    expect(h.snapshotRequests).toHaveLength(2);
+    feed.stop();
   });
 });

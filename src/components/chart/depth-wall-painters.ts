@@ -30,7 +30,7 @@ export interface WallPaintContext {
 
 const resolveColor = (side: BookSide, status: DepthStatus, wallStatus?: string): string => {
   if (status !== "live") return STALE_COLOR;
-  if (wallStatus === "absorbing") return AMBER_COLOR;
+  if (wallStatus === "reduced") return AMBER_COLOR;
   if (wallStatus === "stacking") return CYAN_COLOR;
   return side === "bid" ? BID_COLOR : ASK_COLOR;
 };
@@ -76,7 +76,7 @@ export const paintShelf = (p: WallPaintContext): void => {
   drawPill(ctx, pillX, y - 10, pillW, 20, 4);
   ctx.fill();
   ctx.strokeStyle = color;
-  ctx.lineWidth = wall.status === "tested" || wall.status === "absorbing" ? 1.5 : 1;
+  ctx.lineWidth = wall.status === "tested" || wall.status === "reduced" ? 1.5 : 1;
   ctx.stroke();
 
   ctx.fillStyle = color;
@@ -146,8 +146,8 @@ export const paintBracket = (p: WallPaintContext): void => {
   ctx.fillStyle = BG_DARK;
   drawPill(ctx, cardX, y - cardH / 2, cardW, cardH, 4);
   ctx.fill();
-  ctx.strokeStyle = wall.status === "absorbing" ? AMBER_COLOR : color;
-  ctx.lineWidth = wall.status === "absorbing" ? 1.5 : 1;
+  ctx.strokeStyle = wall.status === "reduced" ? AMBER_COLOR : color;
+  ctx.lineWidth = wall.status === "reduced" ? 1.5 : 1;
   ctx.stroke();
 
   // Summary line.
@@ -156,9 +156,9 @@ export const paintBracket = (p: WallPaintContext): void => {
   ctx.textBaseline = "top";
   ctx.fillText(fullLabel, cardX + 8, y - cardH / 2 + 4);
 
-  // Live absorption / fill gauge: visually shrinks as volume is absorbed by trades.
+  // Gauge tracks the resting-size drop. The feed cannot prove the size was filled.
   const changePct = wall.changePct ?? 0;
-  const fillRatio = wall.status === "absorbing"
+  const fillRatio = wall.status === "reduced"
     ? Math.max(0.08, Math.min(1, 1 + changePct / 100))
     : 1;
   const meterW = cardW - 16;
@@ -173,8 +173,8 @@ export const paintBracket = (p: WallPaintContext): void => {
 export const paintBubble = (p: WallPaintContext): void => {
   const { context: ctx, side, wall, x, y, labelY, alpha, radius, paneWidth, fullLabel } = p;
   const color = resolveColor(side, p.status, wall.status);
-  const isAbsorbing = wall.status === "absorbing";
-  const isDashed = p.status !== "live" || isAbsorbing || wall.status === "pulled";
+  const isReduced = wall.status === "reduced";
+  const isDashed = p.status !== "live" || isReduced || wall.status === "pulled";
 
   ctx.save();
   ctx.globalAlpha = alpha;
@@ -183,8 +183,8 @@ export const paintBubble = (p: WallPaintContext): void => {
   ctx.fillStyle = `${color}4d`;
   ctx.fill();
   ctx.setLineDash(isDashed ? [3, 2] : []);
-  ctx.lineWidth = wall.status === "tested" || isAbsorbing ? 2 : 1.5;
-  ctx.strokeStyle = isAbsorbing ? AMBER_COLOR : color;
+  ctx.lineWidth = wall.status === "tested" || isReduced ? 2 : 1.5;
+  ctx.strokeStyle = isReduced ? AMBER_COLOR : color;
   ctx.stroke();
   ctx.setLineDash([]);
 

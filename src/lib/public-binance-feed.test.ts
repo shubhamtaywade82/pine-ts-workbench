@@ -8,6 +8,7 @@ import {
   INTERVAL_MS,
   INTERVAL_LABELS,
   fetchDeepHistoryBars,
+  toLiveTrade,
   type ChartInterval,
 } from "./public-binance-feed";
 
@@ -58,6 +59,24 @@ describe("second-based intervals", () => {
       expect(INTERVAL_LABELS[interval]).toBeTruthy();
       expect(INTERVAL_MS[interval]).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("toLiveTrade", () => {
+  const raw = { e: "trade" as const, p: "100.5", q: "0.2", T: 1_700_000_000_000, t: 42, m: false };
+
+  test("m=false is a buy aggressor and t is the trade id", () => {
+    expect(toLiveTrade(raw)).toEqual({
+      id: 42,
+      price: 100.5,
+      quantity: 0.2,
+      time: 1_700_000_000_000,
+      aggressor: "buy",
+    });
+  });
+
+  test("m=true is a sell aggressor", () => {
+    expect(toLiveTrade({ ...raw, m: true }).aggressor).toBe("sell");
   });
 });
 

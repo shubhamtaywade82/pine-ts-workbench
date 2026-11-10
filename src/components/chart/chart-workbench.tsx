@@ -10,13 +10,17 @@ import {
 import type { Bar } from "@nemesis-oss/pine-ts";
 import { ChartLegend, writeLiveOhlc } from "@/components/chart/chart-legend";
 import { useCandleSeries, type CandleFrame } from "@/hooks/use-candle-series";
-import { INTERVAL_MS, type BinanceSymbol, type ChartInterval } from "@/lib/public-binance-feed";
+import { INTERVAL_MS, type BinanceSymbol, type ChartInterval, type LiveTrade } from "@/lib/public-binance-feed";
 import { LastPricePrimitive } from "@/components/chart/last-price-primitive";
 import { ScriptDrawingsPrimitive, type ChartDrawing } from "@/components/chart/script-drawings-primitive";
 import { PriceScaleMenu } from "@/components/chart/price-scale-menu";
 import { useOverlaySeries } from "@/hooks/use-overlay-series";
 import { useTradeMarkers } from "@/hooks/use-trade-markers";
 import { useDepthWalls } from "@/hooks/use-depth-walls";
+import { useDomLadder } from "@/hooks/use-dom-ladder";
+import { useLiquidityHeatmap } from "@/hooks/use-liquidity-heatmap";
+import { useFootprint } from "@/hooks/use-footprint";
+import { WallMonitorPanel } from "@/components/chart/wall-monitor-panel";
 import { useChartDrawings } from "@/hooks/use-chart-drawings";
 import { DrawingToolbar } from "@/components/chart/drawing-toolbar";
 import { DEFAULT_CHART_SETTINGS, toCandleOptions, toChartOptions, type ChartSettings } from "@/lib/chart-settings";
@@ -75,6 +79,7 @@ export interface ChartWorkbenchProps {
   readonly onNeedOlderBars?: () => void;
   readonly onIndicatorAction?: (ownerId: string, action: IndicatorAction) => void;
   readonly depthSymbol?: BinanceSymbol;
+  readonly subscribeTrades?: (listener: (trade: LiveTrade) => void) => () => void;
   /** IANA zone for the time axis and crosshair label (e.g. "Asia/Kolkata"); defaults to the browser's zone. */
   readonly timeZone?: string;
 }
@@ -82,7 +87,7 @@ export interface ChartWorkbenchProps {
 export function ChartWorkbench({
   bars, subscribeBars, mainOverlays, subPanes, tradeMarkers, drawings,
   settings = DEFAULT_CHART_SETTINGS, onSettingsChange, onOpenSettings,
-  title, interval, onNeedOlderBars, onIndicatorAction, depthSymbol, timeZone,
+  title, interval, onNeedOlderBars, onIndicatorAction, depthSymbol, subscribeTrades, timeZone,
 }: ChartWorkbenchProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
@@ -238,6 +243,16 @@ export function ChartWorkbench({
 
   // Live order book walls.
   useDepthWalls(candlestickRef, depthSymbol, settings.trading, settings.candles.type);
+  useDomLadder(candlestickRef, depthSymbol, settings.trading, settings.candles.type);
+  useLiquidityHeatmap(candlestickRef, depthSymbol, settings.trading, settings.candles.type);
+  useFootprint({
+    seriesRef: candlestickRef,
+    symbol: depthSymbol,
+    interval,
+    trading: settings.trading,
+    subscribeTrades,
+    seriesType: settings.candles.type,
+  });
 
   // User interactive drawing tools (trendline, ray, fibonacci, rectangle, measure).
   const { activeTool, setActiveTool, drawings: userDrawings, clearDrawings, isDrawing } = useChartDrawings(
@@ -253,6 +268,7 @@ export function ChartWorkbench({
   return (
     <div className={`relative h-full w-full ${activeTool !== "cursor" ? "cursor-crosshair" : ""}`}>
       <div ref={containerRef} className="h-full w-full" />
+      <WallMonitorPanel symbol={depthSymbol} trading={settings.trading} />
       <DrawingToolbar
         activeTool={activeTool}
         onSelectTool={setActiveTool}

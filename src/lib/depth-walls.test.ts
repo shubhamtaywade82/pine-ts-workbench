@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { bubbleRadius, decayedReference, DEFAULT_WALL_OPTIONS, wallOptionsFor, WallTracker, type BookView } from "./depth-walls";
+import { bubbleRadius, decayedReference, DEFAULT_WALL_OPTIONS, topWalls, wallOptionsFor, WallTracker, type BookView } from "./depth-walls";
 
 const FULL = { bidFloor: 0, askCeiling: Number.POSITIVE_INFINITY };
 
@@ -118,9 +118,9 @@ describe("WallTracker: observation time", () => {
     expect(initial?.bid?.status).toBe("holding");
 
     // Partial absorption: size shrinks to 6 units (-40%)
-    const absorbed = walls.update(book([[100, 1], [99, 6]], [[101, 1]]), 2_000);
-    expect(absorbed?.bid?.status).toBe("absorbing");
-    expect(absorbed?.bid?.changePct).toBeCloseTo(-40, 1);
+    const reduced = walls.update(book([[100, 1], [99, 6]], [[101, 1]]), 2_000);
+    expect(reduced?.bid?.status).toBe("reduced");
+    expect(reduced?.bid?.changePct).toBeCloseTo(-40, 1);
 
     // Stacking: size expands to 15 units (+50% from initial)
     const stacked = walls.update(book([[100, 1], [99, 15]], [[101, 1]]), 3_000);
@@ -169,6 +169,43 @@ describe("WallTracker: observation time", () => {
 
   test("the default options are a 0.5% window with no minimum", () => {
     expect(DEFAULT_WALL_OPTIONS).toMatchObject({ windowPct: 0.5, minNotional: 0 });
+  });
+});
+
+describe("topWalls", () => {
+  const levels = [
+    { price: 90, notional: 10 },
+    { price: 100, notional: 10 },
+    { price: 110, notional: 50 },
+  ];
+
+  test("keeps the n largest notionals and breaks ties toward mid", () => {
+    expect(topWalls(levels, 2, 100).map((level) => level.price)).toEqual([110, 100]);
+  });
+
+  test("returns nothing when n is not positive", () => {
+    expect(topWalls(levels, 0, 100)).toEqual([]);
+  });
+});
+
+describe("WallTracker top-N lists", () => {
+  test("bid and ask stay the hysteresis wall while bids and asks rank the top N", () => {
+    const walls = new WallTracker(wallOptionsFor(5, 0, 2));
+    walls.update(book([[100, 1], [99, 10], [97, 8]], [[101, 1], [102, 4], [103, 3]]), 1_000);
+    const frame = walls.update(book([[100, 1], [99, 10], [98, 11]], [[101, 1], [102, 4], [103, 3]]), 2_000);
+    expect(frame?.bid?.price).toBe(99);
+    expect(frame?.bids.map((wall) => wall.price)).toEqual([98, 99]);
+    expect(frame?.asks.map((wall) => wall.price)).toEqual([102, 103]);
+    expect(frame?.bids.find((wall) => wall.price === 99)?.observedSince).toBe(1_000);
+    expect(frame?.bids.find((wall) => wall.price === 98)?.observedSince).toBe(2_000);
+  });
+
+  test("lists five walls per side unless topN says otherwise", () => {
+    const bids = Array.from({ length: 8 }, (_, index) => [100 - index, 10 - index] as [number, number]);
+    const frame = tracker().update(book(bids, [[101, 1]]), 0);
+    expect(frame?.bids).toHaveLength(5);
+    expect(frame?.bid?.price).toBe(frame?.bids[0]?.price);
+    expect(DEFAULT_WALL_OPTIONS.topN).toBe(5);
   });
 });
 

@@ -53,6 +53,8 @@ export interface LiveBars {
    * waiting for the next React snapshot. Returns an unsubscribe function.
    */
   readonly subscribe: (listener: (bars: readonly Bar[]) => void) => () => void;
+  /** Live trades with id and aggressor. Footprint listens here; bar updates stay on `subscribe`. */
+  readonly subscribeTrades: (listener: (trade: LiveTrade) => void) => () => void;
 }
 
 /** Keeps `existing` bars older than `fresh` (scroll-back history survives a reconnect), then `fresh`. */
@@ -123,6 +125,7 @@ export function useLiveBars(symbol: BinanceSymbol, interval: ChartInterval, enab
   // Chart listeners are notified at most once per animation frame, so a burst of
   // trades becomes one series update and the chart never waits for React.
   const listenersRef = useRef(new Set<(bars: readonly Bar[]) => void>());
+  const tradeListenersRef = useRef(new Set<(trade: LiveTrade) => void>());
   const frameRef = useRef<number | null>(null);
 
   const scheduleNotify = useCallback(() => {
@@ -139,6 +142,11 @@ export function useLiveBars(symbol: BinanceSymbol, interval: ChartInterval, enab
     // Draw immediately so a freshly mounted chart doesn't wait for the next tick.
     if (workingRef.current.length > 0) listener(workingRef.current);
     return () => { listenersRef.current.delete(listener); };
+  }, []);
+
+  const subscribeTrades = useCallback((listener: (trade: LiveTrade) => void) => {
+    tradeListenersRef.current.add(listener);
+    return () => { tradeListenersRef.current.delete(listener); };
   }, []);
 
   useEffect(() => {
@@ -181,10 +189,12 @@ export function useLiveBars(symbol: BinanceSymbol, interval: ChartInterval, enab
         },
         onTrade: (trade) => {
           const forming = workingRef.current[workingRef.current.length - 1];
-          if (forming === undefined || trade.time < forming.time) return;
-          workingRef.current = mergeBar(workingRef.current, applyTrade(forming, trade, INTERVAL_MS[interval]));
-          setLastTickAt(Date.now());
-          scheduleNotify();
+          if (forming !== undefined && trade.time >= forming.time) {
+            workingRef.current = mergeBar(workingRef.current, applyTrade(forming, trade, INTERVAL_MS[interval]));
+            setLastTickAt(Date.now());
+            scheduleNotify();
+          }
+          for (const listener of tradeListenersRef.current) listener(trade);
         },
       });
     };
@@ -240,5 +250,5 @@ export function useLiveBars(symbol: BinanceSymbol, interval: ChartInterval, enab
     lastBarTime: bars.at(-1)?.time,
   };
 
-  return { bars, status, error, health, loadOlder, subscribe };
+  return { bars, status, error, health, loadOlder, subscribe, subscribeTrades };
 }

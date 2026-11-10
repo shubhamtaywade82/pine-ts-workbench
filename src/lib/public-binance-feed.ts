@@ -199,10 +199,14 @@ export const INTERVAL_MS: Record<ChartInterval, number> = {
 };
 
 export interface LiveTrade {
+  /** Binance trade id (`t`). */
+  readonly id: number;
   readonly price: number;
   readonly quantity: number;
   /** Trade time, ms. */
   readonly time: number;
+  /** `m === true` means the buyer was the maker, so the taker sold. */
+  readonly aggressor: "buy" | "sell";
 }
 
 export interface MarketStreamCallbacks {
@@ -215,7 +219,15 @@ export interface MarketStreamCallbacks {
   readonly onClose: () => void;
 }
 
-interface BinanceTrade { readonly e: "trade"; readonly p: string; readonly q: string; readonly T: number }
+interface BinanceTrade { readonly e: "trade"; readonly p: string; readonly q: string; readonly T: number; readonly t: number; readonly m: boolean }
+
+export const toLiveTrade = (raw: BinanceTrade): LiveTrade => ({
+  id: raw.t,
+  price: Number(raw.p),
+  quantity: Number(raw.q),
+  time: raw.T,
+  aggressor: raw.m ? "sell" : "buy",
+});
 
 /** Binance mainnet combined-stream endpoint (public, no key). */
 const COMBINED_STREAM_URL = "wss://stream.binance.com:9443/stream";
@@ -253,7 +265,7 @@ export const openMarketStream = (
   socket.onmessage = (event) => {
     const { data } = JSON.parse(event.data as string) as { data: BinanceKlineEvent | BinanceTrade };
     if (data.e === "kline") callbacks.onKline(toBar(data.k));
-    else callbacks.onTrade({ price: Number(data.p), quantity: Number(data.q), time: data.T });
+    else callbacks.onTrade(toLiveTrade(data));
   };
   return () => {
     socket.onmessage = null;

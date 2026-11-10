@@ -57,6 +57,22 @@ Rules that follow from this:
 - New `src/components/chart/wall-monitor-panel.tsx`: ranked list of side, zone, notional, relative strength, distance %, observed-for and status, captioned "within ±X% window". Throttled to 4 Hz.
 - Tests: identity continuity, reset after gap, null baseline, pulled vs reduced.
 
+### Phase 3b — Ladder and big-levels look (M)
+Goal: match the reference screenshots (an index-futures order-flow tool) on Binance Spot.
+- Ladder sits beside the forming candle, not at the pane edge. Price column in the middle, bid bars growing left and ask bars growing right, each with its quantity. The last-price row is highlighted with ◀. Rows stay anchored to price through pan and zoom.
+- Activity column per row over the last 60 s:
+  - `N bought` / `N sold` from executed trades.
+  - `N pulled` for resting quantity that left the row without matching trades.
+  - `Big Buyers` / `Big Sellers` badge on rows holding a top wall.
+  - Pure `src/lib/level-activity.ts` computes all of it.
+- Animation: bar widths and activity labels ease toward their targets (τ ≈ 150 ms). New activity flashes, then settles. The animation loop runs only while something is still moving.
+- Big-levels panel (restyled wall monitor):
+  - Rows read `Big Buyers <zone> · <qty> · <x>× normal · waiting <t>`.
+  - `Strong Level (held)` marks a wall that price reached while it stayed.
+  - Two collapsed sections: `N more further away` and `Recently pulled (N) — left before price reached them` (from `diffWalls`).
+  - Summary cards at the top for the nearest buyer zone and the nearest seller zone.
+- Wording: the screenshot says "pulled (cancelled)". We show only "pulled", because the public feed can't prove a cancellation.
+
 ### Phase 4 — Trade flow + footprint (M)
 - New `src/lib/footprint.ts`: pure `addTrade(bars, trade, intervalMs, tickSize, bucketTicks)` returns per-bar, per-bucket `{buy, sell, delta, total, count}`. Dedupes by trade id, takes bar boundaries from trade time, and keeps cumulative delta per bar.
 - Hook into the existing `use-live-bars.ts` `onTrade` path. History comes from the Phase 5 store and is never derived from OHLCV.
@@ -98,6 +114,7 @@ Rules that follow from this:
   - Each touch episode of a wall counts as one interaction. A re-touch counts only after price has left the zone by `proximityPct × 2`.
 - The collector classifies and stores interactions as they resolve. Each row keeps its `classifierVersion`; old rows are never rewritten.
 - New `src/components/chart/outcome-panel.tsx`: counts, %, **Wilson 95% CI**, n, date range, and filters (side, size bucket, distance). Unresolved outcomes are excluded from denominators.
+  - Headline: a "Big levels: did price turn or break?" donut showing turned vs broke %, with counts and "since <date> · N sessions" (as in the reference screenshot). The CI and n are always shown beside it.
 - Tests: each outcome path, no look-ahead, re-touch counting, Wilson CI.
 
 ### Phase 7 — Hardening (S–M)

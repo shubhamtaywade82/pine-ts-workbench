@@ -5,9 +5,10 @@ import { CandlestickChart, Rows3, MoveVertical, Paintbrush, TrendingUp } from "l
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
-import { DEFAULT_CHART_SETTINGS, type ChartSettings, type DepthWallStyle, type ScaleMode } from "@/lib/chart-settings";
+import { DEFAULT_CHART_SETTINGS, type ChartSettings, type ScaleMode } from "@/lib/chart-settings";
+import type { ChartInterval } from "@/lib/public-binance-feed";
 import { CANDLE_THEMES, CANDLE_TYPES, findCandleTheme, type CandleThemeId, type CandleType } from "@/lib/candle-themes";
-import { WALL_WINDOW_LIMITS_PCT } from "@/lib/depth-walls";
+import { Check, Group, OrderFlowSettings, Row } from "@/components/chart/order-flow-settings";
 
 type Tab = "symbol" | "statusLine" | "scales" | "canvas" | "trading";
 
@@ -19,7 +20,6 @@ const TABS: readonly { id: Tab; label: string; icon: ReactNode }[] = [
   { id: "trading", label: "Trading", icon: <TrendingUp className="h-4 w-4" /> },
 ];
 
-/** TradingView's chart Settings dialog. Edits a draft; Ok applies it, Cancel discards it. */
 export function ChartSettingsDialog({ open, settings, quoteAsset, onOpenChange, onApply }: {
   open: boolean; settings: ChartSettings; quoteAsset: string;
   onOpenChange: (open: boolean) => void; onApply: (settings: ChartSettings) => void;
@@ -66,7 +66,6 @@ interface TabProps {
   readonly onChange: (settings: ChartSettings) => void;
 }
 
-/** Patch helper: `patch("candles", { upColor })` returns a new settings object. */
 const patcher = ({ draft, onChange }: TabProps) =>
   <K extends keyof ChartSettings>(section: K, values: Partial<ChartSettings[K]>) =>
     onChange({ ...draft, [section]: { ...draft[section], ...values } });
@@ -186,7 +185,6 @@ function CanvasTab(props: TabProps) {
 function TradingTab(props: TabProps & { readonly quoteAsset: string }) {
   const { trading } = props.draft;
   const patch = patcher(props);
-  const { wallWindowPct, minWallNotional } = trading;
   return (
     <>
       <Group title="Appearance">
@@ -194,50 +192,10 @@ function TradingTab(props: TabProps & { readonly quoteAsset: string }) {
         <Check label="Execution labels" checked={trading.showExecutionLabels} onChange={(showExecutionLabels) => patch("trading", { showExecutionLabels })} />
         <Check label="Bid and ask lines" checked={trading.showBidAskLines} onChange={(showBidAskLines) => patch("trading", { showBidAskLines })} />
       </Group>
-      <Group title="Order book walls">
-        <Check label="Show the largest resting bid and ask" checked={trading.showOrderBookWalls} onChange={(showOrderBookWalls) => patch("trading", { showOrderBookWalls })} />
-        <Row label="Display style">
-          <select value={trading.depthWallStyle} onChange={(e) => patch("trading", { depthWallStyle: e.target.value as DepthWallStyle })}
-            className="h-8 rounded border border-border bg-background px-2 text-xs text-foreground focus:outline-none">
-            <option value="shelf">Horizontal Shelf & Ray</option>
-            <option value="dom">Right-Margin DOM Shelf</option>
-            <option value="bracket">Micro-DOM Bracket</option>
-            <option value="bubbles">Floating Bubbles</option>
-          </select>
-        </Row>
-        <Row label="Search window (±)">
-          <ValidatedNumber value={wallWindowPct} min={WALL_WINDOW_LIMITS_PCT.min} max={WALL_WINDOW_LIMITS_PCT.max} unit="%" onChange={(next) => patch("trading", { wallWindowPct: next })} />
-        </Row>
-        <Row label="Minimum wall size">
-          <ValidatedNumber value={minWallNotional} min={0} max={1_000_000_000} unit={props.quoteAsset} onChange={(next) => patch("trading", { minWallNotional: next })} />
-        </Row>
-        <p className="text-xs text-muted-foreground">
-          Walls are the largest level inside the window. Each is labelled with the window actually searched:
-          snapshot coverage can narrow it. Minimum size is in each chart&apos;s quote currency.
-        </p>
-      </Group>
+      <OrderFlowSettings trading={trading} quoteAsset={props.quoteAsset} patch={patch} />
     </>
   );
 }
-
-const Group = ({ title, children }: { title: string; children: ReactNode }) => (
-  <div className="flex flex-col gap-3 py-3">
-    <h4 className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{title}</h4>
-    {children}
-  </div>
-);
-
-const Row = ({ label, children }: { label: string; children: ReactNode }) => (
-  <div className="grid grid-cols-[160px_1fr] items-center gap-3 text-sm">
-    <span>{label}</span><div className="flex items-center gap-2">{children}</div>
-  </div>
-);
-
-const Check = ({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) => (
-  <label className="flex items-center gap-2 text-sm">
-    <Checkbox checked={checked} onCheckedChange={(v) => onChange(v === true)} />{label}
-  </label>
-);
 
 const CandlePartRow = ({
   label, checked, onCheck, upColor, onUpChange, downColor, onDownChange,
@@ -261,39 +219,10 @@ const ColorInput = ({ value, onChange }: { value: string; onChange: (value: stri
     className="h-8 w-8 cursor-pointer rounded border border-border bg-transparent p-0.5" />
 );
 
-/**
- * Number field that validates as you type. An invalid entry is flagged and not
- * applied; leaving the field restores the last valid value.
- */
-function ValidatedNumber({ value, min, max, unit, onChange }: { value: number; min: number; max: number; unit: string; onChange: (value: number) => void }) {
-  const [text, setText] = useState(String(value));
-  const [isValid, setIsValid] = useState(true);
-  useEffect(() => { setText((c) => (Number(c) === value ? c : String(value))); setIsValid(true); }, [value]);
-  const onType = (raw: string) => {
-    setText(raw);
-    const p = raw.trim() === "" ? Number.NaN : Number(raw);
-    const valid = Number.isFinite(p) && p >= min && p <= max;
-    setIsValid(valid);
-    if (valid) onChange(p);
-  };
-  return (
-    <span className="flex flex-col gap-1">
-      <span className="flex items-center gap-2">
-        <input type="number" step="any" value={text} aria-invalid={!isValid}
-          onChange={(e) => onType(e.target.value)} onBlur={() => { setText(String(value)); setIsValid(true); }}
-          className={`h-8 w-24 rounded border bg-background px-2 text-sm ${isValid ? "border-border" : "border-red-500"}`} />
-        <span className="text-sm text-muted-foreground">{unit}</span>
-      </span>
-      {!isValid && <span className="text-xs text-red-500">Enter a number from {min} to {max}</span>}
-    </span>
-  );
-}
-
 const NumberInput = ({ value, min, max, unit, onChange }: { value: number; min: number; max: number; unit?: string; onChange: (value: number) => void }) => (
   <span className="flex items-center gap-2">
-    <input type="number" value={value} min={min} max={max}
-      onChange={(e) => { const n = Number(e.target.value); if (Number.isFinite(n)) onChange(Math.min(max, Math.max(min, n))); }}
-      className="h-8 w-20 rounded border border-border bg-background px-2 text-sm" />
+    <input type="number" value={value} min={min} max={max} className="h-8 w-20 rounded border border-border bg-background px-2 text-sm"
+      onChange={(e) => { const n = Number(e.target.value); if (Number.isFinite(n)) onChange(Math.min(max, Math.max(min, n))); }} />
     {unit !== undefined && <span className="text-sm text-muted-foreground">{unit}</span>}
   </span>
 );

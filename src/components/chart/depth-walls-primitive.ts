@@ -95,9 +95,9 @@ export class DepthWallsPrimitive implements ISeriesPrimitive<Time> {
     const bubble = this.bubbles.get(side);
     if (wall === undefined) {
       if (bubble !== undefined && bubble.wall !== undefined) {
-        // Wall removed: classify as absorbed if it was being eaten, otherwise pulled.
-        const wasAbsorbing = bubble.wall.status === "absorbing" || bubble.wall.status === "absorbed";
-        bubble.wall = { ...bubble.wall, status: wasAbsorbing ? "absorbed" : "pulled" };
+        // A shrinking wall that vanishes stays "removed"; anything else was pulled.
+        const wasReduced = bubble.wall.status === "reduced" || bubble.wall.status === "removed";
+        bubble.wall = { ...bubble.wall, status: wasReduced ? "removed" : "pulled" };
         bubble.targetAlpha = 0;
       }
       return;
@@ -249,20 +249,20 @@ export interface WallLabelInput {
   readonly observedMs: number;
 }
 
-/** Formats real-time liquidity dynamics: absorbing (-35%), absorbed, stacking, tested, or holding. */
+/** Formats resting-liquidity status: reduced (-35%), removed, stacking, tested, or holding. */
 export const formatLiquidityStatus = (wall: Wall, observedMs: number): string => {
   const age = formatAge(observedMs);
   switch (wall.status) {
-    case "absorbing":
-      return `absorbing (${Math.round(wall.changePct ?? 0)}%) · ${age}`;
-    case "absorbed":
-      return `absorbed (filled) · ${age}`;
+    case "reduced":
+      return `reduced (${Math.round(wall.changePct ?? 0)}%) · ${age}`;
+    case "removed":
+      return `removed · ${age}`;
     case "stacking":
       return `stacking (+${Math.round(wall.changePct ?? 0)}%) · ${age}`;
     case "tested":
       return `tested (holding) · ${age}`;
     case "pulled":
-      return "pulled (cancelled)";
+      return "pulled";
     case "holding":
       return `holding · ${age}`;
     default:
@@ -273,7 +273,7 @@ export const formatLiquidityStatus = (wall: Wall, observedMs: number): string =>
 /**
  * "79,500 · 2.05M USDT · holding · 3m · max in ±0.5%". The scope says this
  * is the largest level inside the searched window, not the market's maximum.
- * Real-time liquidity status (absorbing, stacking, tested, holding) updates as order volume changes.
+ * Real-time liquidity status (reduced, stacking, tested, holding) updates as order volume changes.
  */
 export const wallLabel = (input: WallLabelInput): string => {
   const { wall, status, quoteAsset, searchedPct, clippedByCoverage, observedMs } = input;

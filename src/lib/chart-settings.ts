@@ -1,7 +1,10 @@
 import type { DeepPartial, ChartOptions, CandlestickSeriesOptions, PriceScaleOptions } from "lightweight-charts";
 import type { CandleThemeId, CandleType } from "./candle-themes";
 import { CANDLE_THEMES, CANDLE_TYPES } from "./candle-themes";
-import { DEFAULT_MIN_WALL_NOTIONAL, DEFAULT_WALL_WINDOW_PCT, WALL_WINDOW_LIMITS_PCT } from "./depth-walls";
+import { DEFAULT_TRADING, DEPTH_WALL_STYLES, normalizeTrading, type TradingSettings } from "./trading-settings";
+
+export type { DepthWallStyle, FootprintMode, TradingSettings } from "./trading-settings";
+export { DEPTH_WALL_STYLES, normalizeTrading };
 
 /**
  * Chart appearance shared by every chart cell, edited in the Settings dialog
@@ -11,8 +14,6 @@ import { DEFAULT_MIN_WALL_NOTIONAL, DEFAULT_WALL_WINDOW_PCT, WALL_WINDOW_LIMITS_
 
 export type ScaleMode = "regular" | "percent" | "indexed" | "logarithmic";
 export type ScalePlacement = "left" | "right";
-export type DepthWallStyle = "shelf" | "dom" | "bracket" | "bubbles";
-export const DEPTH_WALL_STYLES: readonly DepthWallStyle[] = ["shelf", "dom", "bracket", "bubbles"] as const;
 
 export interface ChartSettings {
   readonly candles: {
@@ -42,22 +43,7 @@ export interface ChartSettings {
     /** Which side the price scales sit on ("Move scale to left"). */
     readonly placement: ScalePlacement;
   };
-  readonly trading: {
-    /** Strategy entry/exit arrows on the chart ("Execution marks"). */
-    readonly showExecutionMarks: boolean;
-    /** "Long" / "Short" / "Close" text on those arrows ("Execution labels"). */
-    readonly showExecutionLabels: boolean;
-    /** Live order book depth walls visualization. */
-    readonly showOrderBookWalls: boolean;
-    /** Live Best Bid and Best Ask horizontal price lines with scale badges. */
-    readonly showBidAskLines: boolean;
-    /** Visual representation style for depth walls. */
-    readonly depthWallStyle: DepthWallStyle;
-    /** Half-width of the wall search around mid, in percent. Clipped to the snapshot's verified coverage. */
-    readonly wallWindowPct: number;
-    /** Smallest wall, in the chart's quote currency. */
-    readonly minWallNotional: number;
-  };
+  readonly trading: TradingSettings;
   readonly canvas: {
     readonly background: string;
     readonly showVertGrid: boolean;
@@ -89,15 +75,7 @@ export const DEFAULT_CHART_SETTINGS: ChartSettings = {
   },
   statusLine: { showTitle: true, showOhlc: true, showIndicatorTitles: true, showIndicatorValues: true },
   scales: { mode: "regular", autoScale: true, invert: false, showLastPriceLine: true, placement: "right" },
-  trading: {
-    showExecutionMarks: true,
-    showExecutionLabels: true,
-    showOrderBookWalls: true,
-    showBidAskLines: true,
-    depthWallStyle: "shelf",
-    wallWindowPct: DEFAULT_WALL_WINDOW_PCT,
-    minWallNotional: DEFAULT_MIN_WALL_NOTIONAL,
-  },
+  trading: DEFAULT_TRADING,
   canvas: {
     background: "#000000", showVertGrid: true, showHorzGrid: true, gridColor: "#141414", crosshairColor: "#9598a1",
     textColor: "#b2b5be", fontSize: 11, marginTopPercent: 10, marginBottomPercent: 10, rightOffsetBars: 10,
@@ -111,13 +89,6 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
 
 const booleanOr = (value: unknown, fallback: boolean): boolean =>
   typeof value === "boolean" ? value : fallback;
-
-/** A finite number clamped to `[min, max]`; anything else (missing, text, NaN) takes the fallback. */
-const numberIn = (value: unknown, min: number, max: number, fallback: number): number =>
-  typeof value === "number" && Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback;
-
-const isDepthWallStyle = (val: unknown): val is DepthWallStyle =>
-  typeof val === "string" && (DEPTH_WALL_STYLES as readonly string[]).includes(val);
 
 const isCandleType = (val: unknown): val is CandleType =>
   typeof val === "string" && CANDLE_TYPES.some((t) => t.id === val);
@@ -142,20 +113,6 @@ const normalizeCandles = (stored: unknown): ChartSettings["candles"] => {
     showBody: booleanOr(raw["showBody"], defaults.showBody),
     showBorders: booleanOr(raw["showBorders"], defaults.showBorders),
     showWick: booleanOr(raw["showWick"], defaults.showWick),
-  };
-};
-
-const normalizeTrading = (stored: unknown): ChartSettings["trading"] => {
-  const raw = isRecord(stored) ? stored : {};
-  const defaults = DEFAULT_CHART_SETTINGS.trading;
-  return {
-    showExecutionMarks: booleanOr(raw["showExecutionMarks"], defaults.showExecutionMarks),
-    showExecutionLabels: booleanOr(raw["showExecutionLabels"], defaults.showExecutionLabels),
-    showOrderBookWalls: booleanOr(raw["showOrderBookWalls"], defaults.showOrderBookWalls),
-    showBidAskLines: booleanOr(raw["showBidAskLines"], defaults.showBidAskLines),
-    depthWallStyle: isDepthWallStyle(raw["depthWallStyle"]) ? raw["depthWallStyle"] : defaults.depthWallStyle,
-    wallWindowPct: numberIn(raw["wallWindowPct"], WALL_WINDOW_LIMITS_PCT.min, WALL_WINDOW_LIMITS_PCT.max, defaults.wallWindowPct),
-    minWallNotional: numberIn(raw["minWallNotional"], 0, Number.POSITIVE_INFINITY, defaults.minWallNotional),
   };
 };
 

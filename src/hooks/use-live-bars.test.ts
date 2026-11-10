@@ -39,14 +39,14 @@ describe("countBarGaps (data-quality warnings)", () => {
 describe("mergeBar + applyTrade (out-of-order protection)", () => {
   it("drops trades older than the forming bar", () => {
     const bars = [bar(60_000)];
-    const stale: LiveTrade = { time: 30_000, price: 100, quantity: 1 };
+    const stale: LiveTrade = { id: 1, time: 30_000, price: 100, quantity: 1, aggressor: "buy" };
     const merged = mergeBar(bars, applyTrade(bars[0]!, stale, 60_000));
     expect(merged[0]!.close).toBe(100);
   });
 
   it("opens the next candle when a trade is past the interval", () => {
     const bars = [bar(0, { close: 100 })];
-    const next: LiveTrade = { time: 130_000, price: 105, quantity: 2 };
+    const next: LiveTrade = { id: 2, time: 130_000, price: 105, quantity: 2, aggressor: "sell" };
     const merged = mergeBar(bars, applyTrade(bars[0]!, next, 60_000));
     expect(merged.at(-1)!.time).toBe(120_000);
     expect(merged.at(-1)!.open).toBe(105);
