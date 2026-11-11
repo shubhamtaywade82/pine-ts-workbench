@@ -11,6 +11,7 @@ import {
   type AlertEvent,
   type AlertSink,
 } from "./alert-sink-transports";
+import { DEFAULT_ORDER_GUARD_LIMITS, type OrderGuardLimits } from "./order-guard";
 
 export type {
   AlertDeliveryResult,
@@ -91,6 +92,7 @@ export interface AlertSettings {
   readonly brokerActionEnabled: boolean;
   readonly brokerActionSide: "BUY" | "SELL";
   readonly brokerActionQty: number;
+  readonly orderGuard: OrderGuardLimits;
 }
 
 export const DEFAULT_ALERT_SETTINGS: AlertSettings = {
@@ -104,6 +106,26 @@ export const DEFAULT_ALERT_SETTINGS: AlertSettings = {
   brokerActionEnabled: false,
   brokerActionSide: "SELL",
   brokerActionQty: 0.001,
+  orderGuard: DEFAULT_ORDER_GUARD_LIMITS,
+};
+
+const positiveOr = (value: unknown, fallback: number): number =>
+  typeof value === "number" && Number.isFinite(value) && value > 0 ? value : fallback;
+
+/** Stored limits are user-editable JSON; any bad field falls back to its safe default. */
+export const normalizeOrderGuard = (raw: unknown): OrderGuardLimits => {
+  const stored = (typeof raw === "object" && raw !== null ? raw : {}) as Partial<Record<keyof OrderGuardLimits, unknown>>;
+  const defaults = DEFAULT_ORDER_GUARD_LIMITS;
+  const symbols = Array.isArray(stored.allowedSymbols) && stored.allowedSymbols.every((s) => typeof s === "string")
+    ? (stored.allowedSymbols as string[]).map((s) => s.trim().toUpperCase()).filter(Boolean)
+    : defaults.allowedSymbols;
+  return {
+    maxOrderNotional: positiveOr(stored.maxOrderNotional, defaults.maxOrderNotional),
+    maxOrdersPerHour: Math.floor(positiveOr(stored.maxOrdersPerHour, defaults.maxOrdersPerHour)),
+    maxDailyNotional: positiveOr(stored.maxDailyNotional, defaults.maxDailyNotional),
+    allowedSymbols: symbols,
+    armedForMs: positiveOr(stored.armedForMs, defaults.armedForMs),
+  };
 };
 
 export const loadAlertSettings = (): AlertSettings => {
@@ -111,7 +133,8 @@ export const loadAlertSettings = (): AlertSettings => {
   try {
     const raw = window.localStorage.getItem(ALERT_SETTINGS_KEY);
     if (raw === null) return DEFAULT_ALERT_SETTINGS;
-    return { ...DEFAULT_ALERT_SETTINGS, ...(JSON.parse(raw) as Partial<AlertSettings>) };
+    const stored = JSON.parse(raw) as Partial<AlertSettings>;
+    return { ...DEFAULT_ALERT_SETTINGS, ...stored, orderGuard: normalizeOrderGuard(stored.orderGuard) };
   } catch {
     return DEFAULT_ALERT_SETTINGS;
   }
@@ -137,6 +160,7 @@ export const buildSinks = (alert: AlertSettings, binance: BinanceSettings): Aler
       side: alert.brokerActionSide,
       quantity: alert.brokerActionQty,
       orderType: "MARKET",
+      limits: alert.orderGuard,
     }));
   }
   return sinks;

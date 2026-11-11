@@ -1,4 +1,13 @@
 import type { BinanceSettings } from "@/components/trading/settings-dialog";
+import { BINANCE_REST_URL } from "./binance-endpoints";
+import {
+  EMPTY_GUARD_STATE,
+  checkOrder,
+  recordOrder,
+  type GuardState,
+  type GuardedOrder,
+  type OrderGuardLimits,
+} from "./order-guard";
 
 export interface AlertEvent {
   readonly id: string;
@@ -113,42 +122,128 @@ export class EmailSink implements AlertSink {
   }
 }
 
+export interface BrokerOrderRequest {
+  readonly symbol: string;
+  readonly side: "BUY" | "SELL";
+  readonly type: "MARKET" | "LIMIT";
+  readonly quantity: number;
+  readonly clientOrderId: string;
+}
+
+/** The sink's outside world, injected so the guard path is testable without a network or storage. */
+export interface BrokerSinkDeps {
+  readonly now: () => number;
+  /** Last traded price, used for the notional check because a MARKET order carries no price. */
+  readonly fetchPrice: (symbol: string) => Promise<number>;
+  readonly readGuard: () => GuardState;
+  readonly writeGuard: (state: GuardState) => void;
+  readonly submit: (order: BrokerOrderRequest, keys: BinanceSettings) => Promise<{ orderId: string | number; status: string }>;
+}
+
 export class BrokerActionSink implements AlertSink {
   public readonly id = "broker-action";
   public readonly name = "Broker Action";
-  public constructor(private readonly config: {
-    readonly binanceSettings: BinanceSettings;
-    readonly side: "BUY" | "SELL";
-    readonly quantity: number;
-    readonly orderType: "MARKET" | "LIMIT";
-  }) {}
+  public constructor(
+    private readonly config: {
+      readonly binanceSettings: BinanceSettings;
+      readonly side: "BUY" | "SELL";
+      readonly quantity: number;
+      readonly orderType: "MARKET" | "LIMIT";
+      readonly limits: OrderGuardLimits;
+    },
+    private readonly deps: BrokerSinkDeps = BROWSER_BROKER_DEPS,
+  ) {}
 
   public async deliver(event: AlertEvent): Promise<AlertDeliveryResult> {
     const s = this.config.binanceSettings;
-    if (!s.apiKey || !s.apiSecret || !s.liveTradeEnabled) {
-      return { sinkId: this.id, sinkName: this.name, status: "skipped", message: "Live trading disabled or unconfigured", timestamp: new Date().toISOString() };
-    }
+    if (!s.apiKey || !s.apiSecret || !s.liveTradeEnabled) return this.result("skipped", "Live trading disabled or unconfigured");
+    let price: number;
     try {
-      // Loaded on first use: the Binance SDK is the largest chunk in the app and most alerts never trade.
-      const { RealBinanceTradingSurface } = await import("@/lib/real-binance-trading-surface");
-      const surface = new RealBinanceTradingSurface({ apiKey: s.apiKey, apiSecret: s.apiSecret, liveTradeEnabled: s.liveTradeEnabled });
-      const res = await surface.newOrder({
-        symbol: event.symbol,
-        side: this.config.side,
-        type: this.config.orderType,
-        quantity: this.config.quantity,
-        price: undefined,
-        stopPrice: undefined,
-        timeInForce: "GTC",
-        clientOrderId: `alert-${event.id}`,
-      });
-      const ok = res.status === "FILLED" || res.status === "NEW";
-      return { sinkId: this.id, sinkName: this.name, status: ok ? "delivered" : "failed", message: `Order ${res.orderId}: ${res.status}`, timestamp: new Date().toISOString() };
+      price = await this.deps.fetchPrice(event.symbol);
     } catch (err) {
-      return { sinkId: this.id, sinkName: this.name, status: "failed", message: err instanceof Error ? err.message : String(err), timestamp: new Date().toISOString() };
+      // Fail closed: without a price the notional caps cannot be checked.
+      return this.result("skipped", `Blocked - price unavailable: ${errorText(err)}`);
+    }
+    const order = { symbol: event.symbol, notional: price * this.config.quantity, at: this.deps.now() };
+    const state = this.deps.readGuard();
+    const verdict = checkOrder(order, this.config.limits, state);
+    if (!verdict.ok) return this.result("skipped", `Blocked - ${verdict.reason}`);
+    return this.send(event, order, state);
+  }
+
+  private async send(event: AlertEvent, order: GuardedOrder, state: GuardState): Promise<AlertDeliveryResult> {
+    try {
+      const res = await this.deps.submit({
+        symbol: event.symbol, side: this.config.side, type: this.config.orderType,
+        quantity: this.config.quantity, clientOrderId: `alert-${event.id}`,
+      }, this.config.binanceSettings);
+      // Recorded once the exchange accepted the request, so the caps count real orders only.
+      this.deps.writeGuard(recordOrder(state, order));
+      const ok = res.status === "FILLED" || res.status === "NEW";
+      return this.result(ok ? "delivered" : "failed", `Order ${res.orderId}: ${res.status}`);
+    } catch (err) {
+      return this.result("failed", errorText(err));
     }
   }
+
+  private result(status: DeliveryStatus, message: string): AlertDeliveryResult {
+    return { sinkId: this.id, sinkName: this.name, status, message, timestamp: new Date().toISOString() };
+  }
 }
+
+const errorText = (err: unknown): string => (err instanceof Error ? err.message : String(err));
+
+const GUARD_STORAGE_KEY = "pine-ts-workbench-order-guard";
+
+const isGuardState = (value: unknown): value is GuardState => {
+  if (typeof value !== "object" || value === null) return false;
+  const { armedUntil, history } = value as Partial<GuardState>;
+  const armedOk = armedUntil === null || (typeof armedUntil === "number" && Number.isFinite(armedUntil));
+  return armedOk && Array.isArray(history)
+    && history.every((entry) => Number.isFinite(entry?.at) && Number.isFinite(entry?.notional));
+};
+
+/** Reads the persisted guard state; anything unreadable counts as disarmed with no history. */
+export const loadGuardState = (): GuardState => {
+  try {
+    const parsed: unknown = JSON.parse(window.localStorage.getItem(GUARD_STORAGE_KEY) ?? "null");
+    return isGuardState(parsed) ? parsed : EMPTY_GUARD_STATE;
+  } catch (err) {
+    console.warn("Order guard state unreadable; treating alert orders as disarmed:", err);
+    return EMPTY_GUARD_STATE;
+  }
+};
+
+export const saveGuardState = (state: GuardState): void => {
+  try {
+    window.localStorage.setItem(GUARD_STORAGE_KEY, JSON.stringify(state));
+  } catch (err) {
+    console.warn("Order guard state could not be saved:", err);
+  }
+};
+
+const fetchLastPrice = async (symbol: string): Promise<number> => {
+  const res = await fetch(`${BINANCE_REST_URL}/api/v3/ticker/price?symbol=${encodeURIComponent(symbol)}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const price = Number(((await res.json()) as { price?: unknown }).price);
+  if (!(price > 0) || !Number.isFinite(price)) throw new Error("no valid price in response");
+  return price;
+};
+
+const submitWithSdk: BrokerSinkDeps["submit"] = async (order, keys) => {
+  // Loaded on first use: the Binance SDK is the largest chunk in the app and most alerts never trade.
+  const { RealBinanceTradingSurface } = await import("@/lib/real-binance-trading-surface");
+  const surface = new RealBinanceTradingSurface({ apiKey: keys.apiKey, apiSecret: keys.apiSecret, liveTradeEnabled: keys.liveTradeEnabled });
+  return surface.newOrder({ ...order, price: undefined, stopPrice: undefined, timeInForce: "GTC" });
+};
+
+const BROWSER_BROKER_DEPS: BrokerSinkDeps = {
+  now: () => Date.now(),
+  fetchPrice: fetchLastPrice,
+  readGuard: loadGuardState,
+  writeGuard: saveGuardState,
+  submit: submitWithSdk,
+};
 
 export class BrowserNotificationSink implements AlertSink {
   public readonly id = "browser-notification";

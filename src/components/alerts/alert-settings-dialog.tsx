@@ -14,10 +14,63 @@ import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
 import {
-  loadAlertSettings, saveAlertSettings,
+  loadAlertSettings, normalizeOrderGuard, saveAlertSettings,
   type AlertSettings, DEFAULT_ALERT_SETTINGS,
 } from "@/lib/alert-sinks";
+import { loadGuardState, saveGuardState } from "@/lib/alert-sink-transports";
+import { ARM_PHRASE, arm, disarm, type GuardState, type OrderGuardLimits } from "@/lib/order-guard";
 import { AlarmClockPlus } from "lucide-react";
+
+const LIMIT_FIELDS = [
+  { key: "maxOrderNotional", label: "Max per order (USDT)" },
+  { key: "maxOrdersPerHour", label: "Max orders / hour" },
+  { key: "maxDailyNotional", label: "Max per 24 h (USDT)" },
+] as const;
+
+/** Arm/disarm and caps for alert-placed orders. Arming saves at once: it is a deliberate act, not a draft setting. */
+function OrderGuardControls({ limits, onLimitsChange }: {
+  readonly limits: OrderGuardLimits;
+  readonly onLimitsChange: (limits: OrderGuardLimits) => void;
+}) {
+  const [guard, setGuard] = useState<GuardState>(() => loadGuardState());
+  const [phrase, setPhrase] = useState("");
+  const isArmed = guard.armedUntil !== null && guard.armedUntil > Date.now();
+
+  const apply = (next: GuardState) => { saveGuardState(next); setGuard(next); setPhrase(""); };
+
+  return (
+    <div className="flex flex-col gap-2 rounded border border-amber-500/40 p-2">
+      <div className="flex items-center justify-between text-xs">
+        <span className={isArmed ? "text-red-500 font-medium" : "text-muted-foreground"}>
+          {isArmed ? `LIVE orders armed until ${new Date(guard.armedUntil ?? 0).toLocaleString()}` : "Alert orders disarmed: nothing is sent"}
+        </span>
+        {isArmed && <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => apply(disarm(guard))}>Disarm</Button>}
+      </div>
+      {!isArmed && (
+        <div className="flex gap-2">
+          <Input value={phrase} onChange={(e) => setPhrase(e.target.value)}
+            placeholder={`Type ${ARM_PHRASE}`} className="h-7 text-xs" />
+          <Button variant="destructive" size="sm" className="h-7 text-xs" disabled={phrase !== ARM_PHRASE}
+            onClick={() => apply(arm(guard, { now: Date.now(), phrase, limits }))}>Arm</Button>
+        </div>
+      )}
+      <div className="grid grid-cols-3 gap-2">
+        {LIMIT_FIELDS.map(({ key, label }) => (
+          <div key={key} className="flex flex-col gap-1">
+            <Label className="text-[10px]">{label}</Label>
+            <Input type="number" min="0" value={limits[key]}
+              onChange={(e) => onLimitsChange({ ...limits, [key]: Number(e.target.value) })} className="h-7 text-xs" />
+          </div>
+        ))}
+      </div>
+      <div className="flex flex-col gap-1">
+        <Label className="text-[10px]">Allowed symbols (comma separated)</Label>
+        <Input value={limits.allowedSymbols.join(",")}
+          onChange={(e) => onLimitsChange({ ...limits, allowedSymbols: e.target.value.split(",") })} className="h-7 text-xs" />
+      </div>
+    </div>
+  );
+}
 
 export function AlertSettingsDialog({ onSaved }: { onSaved: (s: AlertSettings) => void }) {
   const [open, setOpen] = useState(false);
@@ -26,8 +79,9 @@ export function AlertSettingsDialog({ onSaved }: { onSaved: (s: AlertSettings) =
   useEffect(() => { setSettings(loadAlertSettings()); }, []);
 
   const onSave = () => {
-    saveAlertSettings(settings);
-    onSaved(settings);
+    const saved = { ...settings, orderGuard: normalizeOrderGuard(settings.orderGuard) };
+    saveAlertSettings(saved);
+    onSaved(saved);
     setOpen(false);
   };
 
@@ -154,6 +208,12 @@ export function AlertSettingsDialog({ onSaved }: { onSaved: (s: AlertSettings) =
                     className="h-8 text-xs" />
                 </div>
               </div>
+            )}
+            {settings.brokerActionEnabled && (
+              <OrderGuardControls
+                limits={settings.orderGuard}
+                onLimitsChange={(orderGuard) => setSettings({ ...settings, orderGuard })}
+              />
             )}
           </div>
         </div>
