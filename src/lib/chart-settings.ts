@@ -177,10 +177,11 @@ export const toPriceScaleOptions = ({ scales, canvas }: ChartSettings): DeepPart
 
 // LWC's default bar spacing; converts the user's "Right: N bars" into the pixel offset below.
 const DEFAULT_BAR_PX = 6;
-// Room right of the forming candle: a compact wall pill (~100 px) or the DOM ladder
-// (gap + bid bars + price + ask bars + activity = 4 + 72 + 64 + 72 + 96, plus breathing room).
+// Room right of the forming candle: a compact wall pill (~100 px) or the right-pinned DOM ladder
+// (bid bars + price + ask bars + activity = 72 + 64 + 72 + 96 = 304) plus a ~64 px gap so the
+// candles keep clear of it and trade flow has a visible trip.
 const WALL_PILL_RESERVE_PX = 110;
-const DOM_LADDER_RESERVE_PX = 320;
+const DOM_LADDER_RESERVE_PX = 370;
 
 /**
  * Right margin in pixels. LWC's `rightOffset` is in bars, so the gap collapses when zoomed

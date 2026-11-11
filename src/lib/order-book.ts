@@ -48,6 +48,8 @@ const DEFAULT_MAX_BUFFERED_EVENTS = 1_000;
 export class LocalOrderBook {
   private readonly bids = new Map<number, number>();
   private readonly asks = new Map<number, number>();
+  // Cleared on every mutation; filled lazily by levels().
+  private sorted: Partial<Record<BookSide, readonly (readonly [number, number])[]>> = {};
   private buffer: DepthUpdate[] = [];
   private synced = false;
   private lastId = -1;
@@ -72,11 +74,11 @@ export class LocalOrderBook {
   }
 
   public get bestBid(): number | undefined {
-    return this.best("bid");
+    return this.levels("bid")[0]?.[0];
   }
 
   public get bestAsk(): number | undefined {
-    return this.best("ask");
+    return this.levels("ask")[0]?.[0];
   }
 
   /** A stream event: buffered until synced, then applied in sequence. On a gap the book resets and buffers it. */
@@ -108,6 +110,7 @@ export class LocalOrderBook {
     this.asks.clear();
     setLevels(this.bids, snapshot.bids);
     setLevels(this.asks, snapshot.asks);
+    this.sorted = {};
     // Recounting levels marks a full book as clipped once the count equals the fetch limit.
     this.covered = stored ?? coverageOf(this.bids, this.asks, snapshot, requestedLimit);
     this.lastId = snapshot.lastUpdateId;
@@ -128,16 +131,24 @@ export class LocalOrderBook {
   public reset(): void {
     this.bids.clear();
     this.asks.clear();
+    this.sorted = {};
     this.buffer = [];
     this.synced = false;
     this.lastId = -1;
     this.covered = FULL_COVERAGE;
   }
 
-  /** Levels as `[price, quantity]`, best first: bids high→low, asks low→high. */
-  public levels(side: BookSide): Array<[number, number]> {
+  /**
+   * Levels as `[price, quantity]`, best first: bids high→low, asks low→high. Sorted once per book
+   * change and shared: several subscribers read the same book about ten times a second.
+   */
+  public levels(side: BookSide): readonly (readonly [number, number])[] {
+    const cached = this.sorted[side];
+    if (cached !== undefined) return cached;
     const entries = [...(side === "bid" ? this.bids : this.asks)];
-    return entries.sort(side === "bid" ? (x, y) => y[0] - x[0] : (x, y) => x[0] - y[0]);
+    const sorted = entries.sort(side === "bid" ? (x, y) => y[0] - x[0] : (x, y) => x[0] - y[0]);
+    this.sorted[side] = sorted;
+    return sorted;
   }
 
   private apply(event: DepthUpdate): Exclude<PushResult, "buffered"> {
@@ -145,14 +156,9 @@ export class LocalOrderBook {
     if (event.U > this.lastId + 1) return "gap";
     setLevels(this.bids, event.b);
     setLevels(this.asks, event.a);
+    this.sorted = {};
     this.lastId = event.u;
     return "applied";
-  }
-
-  private best(side: BookSide): number | undefined {
-    const prices = [...(side === "bid" ? this.bids : this.asks).keys()];
-    if (prices.length === 0) return undefined;
-    return side === "bid" ? Math.max(...prices) : Math.min(...prices);
   }
 }
 

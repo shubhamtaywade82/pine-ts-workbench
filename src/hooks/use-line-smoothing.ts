@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { ISeriesApi, LineData, Time, WhitespaceData } from "lightweight-charts";
 import { SMOOTHING_TAU_MS } from "@/hooks/use-candle-series";
+import { claimChartFrame } from "@/components/chart/frame-budget";
 
 const SETTLE_EPSILON = 1e-7;
 
@@ -40,6 +41,7 @@ export function useLineSmoothing() {
     if (frame.current !== null) return;
     let lastFrameAt = performance.now();
     const step = (now: number) => {
+      if (!claimChartFrame(now)) { frame.current = requestAnimationFrame(step); return; }
       const k = 1 - Math.exp(-(now - lastFrameAt) / SMOOTHING_TAU_MS);
       lastFrameAt = now;
       for (const [series, tween] of tweens.current) {

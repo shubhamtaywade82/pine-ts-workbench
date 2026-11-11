@@ -20,6 +20,16 @@ export type ChartDrawing =
   | { readonly kind: "barcolor"; readonly time: number; readonly color: string }
   | { readonly kind: "table"; readonly table: ScriptTable };
 
+/** True when `drawing` can touch the visible time range (ms). Tables are pinned to the pane, so always. */
+export const isDrawingVisible = (drawing: ChartDrawing, range: { readonly from: number; readonly to: number }): boolean => {
+  if (drawing.kind === "table") return true;
+  if ("from" in drawing) return drawing.to >= range.from && drawing.from <= range.to;
+  return drawing.time >= range.from && drawing.time <= range.to;
+};
+
+// Labels near an edge can reach into view, so the cull window is widened by this share of the range.
+const CULL_MARGIN_FRACTION = 0.1;
+
 // TradingView's up/down colours; boxes use them translucent, as SMC scripts do.
 const BULL = "#089981";
 const BEAR = "#f23645";
@@ -88,11 +98,22 @@ export class ScriptDrawingsPrimitive implements ISeriesPrimitive<Time> {
     return { x, y: (price: number) => attached.series.priceToCoordinate(price), barWidth };
   }
 
+  /** Drawings that can touch the visible time range; painting hundreds of off-screen shapes every frame is the cost. */
+  private visibleDrawings(): readonly ChartDrawing[] {
+    const range = this.attachedTo?.chart.timeScale().getVisibleRange();
+    if (range === null || range === undefined) return this.drawings;
+    const from = Number(range.from) * 1000;
+    const to = Number(range.to) * 1000;
+    const margin = (to - from) * CULL_MARGIN_FRACTION;
+    const cullRange = { from: from - margin, to: to + margin };
+    return this.drawings.filter((drawing) => isDrawingVisible(drawing, cullRange));
+  }
+
   private paintBackground(context: CanvasRenderingContext2D, height: number): void {
     const projection = this.projection();
     if (projection === null) return;
     context.font = LABEL_FONT;
-    for (const drawing of this.drawings) {
+    for (const drawing of this.visibleDrawings()) {
       if (drawing.kind === "bgcolor") paintBgcolor(context, projection, drawing, height);
       else if (drawing.kind === "line" || drawing.kind === "box") this.paintSmc(context, projection, drawing);
       else if (drawing.kind === "shape-line") paintShapeLine(context, projection, drawing);
@@ -104,9 +125,10 @@ export class ScriptDrawingsPrimitive implements ISeriesPrimitive<Time> {
     const projection = this.projection();
     if (projection === null) return;
     context.font = LABEL_FONT;
-    const labels = this.drawings.filter((d): d is Extract<ChartDrawing, { kind: "label" }> => d.kind === "label");
+    const visible = this.visibleDrawings();
+    const labels = visible.filter((d): d is Extract<ChartDrawing, { kind: "label" }> => d.kind === "label");
     if (labels.length > 0) paintLabels(context, projection, labels);
-    for (const drawing of this.drawings) if (drawing.kind === "table") paintTable(context, drawing.table, size);
+    for (const drawing of visible) if (drawing.kind === "table") paintTable(context, drawing.table, size);
   }
 
   private paintSmc(context: CanvasRenderingContext2D, { x, y }: Projection, drawing: Extract<ChartDrawing, { kind: "line" | "box" }>): void {

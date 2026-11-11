@@ -110,3 +110,22 @@ describe("LocalOrderBook sync (Binance 'manage a local order book')", () => {
     expect(book.updateId).toBe(9);
   });
 });
+
+describe("LocalOrderBook reads stay current between updates", () => {
+  test("should reflect every update in levels and best prices even after repeated reads", () => {
+    const book = new LocalOrderBook();
+    book.applySnapshot(snapshot(100, [["99", "2"], ["98", "1"]], [["101", "3"], ["102", "4"]]), 1000);
+    expect(book.bestBid).toBe(99);
+    expect(levels(book, "bid")).toEqual([[99, 2], [98, 1]]);
+
+    book.push(update(101, 101, [["100", "5"], ["99", "0"]], [["101", "0"]]));
+    expect(book.bestBid).toBe(100);
+    expect(book.bestAsk).toBe(102);
+    expect(levels(book, "bid")).toEqual([[100, 5], [98, 1]]);
+    expect(levels(book, "ask")).toEqual([[102, 4]]);
+
+    book.reset();
+    expect(book.bestBid).toBeUndefined();
+    expect(levels(book, "ask")).toEqual([]);
+  });
+});

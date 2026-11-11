@@ -6,6 +6,7 @@ import type { BookSide } from "@/lib/order-book";
 import type { DepthWallStyle, WallLabel } from "@/lib/chart-settings";
 import { paintWallByStyle } from "./depth-wall-painters";
 import { formatCompact } from "./footprint-primitive";
+import { claimChartFrame } from "./frame-budget";
 
 const RADIUS = { min: 5, max: 24 };
 // Bubble size is relative to a recent peak that halves every minute without a new one.
@@ -119,6 +120,7 @@ export class DepthWallsPrimitive implements ISeriesPrimitive<Time> {
     }
     this.lastFrameAt = performance.now();
     const step = (at: number) => {
+      if (!claimChartFrame(at)) { this.frame = requestAnimationFrame(step); return; }
       const t = 1 - Math.exp(-(at - this.lastFrameAt) / ANIMATION_TAU_MS);
       this.lastFrameAt = at;
       const settled = this.advance(t);

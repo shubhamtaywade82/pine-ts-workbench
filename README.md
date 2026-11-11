@@ -12,11 +12,11 @@ A complete TradingView replacement for Binance (and DhanHQ), built on [pine-ts](
 - **Deep history** — 5000 bars initial load via paged backward fetching (1000/request), with more pages loading as you scroll back
 - **Multi-chart grid** — 1/2/3/4/6/8/9/12/16 independent charts (TradingView Ultimate's 16-chart cap), each with its own symbol, timeframe, bars, indicators, and overlays
 - **13 drawing tools** — trendline, ray, extended line, horizontal/vertical line, parallel channel, fib retracement, rectangle, measure, long/short position (2:1 R:R with qty-for-risk sizing), text note, arrow
-- **Indicator registry** — 6 built-in indicators (SMA, EMA, RSI, MACD, Bollinger Bands, OBV) + custom indicators authored in TypeScript via the Pine editor with live preview
-- **Pine editor** — write custom indicators in TypeScript using the pine-ts API (`ta.*`, `ctx.*`) with sucrase transpilation + hot-reload + live preview on the chart
+- **Indicator registry** — 26 built-in indicators from pine-ts (SMA, EMA, WMA, HMA, ALMA, ALMA ribbon, RSI, MACD, Stochastic, CCI, MFI, Williams %R, DMI, ATR, Bollinger Bands, Keltner Channels, Parabolic SAR, Supertrend, ML Supertrend, MTF trend, VWAP, OBV, and SMC structure / order blocks / FVG / liquidity) + custom indicators authored in TypeScript via the TypeScript Editor with live preview
+- **TypeScript Editor** — write custom indicators in TypeScript using the pine-ts API (`ta.*`, `ctx.*`) with sucrase transpilation + hot-reload + live preview on the chart
 - **Strategy backtest** — write trading strategies in TypeScript, run them against historical bars via the StrategyEngine + built-in broker emulator, see P&L summary, equity curve, trade list, and trade markers on the chart
-- **Strategy-to-live bridge** — "Go Live" button submits the last bar's trading signal as a REAL order to Binance mainnet
-- **Live Binance broker** — order forms (market/limit/stop/stop-limit), confirmation dialog, account panel with auto-refreshing balance + open orders
+- **Kill switch** — after a typed confirmation, cancels every open order on the symbol and market-sells the held base asset on Binance (needs API keys + live trading enabled)
+- **Binance broker components** — order form (market/limit/stop/stop-limit) with confirmation and an account panel (balance + open orders) are built and tested but **not mounted** in the current UI
 - **Multi-condition alerts** — rules combine up to 5 conditions with AND (TradingView's alert builder); 12 condition kinds (RSI/price/SMA/MACD histogram/volume-vs-SMA/24h % change/script alert); open-ended rules that persist across reloads; per-bar dedupe; watchlist-level rules (symbol `*` fires on every watchlist symbol)
 - **Alert delivery** — 5 channels (webhook, Telegram, email, browser notifications, Binance broker action), fired-alerts history with per-sink delivery status
 - **Script runtime limits** — request.*() call-site quota of 40 (TradingView Ultimate parity, enforced in pine-ts) and a 100s script execution timeout on the worker
@@ -181,12 +181,13 @@ src/
 │   ├── chart/chart-cell.tsx         # Self-contained chart cell
 │   ├── chart/indicator-sidebar.tsx # Indicator catalog + config
 │   ├── trading/settings-dialog.tsx  # Binance API key config
-│   ├── trading/trading-panel.tsx    # Order form + confirmation
-│   ├── trading/account-panel.tsx    # Balance + open orders
+│   ├── trading/trading-panel.tsx    # Order form + confirmation (not mounted)
+│   ├── trading/account-panel.tsx    # Balance + open orders (not mounted)
+│   ├── trading/kill-switch.tsx      # Cancel all + flatten, typed confirmation
 │   ├── alerts/alert-settings-dialog.tsx  # Webhook/Telegram/Email/Broker config
 │   ├── alerts/alerts-panel.tsx      # Alert rules + fired alerts
 │   ├── editor/pine-editor.tsx       # TS editor + sucrase + hot-reload
-│   └── strategy/strategy-panel.tsx  # Strategy editor + backtest + Go Live
+│   └── strategy/strategy-panel.tsx  # Strategy Tester: backtest report
 ├── lib/
 │   ├── public-binance-feed.ts      # Coinbase REST + Binance WS
 │   ├── real-binance-trading-surface.ts  # Binance SDK adapter

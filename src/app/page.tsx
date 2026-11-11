@@ -21,9 +21,9 @@ import { TechnicalsPanel } from "@/components/technicals/technicals-panel";
 import { WatchlistPanel } from "@/components/chart/watchlist-panel";
 import type { ChartOverlay, TradeMarker } from "@/components/chart/chart-workbench";
 import { loadSettings, type BinanceSettings, DEFAULT_SETTINGS } from "@/components/trading/settings-dialog";
-import { loadAlertSettings, type AlertSettings, DEFAULT_ALERT_SETTINGS } from "@/lib/alert-sinks";
+import { buildSinks as buildAlertSinks, loadAlertSettings, type AlertSettings, DEFAULT_ALERT_SETTINGS } from "@/lib/alert-sinks";
 import {
-  buildSinks as buildAlertSinks, evaluateAlerts, loadAlertRules, saveAlertRules,
+  evaluateAlerts, loadAlertRules, saveAlertRules,
   loadFiredAlerts, saveFiredAlerts, type AlertRule, type FiredAlert,
 } from "@/lib/alert-engine";
 import { computeAlertContext } from "@/lib/alert-context";
@@ -275,7 +275,7 @@ export default function Home() {
               <div className="h-full border-l border-border">
                 {/* Hidden, not unmounted: the editor keeps running its script on the chart. */}
                 <div className={rightPanel === "editor" ? "h-full" : "hidden"}>
-                  <PineEditor {...editor.editorProps} onClose={() => setIsEditorOpen(false)} />
+                  <PineEditor {...editor.editorProps} isVisible={isEditorOpen && rightPanel === "editor"} onClose={() => setIsEditorOpen(false)} />
                 </div>
                 {rightPanel === "technicals" && (
                   <TechnicalsPanel key={grid.activeCell.symbol.binanceSymbol} symbol={grid.activeCell.symbol.binanceSymbol} initialInterval={grid.activeCell.interval} />

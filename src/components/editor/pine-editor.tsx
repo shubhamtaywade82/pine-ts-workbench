@@ -4,7 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Plus, Settings, Sparkles, X } from "lucide-react";
 import type { Bar, InputConfig, InputsBag, ScriptDrawings } from "@nemesis-oss/pine-ts";
 import { Button } from "@/components/ui/button";
-import { CodeEditor, type CodeError } from "@/components/editor/code-editor";
+import dynamic from "next/dynamic";
+import type { CodeError } from "@/components/editor/code-editor";
 import { OpenScriptDialog, ScriptMenu } from "@/components/editor/script-menu";
 import { AiScriptDialog } from "@/components/editor/ai-script-dialog";
 import { ScriptCompileError } from "@/lib/script-loader";
@@ -34,6 +35,8 @@ export interface PineEditorProps {
   readonly scripts: ScriptLibraryState;
   /** Opens the script's settings dialog (Inputs, Properties, Style, Visibility). */
   readonly onOpenSettings: () => void;
+  /** Whether the panel is on screen. The code view mounts on first show and then stays mounted. */
+  readonly isVisible?: boolean;
 }
 
 const DEFAULT_INDICATOR = `// Custom indicator — runs once per bar, like Pine Script.
@@ -49,6 +52,10 @@ indicator("RSI", ({ close, input, plot, hline }) => {
 `;
 
 export const SCRIPT_TEMPLATES: ScriptTemplates = { indicator: DEFAULT_INDICATOR, strategy: DEFAULT_STRATEGY };
+
+// CodeMirror (~1.4 MB) loads the first time the editor is shown; the script keeps running on the
+// chart without it, because running lives in this component, not in the editor view.
+const CodeEditor = dynamic(() => import("@/components/editor/code-editor").then((m) => m.CodeEditor), { ssr: false });
 
 // Where the editor kept its single indicator script before the library existed.
 const LEGACY_INDICATOR_KEY = "pine-ts-workbench-editor-code";
@@ -88,7 +95,10 @@ function useConsole() {
   return { lines, log };
 }
 
-export function PineEditor({ bars, onResults, onStrategyCode, onAddToChart, onClose, scripts, onOpenSettings }: PineEditorProps) {
+export function PineEditor({ bars, onResults, onStrategyCode, onAddToChart, onClose, scripts, onOpenSettings, isVisible = true }: PineEditorProps) {
+  // Latched during render (not in an effect): once shown, keep CodeMirror mounted so undo history survives.
+  const [hasShown, setHasShown] = useState(isVisible);
+  if (isVisible && !hasShown) setHasShown(true);
   const [prefs, setPrefs] = useEditorPrefs();
   const { autoRun, aiGhostText } = prefs;
   const [error, setError] = useState<CodeError | null>(null);
@@ -146,10 +156,12 @@ export function PineEditor({ bars, onResults, onStrategyCode, onAddToChart, onCl
           if (e.key === "Enter") { e.preventDefault(); e.stopPropagation(); addToChart(); }
         }}
       >
-        <CodeEditor
-          value={scripts.draft} onChange={scripts.setDraft} error={error}
-          aiGhostText={aiGhostText} fontSize={prefs.fontSize} wordWrap={prefs.wordWrap}
-        />
+        {hasShown && (
+          <CodeEditor
+            value={scripts.draft} onChange={scripts.setDraft} error={error}
+            aiGhostText={aiGhostText} fontSize={prefs.fontSize} wordWrap={prefs.wordWrap}
+          />
+        )}
       </div>
       {prefs.showConsole && <EditorConsole lines={lines} barCount={bars.length} onFixError={onFixWithAi} />}
       <OpenScriptDialog open={isOpenDialogOpen} onClose={() => setIsOpenDialogOpen(false)} scripts={scripts} />

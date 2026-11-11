@@ -18,6 +18,7 @@ import {
   type CandleSettingsInput,
   type CandleType,
 } from "@/lib/candle-themes";
+import { claimChartFrame } from "@/components/chart/frame-budget";
 
 const UP_COLOR = "#089981";
 const DOWN_COLOR = "#f23645";
@@ -132,6 +133,7 @@ export function useCandleSeries(
       const target = targetRef.current;
       const from = displayedRef.current;
       if (target === null || from === null) { animationRef.current = null; return; }
+      if (!claimChartFrame(now)) { animationRef.current = requestAnimationFrame(step); return; }
       const k = 1 - Math.exp(-(now - lastFrameAt) / SMOOTHING_TAU_MS);
       lastFrameAt = now;
       const nextClose = lerp(from.close, target.close, k);

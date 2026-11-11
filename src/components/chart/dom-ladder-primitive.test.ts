@@ -20,11 +20,10 @@ describe("ladder layout helpers", () => {
   });
 
   test("places the price column just right of the last bar and clamps it into the pane", () => {
-    // Bid bars (72 px) fit between the forming candle's right edge (405) plus a 4 px gap and the price column.
-    expect(ladderPriceColumnX(400, 10, 800, metrics)).toBe(405 + 4 + 72);
-    expect(ladderPriceColumnX(-200, 0, 800, metrics)).toBe(metrics.barMax);
-    expect(ladderPriceColumnX(790, 10, 800, metrics)).toBe(800 - (64 + 72 + 96));
-    expect(ladderPriceColumnX(null, 10, 800, metrics)).toBe(800 - (64 + 72 + 96));
+    // Pinned to the right edge: price column + ask bars + activity column fit inside the pane.
+    expect(ladderPriceColumnX(800, metrics)).toBe(800 - (64 + 72 + 96));
+    // A pane too narrow for the ladder still leaves room for the bid bars on the left.
+    expect(ladderPriceColumnX(100, metrics)).toBe(metrics.barMax);
   });
 
   test("formats quantities and the bucket width", () => {

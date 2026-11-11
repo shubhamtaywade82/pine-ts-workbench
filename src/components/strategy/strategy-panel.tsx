@@ -4,7 +4,13 @@ import { useEffect, useRef, useState } from "react";
 import { AlertCircle } from "lucide-react";
 import type { Bar } from "@nemesis-oss/pine-ts";
 import { runBacktest, type BacktestResult, type BacktestTrade } from "@/lib/strategy-runner";
-import { StrategyReport } from "@/components/strategy/strategy-report";
+import dynamic from "next/dynamic";
+
+// recharts (~1 MB) is only needed once a backtest has a result, not at startup.
+const StrategyReport = dynamic(
+  () => import("@/components/strategy/strategy-report").then((m) => m.StrategyReport),
+  { ssr: false, loading: () => <TesterMessage text="Loading report…" /> },
+);
 import type { ScriptSettings } from "@/lib/script-library";
 
 /**

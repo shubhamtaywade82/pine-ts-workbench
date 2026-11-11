@@ -7,6 +7,7 @@ import type { FlowParticle, TradeBatch } from "@/lib/trade-flow";
 import { nextParticles, particleFrame } from "@/lib/trade-flow";
 import { drawLadderStatus, paintLadder, placedRows } from "./dom-ladder-painters";
 import { ANIMATION_TAU_MS, easeToward, LADDER, ladderPriceColumnX } from "./dom-ladder-layout";
+import { claimChartFrame } from "./frame-budget";
 import { createFlowGeometry, formingCloseY, paintTradeFlow, prefersReducedMotion } from "./trade-flow-painter";
 
 const DIM_ALPHA = 0.35;
@@ -195,6 +196,8 @@ export class DomLadderPrimitive implements ISeriesPrimitive<Time> {
     if (this.frame !== null || typeof requestAnimationFrame === "undefined") return;
     this.lastFrameAt = performance.now();
     const step = (at: number) => {
+      // Skipped frames carry their time forward, so easing still covers the full elapsed span.
+      if (!claimChartFrame(at)) { this.frame = requestAnimationFrame(step); return; }
       const elapsed = at - this.lastFrameAt;
       this.lastFrameAt = at;
       const settled = this.advance(elapsed);
@@ -242,13 +245,7 @@ export class DomLadderPrimitive implements ISeriesPrimitive<Time> {
   }
 
   private originX(paneWidth: number): number {
-    const attached = this.attachedTo;
-    if (attached === null) return ladderPriceColumnX(null, 6, paneWidth, LADDER);
-    const scale = attached.chart.timeScale();
-    const lastIndex = attached.series.data().length - 1;
-    const lastX = lastIndex >= 0 ? scale.logicalToCoordinate(lastIndex as never) : null;
-    const spacing = scale.options().barSpacing ?? 6;
-    return ladderPriceColumnX(lastX, spacing, paneWidth, LADDER);
+    return ladderPriceColumnX(paneWidth, LADDER);
   }
 
   private paintFlow(context: CanvasRenderingContext2D, originX: number, toY: (price: number) => number | null): void {

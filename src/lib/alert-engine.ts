@@ -13,18 +13,12 @@
  *   in the watchlist (TradingView's 15 Ultimate watchlist alerts).
  */
 
-import type { BinanceSettings } from "@/components/trading/settings-dialog";
-import {
-  BrokerActionSink,
-  BrowserNotificationSink,
-  EmailSink,
-  TelegramSink,
-  WebhookSink,
-  type AlertDeliveryResult,
-  type AlertEvent,
-  type AlertSink,
-} from "./alert-sink-transports";
+import type { AlertDeliveryResult, AlertEvent, AlertSink } from "./alert-sink-transports";
 import { loadWatchlist, findSymbol, type SymbolOption } from "./symbol-catalog";
+import type { FiredAlert } from "./alert-sinks";
+
+// Delivery (settings, sinks, script-alert dispatch) lives in alert-sinks; this module owns the rules.
+export type { FiredAlert } from "./alert-sinks";
 
 export type {
   AlertDeliveryResult,
@@ -105,10 +99,6 @@ export interface AlertRule {
   readonly lastFiredAt?: string;
 }
 
-export interface FiredAlert {
-  readonly event: AlertEvent;
-  readonly deliveries: readonly AlertDeliveryResult[];
-}
 
 /** TradingView Ultimate caps multi-condition alerts at 5 conditions. */
 export const MAX_CONDITIONS_PER_RULE = 5;
@@ -341,117 +331,4 @@ export const saveFiredAlerts = (fired: readonly FiredAlert[]): void => {
   try {
     window.localStorage.setItem(FIRED_KEY, JSON.stringify(fired.slice(0, FIRED_HISTORY_LIMIT)));
   } catch { /* storage unavailable */ }
-};
-
-// ---------------------------------------------------------------------------
-// Settings + sinks (re-exported from the Wave 16 transports)
-// ---------------------------------------------------------------------------
-
-const ALERT_SETTINGS_KEY = "pine-ts-workbench-alert-settings";
-
-export interface AlertSettings {
-  readonly webhookUrl: string;
-  readonly webhookHeaders: string;
-  readonly telegramBotToken: string;
-  readonly telegramChatId: string;
-  readonly emailWebhookUrl: string;
-  readonly emailRecipient: string;
-  readonly browserNotificationsEnabled: boolean;
-  readonly brokerActionEnabled: boolean;
-  readonly brokerActionSide: "BUY" | "SELL";
-  readonly brokerActionQty: number;
-}
-
-export const DEFAULT_ALERT_SETTINGS: AlertSettings = {
-  webhookUrl: "",
-  webhookHeaders: "",
-  telegramBotToken: "",
-  telegramChatId: "",
-  emailWebhookUrl: "",
-  emailRecipient: "",
-  browserNotificationsEnabled: true,
-  brokerActionEnabled: false,
-  brokerActionSide: "SELL",
-  brokerActionQty: 0.001,
-};
-
-export const loadAlertSettings = (): AlertSettings => {
-  if (typeof window === "undefined") return DEFAULT_ALERT_SETTINGS;
-  try {
-    const raw = window.localStorage.getItem(ALERT_SETTINGS_KEY);
-    if (raw === null) return DEFAULT_ALERT_SETTINGS;
-    return { ...DEFAULT_ALERT_SETTINGS, ...(JSON.parse(raw) as Partial<AlertSettings>) };
-  } catch {
-    return DEFAULT_ALERT_SETTINGS;
-  }
-};
-
-export const saveAlertSettings = (settings: AlertSettings): void => {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.setItem(ALERT_SETTINGS_KEY, JSON.stringify(settings));
-  } catch { /* storage unavailable */ }
-};
-
-export const buildSinks = (alert: AlertSettings, binance: BinanceSettings): AlertSink[] => {
-  const sinks: AlertSink[] = [
-    new WebhookSink({ url: alert.webhookUrl, headers: alert.webhookHeaders }),
-    new TelegramSink({ botToken: alert.telegramBotToken, chatId: alert.telegramChatId }),
-    new EmailSink({ webhookUrl: alert.emailWebhookUrl, recipient: alert.emailRecipient }),
-    new BrowserNotificationSink(alert.browserNotificationsEnabled),
-  ];
-  if (alert.brokerActionEnabled) {
-    sinks.push(new BrokerActionSink({
-      binanceSettings: binance,
-      side: alert.brokerActionSide,
-      quantity: alert.brokerActionQty,
-      orderType: "MARKET",
-    }));
-  }
-  return sinks;
-};
-
-export function formatScriptAlertMessage(rawMessage: string): { message: string; action?: string } {
-  try {
-    const parsed = JSON.parse(rawMessage) as Record<string, unknown>;
-    if (parsed && typeof parsed === "object" && typeof parsed.event === "string") {
-      const parts = [`[${parsed.event}]`];
-      if (parsed.side) parts.push(String(parsed.side));
-      if (parsed.setup) parts.push(`Setup: ${parsed.setup}`);
-      if (parsed.entry) parts.push(`Entry: ${parsed.entry}`);
-      if (parsed.sl) parts.push(`SL: ${parsed.sl}`);
-      if (parsed.tp1 || parsed.tp2) parts.push(`TP: ${parsed.tp1 ?? parsed.tp2}`);
-      if (parsed.score) parts.push(`Score: ${parsed.score}`);
-      const action = parsed.side ? `${String(parsed.side).toUpperCase()} MARKET` : undefined;
-      return { message: parts.join(" | "), action };
-    }
-  } catch {
-    // Not a JSON payload; use as raw text.
-  }
-  return { message: rawMessage };
-}
-
-export const dispatchScriptAlerts = async (
-  rawAlerts: readonly { readonly message: string; readonly barIndex?: number; readonly barTime?: number }[],
-  sinks: readonly AlertSink[],
-  symbol: string,
-): Promise<FiredAlert[]> => {
-  const fired: FiredAlert[] = [];
-  for (const item of rawAlerts) {
-    const { message, action } = formatScriptAlertMessage(item.message);
-    const event: AlertEvent = {
-      id: `alert-script-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      timestamp: new Date().toISOString(),
-      symbol,
-      condition: "script_alert",
-      value: 0,
-      threshold: 0,
-      action,
-      message,
-    };
-    const deliveries: AlertDeliveryResult[] = [];
-    for (const sink of sinks) deliveries.push(await sink.deliver(event));
-    fired.push({ event, deliveries });
-  }
-  return fired;
 };

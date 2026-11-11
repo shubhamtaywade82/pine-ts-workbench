@@ -234,7 +234,7 @@ describe("rightOffsetPx", () => {
 
   test("should reserve room for the DOM ladder when it is enabled", () => {
     const dom = { ...DEFAULT_CHART_SETTINGS.trading.dom, enabled: true };
-    expect(rightOffsetPx(withTrading({ showOrderBookWalls: true, dom }))).toBe(320);
+    expect(rightOffsetPx(withTrading({ showOrderBookWalls: true, dom }))).toBe(370);
   });
 
   test("should keep the user's larger offset and fall back to it when overlays are off", () => {

@@ -136,13 +136,15 @@ export function ChartCell({
 
   const dispatchedAlertKeysRef = useRef(new Set<string>());
   useEffect(() => {
-    const sinks = buildSinks(loadAlertSettings(), loadBinanceSettings());
+    // Built only when an alert actually fires: parsing both settings stores on every run is wasted work.
+    let sinks: ReturnType<typeof buildSinks> | undefined;
     for (const [id, res] of Object.entries(runResults)) {
       if (!res.alerts || res.alerts.length === 0) continue;
       const lastAlert = res.alerts[res.alerts.length - 1]!;
       const key = `${id}:${lastAlert.barIndex ?? visibleBars.length}:${lastAlert.message}`;
       if (!dispatchedAlertKeysRef.current.has(key)) {
         dispatchedAlertKeysRef.current.add(key);
+        sinks ??= buildSinks(loadAlertSettings(), loadBinanceSettings());
         void dispatchScriptAlerts([lastAlert], sinks, symbol.displayName);
         const { message } = formatScriptAlertMessage(lastAlert.message);
         toast({ title: `[${symbol.displayName}] Alert`, description: message });

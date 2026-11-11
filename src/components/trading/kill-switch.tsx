@@ -12,7 +12,7 @@ import {
 } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Power } from "lucide-react";
-import { RealBinanceTradingSurface, type BinanceOpenOrder } from "@/lib/real-binance-trading-surface";
+import type { BinanceOpenOrder } from "@/lib/real-binance-trading-surface";
 import type { BinanceSettings } from "@/components/trading/settings-dialog";
 
 /**
@@ -42,6 +42,8 @@ export function KillSwitch({ symbol, settings }: { symbol: string; settings: Bin
     setRunning(true);
     setResults(null);
     const out: KillStepResult[] = [];
+    // The toolbar always shows this button; the Binance SDK loads only when it is actually used.
+    const { RealBinanceTradingSurface } = await import("@/lib/real-binance-trading-surface");
     const surface = new RealBinanceTradingSurface({
       apiKey: settings.apiKey,
       apiSecret: settings.apiSecret,

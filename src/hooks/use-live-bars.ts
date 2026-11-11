@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Bar } from "@nemesis-oss/pine-ts";
 import {
   fetchDeepHistoryBars,
@@ -23,6 +23,9 @@ const OLDER_PAGE_BARS = 1000;
 // React snapshot only feeds indicators/editor/backtest. 1/s keeps that work
 // off the main thread between ticks without making those panels feel stale.
 const SNAPSHOT_INTERVAL_MS = 1_000;
+// React (and every indicator re-run) sees the forming candle at most this often; the chart itself
+// draws every tick through `subscribe`, outside React.
+const INTRABAR_PUBLISH_MS = 5_000;
 const RECONNECT_DELAY_MS = 3_000;
 
 export type LiveStatus = "loading" | "live" | "reconnecting";
@@ -56,6 +59,33 @@ export interface LiveBars {
   /** Live trades with id and aggressor. Footprint listens here; bar updates stay on `subscribe`. */
   readonly subscribeTrades: (listener: (trade: LiveTrade) => void) => () => void;
 }
+
+/** Health badge values at heartbeat time `now`. Tick time is read from a ref, so trades cost no render. */
+export const feedHealth = (input: {
+  readonly lastTickAt: number | undefined;
+  readonly now: number;
+  readonly status: LiveStatus;
+  readonly intervalMs: number;
+  readonly gapCount: number;
+  readonly lastBarTime: number | undefined;
+}): FeedHealth => {
+  const lastTickAgeMs = input.lastTickAt === undefined ? undefined : input.now - input.lastTickAt;
+  return {
+    lastTickAgeMs,
+    isStale: input.status === "live" && lastTickAgeMs !== undefined && lastTickAgeMs > input.intervalMs * 3,
+    gapCount: input.gapCount,
+    lastBarTime: input.lastBarTime,
+  };
+};
+
+/** True when React must see `next`: a bar opened or closed, or history changed — not an intrabar tick. */
+export const shouldPublishBars = (prev: readonly Bar[], next: readonly Bar[]): boolean => {
+  if (prev === next) return false;
+  if (prev.length !== next.length || prev[0]?.time !== next[0]?.time) return true;
+  const before = prev.at(-1);
+  const after = next.at(-1);
+  return before?.time !== after?.time || before?.isClosed !== after?.isClosed;
+};
 
 /** Keeps `existing` bars older than `fresh` (scroll-back history survives a reconnect), then `fresh`. */
 const withOlderHistory = (existing: readonly Bar[], fresh: readonly Bar[]): readonly Bar[] => {
@@ -115,8 +145,13 @@ export function useLiveBars(symbol: BinanceSymbol, interval: ChartInterval, enab
   const [bars, setBars] = useState<readonly Bar[]>([]);
   const [status, setStatus] = useState<LiveStatus>("loading");
   const [error, setError] = useState<string | null>(null);
-  const [lastTickAt, setLastTickAt] = useState<number | undefined>(undefined);
-  const [nowTick, setNowTick] = useState(() => Date.now());
+  // A ref, not state: every trade updates it, and only the 1 s heartbeat renders the age.
+  const lastTickAtRef = useRef<number | undefined>(undefined);
+  const lastPublishAtRef = useRef(0);
+  // The heartbeat copies the ref here once a second, so render never reads a mutable ref.
+  const [heartbeat, setHeartbeat] = useState<{ now: number; lastTickAt: number | undefined }>(
+    () => ({ now: Date.now(), lastTickAt: undefined }),
+  );
   const [attempt, setAttempt] = useState(0);
   // Working copy updated on every message; React state is synced from it on a timer.
   const workingRef = useRef<readonly Bar[]>([]);
@@ -160,8 +195,15 @@ export function useLiveBars(symbol: BinanceSymbol, interval: ChartInterval, enab
   useEffect(() => {
     let isCancelled = false;
     let closeStream: (() => void) | null = null;
-    // Same array reference → React skips the render, so idle ticks cost nothing.
-    const snapshotTimer = setInterval(() => setBars(workingRef.current), SNAPSHOT_INTERVAL_MS);
+    const snapshotTimer = setInterval(() => setBars((prev) => {
+      const next = workingRef.current;
+      const now = Date.now();
+      const isDue = prev !== next && now - lastPublishAtRef.current >= INTRABAR_PUBLISH_MS;
+      // Returning `prev` makes React skip the render entirely.
+      if (!shouldPublishBars(prev, next) && !isDue) return prev;
+      lastPublishAtRef.current = now;
+      return next;
+    }), SNAPSHOT_INTERVAL_MS);
 
     const scheduleReconnect = () => {
       if (isCancelled) return;
@@ -177,21 +219,21 @@ export function useLiveBars(symbol: BinanceSymbol, interval: ChartInterval, enab
       if (isCancelled) return;
       workingRef.current = withOlderHistory(workingRef.current, history);
       setBars(workingRef.current);
-      setLastTickAt(Date.now());
+      lastTickAtRef.current = Date.now();
       scheduleNotify();
       closeStream = openMarketStream(symbol, interval, {
-        onOpen: () => { setStatus("live"); setError(null); setLastTickAt(Date.now()); },
+        onOpen: () => { setStatus("live"); setError(null); lastTickAtRef.current = Date.now(); },
         onClose: scheduleReconnect,
         onKline: (bar) => {
           workingRef.current = mergeBar(workingRef.current, bar);
-          setLastTickAt(Date.now());
+          lastTickAtRef.current = Date.now();
           scheduleNotify();
         },
         onTrade: (trade) => {
           const forming = workingRef.current[workingRef.current.length - 1];
           if (forming !== undefined && trade.time >= forming.time) {
             workingRef.current = mergeBar(workingRef.current, applyTrade(forming, trade, INTERVAL_MS[interval]));
-            setLastTickAt(Date.now());
+            lastTickAtRef.current = Date.now();
             scheduleNotify();
           }
           for (const listener of tradeListenersRef.current) listener(trade);
@@ -237,18 +279,21 @@ export function useLiveBars(symbol: BinanceSymbol, interval: ChartInterval, enab
 
   // A 1s heartbeat drives the tick-age counter on the health badge.
   useEffect(() => {
-    const t = setInterval(() => setNowTick(Date.now()), 1_000);
+    const t = setInterval(() => setHeartbeat({ now: Date.now(), lastTickAt: lastTickAtRef.current }), 1_000);
     return () => clearInterval(t);
   }, []);
 
   const intervalMs = INTERVAL_MS[interval];
-  const lastTickAgeMs = lastTickAt === undefined ? undefined : nowTick - lastTickAt;
-  const health: FeedHealth = {
-    lastTickAgeMs,
-    isStale: status === "live" && lastTickAgeMs !== undefined && lastTickAgeMs > intervalMs * 3,
-    gapCount: bars.length > 1 ? countBarGaps(bars, intervalMs) : 0,
+  // Scanning 5,000 bars once per bars change, not once per render.
+  const gapCount = useMemo(() => (bars.length > 1 ? countBarGaps(bars, intervalMs) : 0), [bars, intervalMs]);
+  const health = feedHealth({
+    lastTickAt: heartbeat.lastTickAt,
+    now: heartbeat.now,
+    status,
+    intervalMs,
+    gapCount,
     lastBarTime: bars.at(-1)?.time,
-  };
+  });
 
   return { bars, status, error, health, loadOlder, subscribe, subscribeTrades };
 }

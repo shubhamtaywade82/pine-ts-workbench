@@ -26,24 +26,6 @@ export {
   WebhookSink,
 } from "./alert-sink-transports";
 
-export type AlertCondition =
-  | "rsi_above"
-  | "rsi_below"
-  | "price_above_sma"
-  | "price_below_sma"
-  | "macd_hist_positive"
-  | "macd_hist_negative"
-  | "script_alert";
-
-export interface AlertRule {
-  readonly id: string;
-  readonly condition: AlertCondition;
-  readonly threshold: number;
-  readonly actionSide?: "BUY" | "SELL";
-  readonly actionQty?: number;
-  readonly enabled: boolean;
-}
-
 export interface FiredAlert {
   readonly event: AlertEvent;
   readonly deliveries: readonly AlertDeliveryResult[];
@@ -87,65 +69,6 @@ export const dispatchScriptAlerts = async (
       action,
       message,
     };
-    const deliveries: AlertDeliveryResult[] = [];
-    for (const sink of sinks) {
-      deliveries.push(await sink.deliver(event));
-    }
-    fired.push({ event, deliveries });
-  }
-  return fired;
-};
-
-const checkCondition = (
-  rule: AlertRule,
-  ctx: { rsi?: number; sma?: number; macdHist?: number; price: number },
-): { value: number } | undefined => {
-  switch (rule.condition) {
-    case "rsi_above":
-      return ctx.rsi !== undefined && ctx.rsi > rule.threshold ? { value: ctx.rsi } : undefined;
-    case "rsi_below":
-      return ctx.rsi !== undefined && ctx.rsi < rule.threshold ? { value: ctx.rsi } : undefined;
-    case "price_above_sma":
-      return ctx.sma !== undefined && ctx.price > ctx.sma ? { value: ctx.price } : undefined;
-    case "price_below_sma":
-      return ctx.sma !== undefined && ctx.price < ctx.sma ? { value: ctx.price } : undefined;
-    case "macd_hist_positive":
-      return ctx.macdHist !== undefined && ctx.macdHist > rule.threshold ? { value: ctx.macdHist } : undefined;
-    case "macd_hist_negative":
-      return ctx.macdHist !== undefined && ctx.macdHist < rule.threshold ? { value: ctx.macdHist } : undefined;
-    default:
-      return undefined;
-  }
-};
-
-export const evaluateAlerts = async (
-  rules: readonly AlertRule[],
-  sinks: readonly AlertSink[],
-  context: {
-    readonly symbol: string;
-    readonly rsi?: number;
-    readonly sma?: number;
-    readonly macdHist?: number;
-    readonly price: number;
-  },
-): Promise<FiredAlert[]> => {
-  const fired: FiredAlert[] = [];
-  for (const rule of rules) {
-    if (!rule.enabled) continue;
-    const triggered = checkCondition(rule, context);
-    if (triggered === undefined) continue;
-
-    const event: AlertEvent = {
-      id: `alert-${Date.now()}-${rule.id}`,
-      timestamp: new Date().toISOString(),
-      symbol: context.symbol,
-      condition: rule.condition,
-      value: triggered.value,
-      threshold: rule.threshold,
-      action: rule.actionSide ? `${rule.actionSide} ${rule.actionQty ?? 0} MARKET` : undefined,
-      message: `${context.symbol} ${rule.condition} at ${triggered.value.toFixed(2)} (threshold ${rule.threshold})`,
-    };
-
     const deliveries: AlertDeliveryResult[] = [];
     for (const sink of sinks) {
       deliveries.push(await sink.deliver(event));

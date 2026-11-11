@@ -31,16 +31,16 @@ test.describe("Pine-TS Workbench E2E", () => {
     await expect(searchInput).not.toBeVisible();
   });
 
-  test("toggles the Pine Editor and Strategy Tester panels", async ({ page }) => {
+  test("toggles the TypeScript Editor and Strategy Tester panels", async ({ page }) => {
     await page.goto("/");
 
-    // Toggle Pine Editor from bottom footer
+    // Toggle TypeScript Editor from bottom footer
     const footer = page.getByRole("contentinfo");
-    const editorBtn = footer.getByRole("button", { name: "Pine Editor" });
+    const editorBtn = footer.getByRole("button", { name: "TypeScript Editor" });
     await expect(editorBtn).toBeVisible();
     await editorBtn.click();
 
-    // Pine Editor panel displays Add to chart button
+    // TypeScript Editor panel displays Add to chart button
     const addToChartBtn = page.getByRole("button", { name: "Add to chart" });
     await expect(addToChartBtn).toBeVisible({ timeout: 5_000 });
 
@@ -50,7 +50,7 @@ test.describe("Pine-TS Workbench E2E", () => {
     await testerBtn.click();
 
     // Strategy Tester contains report placeholder or overview
-    const testerContent = page.getByText(/Run a strategy from the Pine Editor|Overview|Performance/i).first();
+    const testerContent = page.getByText(/Run a strategy from the TypeScript Editor|Overview|Performance/i).first();
     await expect(testerContent).toBeVisible({ timeout: 5_000 });
   });
 

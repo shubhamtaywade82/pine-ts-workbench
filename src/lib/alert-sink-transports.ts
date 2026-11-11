@@ -1,5 +1,4 @@
 import type { BinanceSettings } from "@/components/trading/settings-dialog";
-import { RealBinanceTradingSurface } from "@/lib/real-binance-trading-surface";
 
 export interface AlertEvent {
   readonly id: string;
@@ -130,6 +129,8 @@ export class BrokerActionSink implements AlertSink {
       return { sinkId: this.id, sinkName: this.name, status: "skipped", message: "Live trading disabled or unconfigured", timestamp: new Date().toISOString() };
     }
     try {
+      // Loaded on first use: the Binance SDK is the largest chunk in the app and most alerts never trade.
+      const { RealBinanceTradingSurface } = await import("@/lib/real-binance-trading-surface");
       const surface = new RealBinanceTradingSurface({ apiKey: s.apiKey, apiSecret: s.apiSecret, liveTradeEnabled: s.liveTradeEnabled });
       const res = await surface.newOrder({
         symbol: event.symbol,
