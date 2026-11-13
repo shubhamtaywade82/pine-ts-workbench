@@ -9,7 +9,7 @@ import { fallbackTickSize, loadTickSize } from "@/lib/symbol-catalog";
 import type { ChartSettings } from "@/lib/chart-settings";
 import { LevelActivity } from "@/lib/level-activity";
 import { FlowScale, TradeFlowBatcher } from "@/lib/trade-flow";
-import { formatBucketWidth } from "@/components/chart/dom-ladder-layout";
+import { autoBucketTicks, formatBucketWidth, priceViewOf, type PriceView } from "@/components/chart/dom-ladder-layout";
 import { DomLadderPrimitive, type DomLadderBuckets, type LadderWall } from "@/components/chart/dom-ladder-primitive";
 
 /** Ignore mid noise smaller than this fraction of the registered window. */
@@ -20,30 +20,28 @@ const lastClose = (series: ISeriesApi<SeriesType>): number | undefined => {
   const price = bar?.close ?? bar?.value;
   return typeof price === "number" && price > 0 ? price : undefined;
 };
-const windowPctFor = (price: number, tickSize: number, bucketTicks: number, visibleBuckets: number): number =>
-  ((visibleBuckets / 2) * bucketTicks * tickSize / price) * 100;
+/** Depth wanted each side of `mid` so the book reaches both edges of the visible price range. */
+const windowPctFor = (mid: number, view: PriceView): number =>
+  (Math.max(view.high - mid, mid - view.low) / mid) * 100;
 interface TickBox { tick: number | undefined }
 interface DomParams {
-  bucketTicks: number; visibleBuckets: number; wallWindowPct: number;
-  minWallNotional: number; wallTopN: number; flowAnimation: boolean;
+  wallWindowPct: number; minWallNotional: number; wallTopN: number; flowAnimation: boolean;
 }
 interface AppliedWindow { pct: number | undefined }
 const bucketsFrom = (
   state: DepthFeedState,
   tickBox: TickBox,
   bucketTicks: number,
-  visibleBuckets: number,
+  view: PriceView,
 ): { bids: PriceBucket[]; asks: PriceBucket[] } | undefined => {
   const book = state.book;
   if (state.status !== "live" || book?.bestBid === undefined || book.bestAsk === undefined) return undefined;
   if (tickBox.tick === undefined) tickBox.tick = fallbackTickSize(book.bestBid);
-  const mid = (book.bestBid + book.bestAsk) / 2;
-  const half = (visibleBuckets / 2) * bucketTicks * tickBox.tick;
   const options = {
     tickSize: tickBox.tick,
     bucketTicks,
-    low: Math.max(mid - half, book.coverage.bidFloor),
-    high: Math.min(mid + half, book.coverage.askCeiling),
+    low: Math.max(view.low, book.coverage.bidFloor),
+    high: Math.min(view.high, book.coverage.askCeiling),
   };
   return { bids: bucketize(book.levels("bid"), options), asks: bucketize(book.levels("ask"), options) };
 };
@@ -52,25 +50,19 @@ interface DomRun {
   readonly primitive: DomLadderPrimitive; readonly knownTick: number | undefined;
   readonly subscribeTrades?: (listener: (trade: LiveTrade) => void) => () => void;
 }
-interface WindowView { readonly params: DomParams; readonly applied: AppliedWindow }
-const openingWindow = (series: ISeriesApi<SeriesType>, knownTick: number | undefined, params: DomParams): number | undefined => {
+const openingWindow = (series: ISeriesApi<SeriesType>): number | undefined => {
   const price = lastClose(series);
-  if (price === undefined) return undefined;
-  const tick = knownTick ?? fallbackTickSize(price);
-  return windowPctFor(price, tick, params.bucketTicks, params.visibleBuckets);
+  const view = priceViewOf(series);
+  return price === undefined || view === undefined ? undefined : windowPctFor(price, view);
 };
-const publishWindow = (subscription: BookSubscription, price: number, tick: number, view: WindowView): void => {
-  const next = windowPctFor(price, tick, view.params.bucketTicks, view.params.visibleBuckets);
-  const previous = view.applied.pct;
-  if (previous !== undefined && Math.abs(next - previous) <= previous * WINDOW_DRIFT) return;
-  subscription.setWindow(next);
-  view.applied.pct = next;
-};
-const syncWindow = (state: DepthFeedState, tickBox: TickBox, subscription: BookSubscription, view: WindowView): void => {
+const syncWindow = (state: DepthFeedState, subscription: BookSubscription, view: PriceView, applied: AppliedWindow): void => {
   const book = state.book;
   if (state.status !== "live" || book?.bestBid === undefined || book.bestAsk === undefined) return;
-  if (tickBox.tick === undefined) tickBox.tick = fallbackTickSize(book.bestBid);
-  publishWindow(subscription, (book.bestBid + book.bestAsk) / 2, tickBox.tick, view);
+  const next = windowPctFor((book.bestBid + book.bestAsk) / 2, view);
+  const previous = applied.pct;
+  if (previous !== undefined && Math.abs(next - previous) <= previous * WINDOW_DRIFT) return;
+  subscription.setWindow(next);
+  applied.pct = next;
 };
 const shownBuckets = (
   state: DepthFeedState,
@@ -91,27 +83,28 @@ interface LadderSession {
   wallsSub: { setOptions: (options: WallOptions) => void; unsubscribe: () => void } | null;
   wallOptions: WallOptions; shown: DomLadderBuckets;
   latest: DepthFeedState | undefined; walls: LadderWall[];
-  lastPrice: number | undefined; bucketTicks: number;
+  lastPrice: number | undefined;
+  /** Ticks per row, derived from the chart zoom on every paint. */
+  bucketTicks: number; view: PriceView | undefined;
 }
 const trackBook = (session: LadderSession, state: DepthFeedState): void => {
   session.latest = state;
-  const { bucketTicks, visibleBuckets } = session.params.current;
-  if (session.bucketTicks !== bucketTicks || state.status !== "live") {
+  if (state.status !== "live") {
     // Diffing the order book across a resync would invent fake pulls.
     session.activity.reset();
-    session.bucketTicks = bucketTicks;
+    return;
   }
-  if (state.status !== "live") return;
-  const next = bucketsFrom(state, session.tickBox, bucketTicks, visibleBuckets);
+  if (session.view === undefined) return;
+  const next = bucketsFrom(state, session.tickBox, session.bucketTicks, session.view);
   if (next !== undefined) session.activity.observeBook(Date.now(), next.bids, next.asks);
 };
-const publishLadder = (session: LadderSession, shown: DomLadderBuckets, bucketTicks: number): void => {
+const publishLadder = (session: LadderSession, shown: DomLadderBuckets): void => {
   const activity = [...session.activity.levels(Date.now())].map(([key, flow]) => ({
     key, bought: flow.bought, sold: flow.sold, pulled: flow.pulled,
   }));
   session.run.primitive.setBuckets({
     ...shown, activity, walls: session.walls, lastPrice: session.lastPrice,
-    bucketLabel: formatBucketWidth((session.tickBox.tick ?? 0) * bucketTicks),
+    bucketLabel: formatBucketWidth((session.tickBox.tick ?? 0) * session.bucketTicks),
     flowAnimation: session.params.current.flowAnimation,
   });
 };
@@ -130,23 +123,36 @@ const drainFlow = (session: LadderSession): void => {
   const scale = session.flowScale.thresholds();
   session.run.primitive.pushTrades(batches, scale?.minQuantity, scale?.referenceQuantity);
 };
+/** Re-reads the visible price range and re-derives the bucket; a new bucket restarts the activity column. */
+const refreshView = (session: LadderSession): PriceView | undefined => {
+  const view = priceViewOf(session.run.series);
+  if (view === undefined) return undefined;
+  session.view = view;
+  const tick = (session.tickBox.tick ??= fallbackTickSize((view.low + view.high) / 2));
+  const next = autoBucketTicks(view.pricePerPx, tick, session.bucketTicks);
+  if (next !== session.bucketTicks) {
+    session.activity.reset();
+    session.bucketTicks = next;
+  }
+  return view;
+};
 const paintSession = (session: LadderSession): void => {
   const { latest, subscription } = session;
   if (latest === undefined || subscription === null) return;
-  const { bucketTicks, visibleBuckets } = session.params.current;
-  syncWindow(latest, session.tickBox, subscription, { params: session.params.current, applied: session.applied });
-  const next = bucketsFrom(latest, session.tickBox, bucketTicks, visibleBuckets);
+  const view = refreshView(session);
+  if (view === undefined) return;
+  syncWindow(latest, subscription, view, session.applied);
+  const next = bucketsFrom(latest, session.tickBox, session.bucketTicks, view);
   session.shown = shownBuckets(latest, next, session.shown);
   syncWallOptions(session);
   drainFlow(session);
-  publishLadder(session, session.shown, bucketTicks);
+  publishLadder(session, session.shown);
 };
 const noteTrade = (session: LadderSession, trade: LiveTrade): void => {
   if (session.latest?.status !== "live") return;
   const tick = session.tickBox.tick;
   if (tick === undefined) return;
-  const bucketTicks = session.params.current.bucketTicks;
-  const key = priceBucketKey(trade.price, tick, bucketTicks);
+  const key = priceBucketKey(trade.price, tick, session.bucketTicks);
   // Stamp trades with local receive time so they share the book's clock.
   session.activity.observeTrade({ ...trade, time: Date.now() }, key);
   session.lastPrice = trade.price;
@@ -195,10 +201,10 @@ const startDom = (run: DomRun, params: { current: DomParams }, refresh: { curren
   const wallOptions = wallOptionsFor(params.current.wallWindowPct, params.current.minWallNotional, params.current.wallTopN);
   const session: LadderSession = {
     run, params, tickBox: { tick: run.knownTick },
-    applied: { pct: openingWindow(run.series, run.knownTick, params.current) },
+    applied: { pct: openingWindow(run.series) },
     activity: new LevelActivity(), subscription: null, wallsSub: null, wallOptions,
     shown: { status: "syncing", bids: [], asks: [] }, latest: undefined, walls: [],
-    lastPrice: undefined, bucketTicks: params.current.bucketTicks,
+    lastPrice: undefined, bucketTicks: 1, view: undefined,
     batcher: new TradeFlowBatcher(150), flowScale: new FlowScale(), windowTimer: null,
   };
   return bindFeeds(session, refresh);
@@ -264,15 +270,15 @@ export function useDomLadder(
   tradingSettings: ChartSettings["trading"],
   extras?: DomExtras,
 ): void {
-  const { enabled, bucketTicks, visibleBuckets, flowAnimation } = tradingSettings.dom;
+  const { enabled, flowAnimation } = tradingSettings.dom;
   const { wallWindowPct, minWallNotional, wallTopN } = tradingSettings;
   const slot = useRef<DomHolders["slot"]["current"]>(null);
-  const params = useRef<DomParams>({ bucketTicks, visibleBuckets, wallWindowPct, minWallNotional, wallTopN, flowAnimation });
+  const params = useRef<DomParams>({ wallWindowPct, minWallNotional, wallTopN, flowAnimation });
   const refresh = useRef<() => void>(() => undefined);
   useEffect(() => {
-    params.current = { bucketTicks, visibleBuckets, wallWindowPct, minWallNotional, wallTopN, flowAnimation };
+    params.current = { wallWindowPct, minWallNotional, wallTopN, flowAnimation };
     refresh.current();
-  }, [bucketTicks, visibleBuckets, wallWindowPct, minWallNotional, wallTopN, flowAnimation]);
+  }, [wallWindowPct, minWallNotional, wallTopN, flowAnimation]);
   useEffect(() => {
     const candle = candlestickRef.current;
     if (candle === null) return;

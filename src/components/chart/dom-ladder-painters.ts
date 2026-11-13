@@ -14,6 +14,8 @@ const SOLD_COLOR = "#f0a202";
 const PULLED_COLOR = "#e6c200";
 const PRICE_COLOR = "#d1d4dc";
 const MUTED = "#b2b5be";
+// Below the cell's live/replay badge row, which is HTML drawn over the top of the pane.
+const HEADING_TOP_PX = 30;
 const HATCH_GAP_PX = 6;
 const HATCH_COLOR = "rgba(178, 181, 190, 0.35)";
 const FONT = "10px -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, sans-serif";
@@ -130,7 +132,7 @@ const drawHeading = (paint: LadderPaint): void => {
   context.fillStyle = MUTED;
   context.textAlign = "left";
   context.textBaseline = "top";
-  context.fillText(`Live order book (waiting, per ${paint.bucketLabel} )`, x, 6);
+  context.fillText(`Live order book (waiting, per ${paint.bucketLabel} )`, x, HEADING_TOP_PX);
   context.font = FONT;
   const parts = [
     { text: "buyers waiting · bought", color: BID_COLOR },
@@ -140,7 +142,7 @@ const drawHeading = (paint: LadderPaint): void => {
   let cursor = x;
   for (const part of parts) {
     context.fillStyle = part.color;
-    context.fillText(part.text, cursor, 22);
+    context.fillText(part.text, cursor, HEADING_TOP_PX + 16);
     cursor += context.measureText(part.text).width + 10;
   }
 };

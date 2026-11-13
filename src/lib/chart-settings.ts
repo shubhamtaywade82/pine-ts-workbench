@@ -204,7 +204,6 @@ export const toChartOptions = (settings: ChartSettings): DeepPartial<ChartOption
       horzLines: { visible: canvas.showHorzGrid, color: canvas.gridColor },
     },
     crosshair: { vertLine: { color: canvas.crosshairColor }, horzLine: { color: canvas.crosshairColor } },
-    timeScale: { rightOffset: canvas.rightOffsetBars, rightOffsetPixels: rightOffsetPx(settings) },
     // One scale shows; every main- and sub-pane series is put on that side.
     rightPriceScale: { ...toPriceScaleOptions(settings), visible: settings.scales.placement === "right" },
     leftPriceScale: { ...toPriceScaleOptions(settings), visible: settings.scales.placement === "left" },

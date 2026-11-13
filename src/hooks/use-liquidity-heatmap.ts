@@ -11,6 +11,9 @@ import type { ChartSettings } from "@/lib/chart-settings";
 import { LiquidityHistory } from "@/lib/liquidity-history";
 import { LiquidityHeatmapPrimitive } from "@/components/chart/liquidity-heatmap-primitive";
 
+// The heatmap used to borrow the DOM ladder's bucket setting; its old default keeps rows unchanged.
+const HEATMAP_BUCKET_TICKS = 10;
+
 interface HeatParams {
   readonly windowPct: number;
   readonly bucketTicks: number;
@@ -152,7 +155,7 @@ export function useLiquidityHeatmap(
   seriesType?: string,
 ): void {
   const { enabled, opacity, minutes } = trading.heatmap;
-  const bucketTicks = trading.dom.bucketTicks;
+  const bucketTicks = HEATMAP_BUCKET_TICKS;
   const windowPct = trading.wallWindowPct;
   const slot = useRef<HeatHolders["slot"]["current"]>(null);
   const params = useRef<HeatParams>({ windowPct, bucketTicks, opacity, minutes });

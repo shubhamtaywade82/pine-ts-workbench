@@ -21,7 +21,7 @@ import { OutcomePanel } from "@/components/chart/outcome-panel";
 import { WallMonitorPanel } from "@/components/chart/wall-monitor-panel";
 import { useChartDrawings } from "@/hooks/use-chart-drawings";
 import { DrawingToolbar } from "@/components/chart/drawing-toolbar";
-import { DEFAULT_CHART_SETTINGS, toCandleOptions, toChartOptions, type ChartSettings } from "@/lib/chart-settings";
+import { DEFAULT_CHART_SETTINGS, rightOffsetPx, toCandleOptions, toChartOptions, type ChartSettings } from "@/lib/chart-settings";
 
 export interface ChartOverlay {
   readonly instanceId: string;
@@ -205,6 +205,13 @@ export function ChartWorkbench({
 
   // Trade execution markers.
   useTradeMarkers(candlestickRef, tradeMarkers, settings.trading, settings.candles.type);
+
+  // Only a margin change may move the view; a style edit must leave the user's scroll and zoom alone.
+  const rightOffsetBars = settings.canvas.rightOffsetBars;
+  const rightOffsetPixels = rightOffsetPx(settings);
+  useEffect(() => {
+    chartRef.current?.applyOptions({ timeScale: { rightOffset: rightOffsetBars, rightOffsetPixels } });
+  }, [rightOffsetBars, rightOffsetPixels]);
 
   // Visual options and last price style.
   useEffect(() => {

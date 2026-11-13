@@ -5,8 +5,8 @@ import {
   HistogramSeries,
   type IChartApi,
   type ISeriesApi,
+  type LogicalRange,
   type SeriesType,
-  type Time,
 } from "lightweight-charts";
 import type { Bar } from "@nemesis-oss/pine-ts";
 import {
@@ -96,6 +96,8 @@ export function useCandleSeries(
 
   const seriesRef = useRef<CandleSeries | null>(null);
   const candleRef = useRef<ISeriesApi<SeriesType> | null>(null);
+  // Logical range captured before a series rebuild (candle type change), restored on the reload.
+  const keptViewRef = useRef<LogicalRange | null>(null);
   const [, setSeriesVersion] = useState(0);
   const shownBarsRef = useRef<readonly Bar[]>([]);
   const displayedRef = useRef<Ohlc | null>(null);
@@ -160,6 +162,9 @@ export function useCandleSeries(
     shownBarsRef.current = nextBars;
     const previousFirst = previous[0];
     if (previousFirst === undefined || visible === null) {
+      const kept = keptViewRef.current;
+      keptViewRef.current = null;
+      if (kept !== null) { timeScale.setVisibleLogicalRange(kept); return; }
       const lastIndex = nextBars.length - 1;
       timeScale.setVisibleLogicalRange({ from: lastIndex - INITIAL_VISIBLE_BARS, to: lastIndex + INITIAL_RIGHT_OFFSET_BARS });
       return;
@@ -224,6 +229,7 @@ export function useCandleSeries(
     if (chart === null) return;
     if (seriesRef.current?.chart !== chart || seriesRef.current?.type !== candleType) {
       stopAnimation();
+      keptViewRef.current = seriesRef.current?.chart === chart ? chart.timeScale().getVisibleLogicalRange() : null;
       if (seriesRef.current?.chart === chart) {
         chart.removeSeries(seriesRef.current.candle);
         chart.removeSeries(seriesRef.current.volume);

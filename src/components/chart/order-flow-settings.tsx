@@ -57,8 +57,6 @@ const WallSettings = ({ trading, quoteAsset, patch }: {
       <Row label="Search window (±)"><ValidatedNumber value={wallWindowPct} min={WALL_WINDOW_LIMITS_PCT.min} max={WALL_WINDOW_LIMITS_PCT.max} unit="%" onChange={(next) => patch("trading", { wallWindowPct: next })} /></Row>
       <Row label="Minimum wall size"><ValidatedNumber value={minWallNotional} min={0} max={1_000_000_000} unit={quoteAsset} onChange={(next) => patch("trading", { minWallNotional: next })} /></Row>
       <Check label="DOM ladder" checked={dom.enabled} onChange={(enabled) => patchDom({ enabled })} />
-      <Row label="Bucket size"><ValidatedNumber integer value={dom.bucketTicks} min={1} max={10_000} unit="ticks" onChange={(bucketTicks) => patchDom({ bucketTicks })} /></Row>
-      <Row label="Visible buckets"><ValidatedNumber integer value={dom.visibleBuckets} min={5} max={200} unit="rows" onChange={(visibleBuckets) => patchDom({ visibleBuckets })} /></Row>
       <Check label="Trade flow animation" checked={dom.flowAnimation} onChange={(flowAnimation) => patchDom({ flowAnimation })} />
       <Row label="Top walls"><ValidatedNumber integer value={trading.wallTopN} min={1} max={20} unit="levels" onChange={(wallTopN) => patch("trading", { wallTopN })} /></Row>
       <HeatmapAndOutcomeSettings heatmap={heatmap} outcomes={outcomes} patch={patch} />

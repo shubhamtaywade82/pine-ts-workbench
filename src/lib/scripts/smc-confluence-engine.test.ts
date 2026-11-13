@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { Bar } from "@nemesis-oss/pine-ts";
 import { createLiveRunner, runIndicatorCode } from "@/lib/indicator-runner";
+import { runMounted } from "@/lib/cell-indicators";
 import { toChartDrawings } from "@/lib/editor-output";
 import { runBacktest } from "@/lib/strategy-runner";
 import { SMC_CONFLUENCE_ENGINE, SMC_CONFLUENCE_STRATEGY } from "./smc-confluence-engine";
@@ -49,6 +50,29 @@ describe("SMC Confluence Engine on a live runner", () => {
     expect(await runLive(SMC_CONFLUENCE_ENGINE, ticked)).toEqual(await runIndicatorCode(SMC_CONFLUENCE_ENGINE, ticked));
     const next = [...ticked.slice(0, -1), { ...ticked.at(-1)!, isClosed: true }, { ...last, time: last.time + FIVE_MINUTES, isClosed: false }];
     expect(await runLive(SMC_CONFLUENCE_ENGINE, next)).toEqual(await runIndicatorCode(SMC_CONFLUENCE_ENGINE, next));
+  });
+
+  it("restarts on a different history with the same times, as after a symbol switch", async () => {
+    const scaled = (factor: number) => syntheticBars(600).map((b) => ({ ...b, open: b.open * factor, high: b.high * factor, low: b.low * factor, close: b.close * factor }));
+    const runLive = createLiveRunner();
+    await runLive(SMC_CONFLUENCE_ENGINE, scaled(1));
+    const other = scaled(20);
+    expect(await runLive(SMC_CONFLUENCE_ENGINE, other)).toEqual(await runIndicatorCode(SMC_CONFLUENCE_ENGINE, other));
+  });
+});
+
+describe("runMounted confirmed-bar cache", () => {
+  const forming = (factor: number) => syntheticBars(300).map((b, i, all) => ({
+    ...b, open: b.open * factor, high: b.high * factor, low: b.low * factor, close: b.close * factor, isClosed: i < all.length - 1,
+  }));
+
+  it("does not serve one symbol's confirmed history to another with the same bar times", async () => {
+    const sma = { instanceId: "sma-1", indicatorId: "sma", indicatorName: "SMA", inputs: {}, pane: "main" } as const;
+    const runners = new Map();
+    const cheap = await runMounted(sma, forming(1), runners, "SOLUSDT");
+    const dear = await runMounted(sma, forming(20), runners, "ETHUSDT");
+    const plot = Object.keys(cheap!.plots)[0]!;
+    expect(dear!.plots[plot]!.at(-2)!).toBeGreaterThan(cheap!.plots[plot]!.at(-2)! * 10);
   });
 });
 

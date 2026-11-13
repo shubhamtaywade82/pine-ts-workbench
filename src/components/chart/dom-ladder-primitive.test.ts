@@ -1,16 +1,51 @@
 import { describe, expect, test } from "bun:test";
 import {
   activityLabel,
+  autoBucketTicks,
   compactQuantity,
   easeToward,
   formatBucketWidth,
   ladderPriceColumnX,
+  priceViewOf,
   rowShowsText,
 } from "./dom-ladder-layout";
 import { DomLadderPrimitive } from "./dom-ladder-primitive";
 import { createFlowGeometry, flowPoint, formingCloseY, paintTradeFlow } from "./trade-flow-painter";
 
 const metrics = { priceWidth: 64, barMax: 72, activityWidth: 96 };
+
+describe("ladder auto bucket", () => {
+  const SOL_PRICE_PER_PX = 2.5 / 800;
+  const ETH_PRICE_PER_PX = 54 / 800;
+
+  test("keeps rows at least 14px tall for a tight SOL range and a wide ETH range alike", () => {
+    const solTicks = autoBucketTicks(SOL_PRICE_PER_PX, 0.01);
+    const ethTicks = autoBucketTicks(ETH_PRICE_PER_PX, 0.01);
+    expect(solTicks).toBe(5);
+    expect(ethTicks).toBe(100);
+    expect((solTicks * 0.01) / SOL_PRICE_PER_PX).toBeGreaterThanOrEqual(14);
+    expect((ethTicks * 0.01) / ETH_PRICE_PER_PX).toBeGreaterThanOrEqual(14);
+  });
+
+  test("grows at once when rows would shrink and holds while they only get taller", () => {
+    expect(autoBucketTicks(SOL_PRICE_PER_PX, 0.01, 5)).toBe(5);
+    expect(autoBucketTicks(SOL_PRICE_PER_PX * 1.2, 0.01, 5)).toBe(10);
+    expect(autoBucketTicks(SOL_PRICE_PER_PX * 0.5, 0.01, 5)).toBe(5);
+    expect(autoBucketTicks(SOL_PRICE_PER_PX * 0.3, 0.01, 5)).toBe(2);
+  });
+
+  test("never drops below one tick and survives bad input", () => {
+    expect(autoBucketTicks(1e-9, 0.01)).toBe(1);
+    expect(autoBucketTicks(0, 0.01, 7)).toBe(7);
+    expect(autoBucketTicks(Number.NaN, 0.01)).toBe(1);
+  });
+
+  test("reads the visible price range from the pane edges", () => {
+    const series = { getPane: () => ({ getHeight: () => 500 }), coordinateToPrice: (y: number) => 100 - y * 0.01 };
+    expect(priceViewOf(series)).toEqual({ low: 95, high: 100, pricePerPx: 0.01 });
+    expect(priceViewOf({ ...series, coordinateToPrice: () => null })).toBeUndefined();
+  });
+});
 
 describe("ladder layout helpers", () => {
   test("eases about 63% of the gap after one tau", () => {

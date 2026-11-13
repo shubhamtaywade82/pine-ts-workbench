@@ -88,7 +88,10 @@ export const runMounted = async (
   if (confirmedEnd <= 0) return executeInstance(m.indicatorId, m.inputs, bars);
 
   // Confirmed history is immutable; cache results across forming-bar ticks.
-  const confirmedKey = `${m.instanceId}:${m.indicatorId}:${JSON.stringify(m.inputs)}:${bars[0]?.time}:${bars[confirmedEnd - 1]?.time}:${confirmedEnd}`;
+  // Keyed on prices as well as times: two symbols share bar times, and the render after a symbol change
+  // still holds the old bars, so a symbol prop in the key would cache old prices under the new symbol.
+  const lastConfirmed = bars[confirmedEnd - 1];
+  const confirmedKey = `${m.instanceId}:${m.indicatorId}:${JSON.stringify(m.inputs)}:${bars[0]?.time}:${bars[0]?.open}:${lastConfirmed?.time}:${lastConfirmed?.close}:${confirmedEnd}`;
   let cached = confirmedCache.get(m.instanceId);
   if (!cached || cached.key !== confirmedKey) {
     const executed = await executeInstance(m.indicatorId, m.inputs, bars.slice(0, confirmedEnd));

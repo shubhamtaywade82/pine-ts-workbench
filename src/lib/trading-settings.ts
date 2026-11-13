@@ -27,11 +27,8 @@ export interface TradingSettings {
   /** Smallest wall, in the chart's quote currency. */
   readonly minWallNotional: number;
   readonly dom: {
+    /** Row size and range follow the chart zoom, so there is nothing to size by hand. */
     readonly enabled: boolean;
-    /** Price levels per ladder row. */
-    readonly bucketTicks: number;
-    /** Rows centred on mid: half above, half below, clipped to book coverage. */
-    readonly visibleBuckets: number;
     /** Animated trade flow between ladder rows and the forming candle. */
     readonly flowAnimation: boolean;
   };
@@ -62,7 +59,7 @@ export const DEFAULT_TRADING: TradingSettings = {
   wallLabel: "compact",
   wallWindowPct: DEFAULT_WALL_WINDOW_PCT,
   minWallNotional: DEFAULT_MIN_WALL_NOTIONAL,
-  dom: { enabled: false, bucketTicks: 10, visibleBuckets: 40, flowAnimation: true },
+  dom: { enabled: false, flowAnimation: true },
   heatmap: { enabled: false, opacity: 0.5, minutes: 10 },
   wallTopN: DEFAULT_TOP_WALLS,
   footprint: { enabled: false, mode: "delta", bucketTicks: 10 },
@@ -88,8 +85,6 @@ const normalizeDom = (stored: unknown): TradingSettings["dom"] => {
   const defaults = DEFAULT_TRADING.dom;
   return {
     enabled: booleanOr(raw["enabled"], defaults.enabled),
-    bucketTicks: integerIn(raw["bucketTicks"], 1, 10_000, defaults.bucketTicks),
-    visibleBuckets: integerIn(raw["visibleBuckets"], 5, 200, defaults.visibleBuckets),
     flowAnimation: booleanOr(raw["flowAnimation"], defaults.flowAnimation),
   };
 };

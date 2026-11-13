@@ -7,6 +7,47 @@ export interface LadderMetrics {
   readonly activityWidth: number;
 }
 
+/** Smallest row height the ladder aims for; above the 11px at which `rowShowsText` shows labels. */
+export const TARGET_ROW_PX = 14;
+// Steps are at most 2.5x apart, so a bucket stays put until its rows grow past 2.5x the target.
+const HOLD_BAND = 2.5;
+
+/**
+ * Ticks per ladder row so a row is at least TARGET_ROW_PX tall, rounded up to 1, 2, 5 × 10^n.
+ * Rounding up keeps labels readable. `previous` is kept while rows stay in [1x, 2.5x] of the
+ * target: a change resets the bought/sold/pulled column, so zoom jitter must not flip the bucket.
+ */
+export const autoBucketTicks = (pricePerPx: number, tickSize: number, previous?: number): number => {
+  const ideal = (pricePerPx * TARGET_ROW_PX) / tickSize;
+  if (!(ideal > 0) || !Number.isFinite(ideal)) return previous ?? 1;
+  if (previous !== undefined && ideal <= previous && ideal * HOLD_BAND >= previous) return previous;
+  const magnitude = 10 ** Math.floor(Math.log10(ideal));
+  const mantissa = ideal / magnitude;
+  const step = mantissa <= 1 ? 1 : mantissa <= 2 ? 2 : mantissa <= 5 ? 5 : 10;
+  return Math.max(1, Math.round(step * magnitude));
+};
+
+export interface PriceView {
+  readonly low: number;
+  readonly high: number;
+  readonly pricePerPx: number;
+}
+
+interface PriceViewSource {
+  coordinateToPrice(y: number): number | null;
+  getPane(): { getHeight(): number };
+}
+
+/** Prices at the pane's edges, or undefined while the price scale has no range yet. */
+export const priceViewOf = (series: PriceViewSource): PriceView | undefined => {
+  const height = series.getPane().getHeight();
+  const top = series.coordinateToPrice(0);
+  const bottom = series.coordinateToPrice(height);
+  if (top === null || bottom === null || !(height > 0) || top === bottom) return undefined;
+  const [low, high] = top < bottom ? [top, bottom] : [bottom, top];
+  return { low, high, pricePerPx: (high - low) / height };
+};
+
 /** Exponential approach. τ is the time to cover about 63% of the remaining gap. */
 export const easeToward = (current: number, target: number, elapsedMs: number, tauMs: number): number => {
   if (!(tauMs > 0) || !(elapsedMs > 0) || !Number.isFinite(current) || !Number.isFinite(target)) return current;

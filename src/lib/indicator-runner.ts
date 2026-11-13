@@ -122,7 +122,9 @@ export const createLiveRunner = (getHtfBars?: HtfBarLoader): LiveRunner => {
   let queue: Promise<unknown> = Promise.resolve();
 
   const runOnce = async (userCode: string, bars: readonly Bar[], inputs: InputsBag): Promise<ScriptRun> => {
-    const nextKey = `${userCode}\u0000${JSON.stringify(inputs)}`;
+    // The first bar anchors the history: another symbol or interval keeps the code but not the prices,
+    // and updating the old live state with its bars would carry the old history into every plot.
+    const nextKey = `${userCode}\u0000${JSON.stringify(inputs)}\u0000${bars[0]?.time}:${bars[0]?.open}`;
     if (nextKey !== key || current === undefined) {
       key = undefined;
       current = undefined;

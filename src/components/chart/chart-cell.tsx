@@ -96,9 +96,15 @@ export function ChartCell({
   useEffect(() => {
     let cancelled = false;
     for (const [id, runner] of liveRunners) {
-      if (mounted.some((m) => m.instanceId === id)) continue;
+      if (visibleBars.length > 0 && mounted.some((m) => m.instanceId === id)) continue;
       runner.dispose();
       liveRunners.delete(id);
+    }
+    if (visibleBars.length === 0) {
+      // Empty feed = symbol/interval change; the loop above dropped the runners, which only append to old history.
+      prevRunKeyRef.current = null;
+      setRunResults({});
+      return;
     }
     const first = visibleBars[0];
     const last = visibleBars[visibleBars.length - 1];
