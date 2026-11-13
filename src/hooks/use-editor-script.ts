@@ -9,6 +9,7 @@ import { useBacktest } from "@/components/strategy/strategy-panel";
 import { useScriptLibrary } from "@/hooks/use-script-library";
 import { usePersistedState } from "@/hooks/use-persisted-state";
 import { NO_DRAWINGS, NO_OVERLAYS, toChartDrawings, toEditorOverlays } from "@/lib/editor-output";
+import { historyKey } from "@/lib/indicator-runner";
 import type { ChartInterval } from "@/lib/public-binance-feed";
 import { describeCode, type ScriptSettings } from "@/lib/script-library";
 import type { BacktestTrade } from "@/lib/strategy-runner";
@@ -31,12 +32,14 @@ export function useEditorScript(onOpenEditor: () => void, onOpenTester: () => vo
   const [trades, setTrades] = useState<BacktestTrade[]>([]);
   const backtest = useBacktest(editorBars, strategyCode, settings, setTrades);
 
+  // A run on another symbol's bars would plot its prices on this chart until the re-run lands.
+  const shownRun = run !== null && run.historyKey === historyKey(editorBars) ? run : null;
   const activeScriptName = scripts.active?.name ?? describeCode(scripts.draft).title ?? "Custom";
   const overlays = useMemo(
-    () => styledOverlays(run, editorBars, settings, activeScriptName),
-    [run, editorBars, settings, activeScriptName],
+    () => styledOverlays(shownRun, editorBars, settings, activeScriptName),
+    [shownRun, editorBars, settings, activeScriptName],
   );
-  const drawings = useMemo(() => (run === null ? NO_DRAWINGS : toChartDrawings(run.drawings, editorBars)), [run, editorBars]);
+  const drawings = useMemo(() => (shownRun === null ? NO_DRAWINGS : toChartDrawings(shownRun.drawings, editorBars)), [shownRun, editorBars]);
   const tradeMarkers = useMemo(() => toTradeMarkers(trades), [trades]);
 
   const onStrategyCode = useCallback((code: string) => {
@@ -70,9 +73,9 @@ export function useEditorScript(onOpenEditor: () => void, onOpenTester: () => vo
     return {
       overlays: isVisible ? editorOverlays : NO_OVERLAYS,
       drawings: isVisible && !isHidden ? drawings : NO_DRAWINGS,
-      isOverlay: run?.isOverlay === true,
+      isOverlay: shownRun?.isOverlay === true,
     };
-  }, [isOnChart, settings.visibleIntervals, editorOverlays, isHidden, drawings, run?.isOverlay]);
+  }, [isOnChart, settings.visibleIntervals, editorOverlays, isHidden, drawings, shownRun?.isOverlay]);
 
   const isStrategy = scripts.active?.kind === "strategy";
   const settingsDialog: ScriptSettingsDialogProps = {

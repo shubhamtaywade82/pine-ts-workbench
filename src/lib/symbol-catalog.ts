@@ -1,17 +1,20 @@
 import type { BinanceSymbol } from "./public-binance-feed";
 import { BINANCE_REST_URL } from "./binance-endpoints";
+import { loadRemoteSymbol } from "./remote-symbols";
 
-export type SymbolCategory = "all" | "crypto" | "index" | "stock";
-export type SymbolExchange = "BINANCE" | "NSE" | "BSE";
+export type SymbolCategory = "all" | "crypto" | "index" | "stock" | "derivative";
+export type SymbolExchange = "BINANCE" | "COINDCX" | "NSE" | "BSE" | "MCX";
 
 export interface SymbolOption {
   readonly ticker: string;
   readonly displayName: string;
-  readonly provider: "binance" | "dhan";
+  readonly provider: "binance" | "dhan" | "coindcx";
   readonly exchange: SymbolExchange;
   readonly category: Exclude<SymbolCategory, "all">;
-  /** Present when provider is "binance". */
+  /** The Binance market for provider "binance". Other providers set it to a market name for higher-timeframe lookups only. */
   readonly binanceSymbol: BinanceSymbol;
+  /** Present when provider is "coindcx", e.g. "B-BTC_USDT". */
+  readonly coindcxPair?: string;
   /** Present when provider is "dhan". */
   readonly dhanSecurityId?: string;
   readonly dhanSegment?: string;
@@ -49,7 +52,8 @@ export function findSymbol(tickerOrSymbol: string): SymbolOption | undefined {
   const normalized = tickerOrSymbol.toUpperCase().trim();
   return (
     SYMBOL_CATALOG.find((s) => s.ticker.toUpperCase() === normalized) ??
-    SYMBOL_CATALOG.find((s) => s.binanceSymbol.toUpperCase() === normalized)
+    SYMBOL_CATALOG.find((s) => s.binanceSymbol.toUpperCase() === normalized) ??
+    loadRemoteSymbol(tickerOrSymbol.trim())
   );
 }
 
@@ -150,20 +154,17 @@ export const toggleFavoriteSymbol = (ticker: string): readonly string[] => {
 };
 
 /**
- * Ranked fuzzy search across the catalog (best match first). Favorites get a
- * flat boost so they surface when scores are otherwise close.
+ * Ranks `items` against a query (best match first). Favorites get a flat boost so they
+ * surface when scores are otherwise close. An empty query keeps the order given.
  */
-export function fuzzySearchSymbols(
+function rankSymbols(
+  items: readonly SymbolOption[],
   query: string,
-  category: SymbolCategory = "all",
   favorites: readonly string[] = [],
 ): readonly SymbolOption[] {
-  const inCategory = SYMBOL_CATALOG.filter(
-    (item) => category === "all" || item.category === category,
-  );
   const q = query.trim();
-  if (q === "") return inCategory;
-  return inCategory
+  if (q === "") return items;
+  return items
     .map((item) => {
       const best = Math.max(
         fuzzyScore(q, item.ticker),
@@ -177,6 +178,15 @@ export function fuzzySearchSymbols(
     .filter((r): r is { item: SymbolOption; score: number } => r !== null)
     .sort((a, b) => b.score - a.score)
     .map((r) => r.item);
+}
+
+/** Ranked fuzzy search across the built-in catalog. */
+export function fuzzySearchSymbols(
+  query: string,
+  category: SymbolCategory = "all",
+  favorites: readonly string[] = [],
+): readonly SymbolOption[] {
+  return rankSymbols(SYMBOL_CATALOG.filter((item) => category === "all" || item.category === category), query, favorites);
 }
 
 export function loadWatchlist(): readonly string[] {
@@ -267,3 +277,14 @@ export const fallbackTickSize = (price: number): number => {
   return 10 ** Math.round(Math.log10(ratio));
 };
 
+
+/**
+ * Symbols for `count` new chart cells: watchlist order, skipping tickers already on screen. Once those
+ * run out it repeats the watchlist from the top, so any grid size can be filled.
+ */
+export const symbolsToFill = (shownTickers: readonly string[], watchlist: readonly string[], count: number): SymbolOption[] => {
+  const known = watchlist.map(findSymbol).filter((symbol): symbol is SymbolOption => symbol !== undefined);
+  const pool = known.length > 0 ? known : [SYMBOL_CATALOG[0]!];
+  const order = [...pool.filter((symbol) => !shownTickers.includes(symbol.ticker)), ...pool];
+  return Array.from({ length: count }, (_, i) => order[i % order.length]!);
+};

@@ -7,7 +7,25 @@ import {
   parseInstrumentFilters,
   searchSymbols,
   SYMBOL_CATALOG,
+  symbolsToFill,
 } from "./symbol-catalog";
+
+describe("symbolsToFill", () => {
+  const watchlist = ["BTCUSDT", "ETHUSDT", "SOLUSDT", "NSE:NIFTY50"];
+  const tickers = (shown: string[], count: number) => symbolsToFill(shown, watchlist, count).map((s) => s.ticker);
+
+  it("takes the watchlist in order and skips what is already on screen", () => {
+    expect(tickers(["ETHUSDT"], 3)).toEqual(["BTCUSDT", "SOLUSDT", "NSE:NIFTY50"]);
+  });
+
+  it("repeats the watchlist from the top once the unseen ones run out", () => {
+    expect(tickers(["BTCUSDT", "ETHUSDT", "SOLUSDT"], 3)).toEqual(["NSE:NIFTY50", "BTCUSDT", "ETHUSDT"]);
+  });
+
+  it("falls back to the first catalog symbol when the watchlist holds nothing known", () => {
+    expect(symbolsToFill([], ["NOPE"], 2).map((s) => s.ticker)).toEqual([SYMBOL_CATALOG[0]!.ticker, SYMBOL_CATALOG[0]!.ticker]);
+  });
+});
 
 describe("symbol-catalog", () => {
   it("contains both Binance crypto and DhanHQ Indian equity symbols", () => {

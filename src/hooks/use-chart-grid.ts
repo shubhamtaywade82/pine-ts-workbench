@@ -5,6 +5,7 @@ import { SUPPORTED_SYMBOLS, type ChartInterval, type SymbolOption } from "@/lib/
 import type { CellSettings } from "@/components/chart/chart-cell";
 import { createMountedIndicator, nextInstanceId, type MountedIndicator } from "@/components/chart/indicator-dialogs";
 import { LAYOUT_OPTIONS, type GridLayout } from "@/components/chart/top-toolbar";
+import { loadWatchlist, symbolsToFill } from "@/lib/symbol-catalog";
 
 export interface CellConfig extends CellSettings {
   readonly id: string;
@@ -56,14 +57,20 @@ export function useChartGrid() {
     if (added !== undefined) addToActiveCell(added);
   }, [addToActiveCell]);
 
+  /** Shrinking never drops the active chart; growing fills the new cells from the watchlist, in order. */
   const onLayoutChange = useCallback((nextLayout: GridLayout) => {
     setLayout(nextLayout);
     setCells((prev) => {
-      if (prev.length > nextLayout) return prev.slice(0, nextLayout);
-      const additions = Array.from({ length: nextLayout - prev.length }, (_, i) => newCell(symbolForSlot(prev.length + i)));
-      return [...prev, ...additions];
+      if (prev.length > nextLayout) {
+        const kept = prev.slice(0, nextLayout);
+        const active = prev.find((c) => c.id === activeCellId);
+        if (active !== undefined && !kept.includes(active)) kept[nextLayout - 1] = active;
+        return kept;
+      }
+      const shown = prev.map((c) => c.symbol.ticker);
+      return [...prev, ...symbolsToFill(shown, loadWatchlist(), nextLayout - prev.length).map((s) => newCell(s))];
     });
-  }, []);
+  }, [activeCellId]);
 
   const onRemoveCell = useCallback((cellId: string) => {
     setCells((prev) => {
@@ -77,11 +84,12 @@ export function useChartGrid() {
 
   const onAddCell = useCallback(() => {
     if (cells.length >= MAX_CELLS) return;
-    const added = newCell(symbolForSlot(cells.length));
+    const [next] = symbolsToFill(cells.map((c) => c.symbol.ticker), loadWatchlist(), 1);
+    const added = newCell(next!);
     setCells((prev) => [...prev, added]);
     setLayout(layoutFor(cells.length + 1));
     setActiveCellId(added.id);
-  }, [cells.length]);
+  }, [cells]);
 
   return {
     layout, cells, activeCellId, activeCell, canAddCell: cells.length < MAX_CELLS,

@@ -14,15 +14,19 @@
  * Server-side only — the token can place live orders and must never reach the browser.
  */
 
+import { DhanAuth } from "@nemesis-oss/dhanhq-sdk";
+
 export type TokenSource = "algo_scalper_api" | "own";
 
 export interface DhanTokenProviderOptions {
-  /** algo_scalper_api base URL, e.g. http://localhost:3011. */
-  readonly authorityBaseUrl: string;
+  /** algo_scalper_api base URL, e.g. http://localhost:3011. Omit with `operatorToken` to log in on our own only. */
+  readonly authorityBaseUrl?: string;
   /** algo_scalper_api's API_OPERATOR_TOKEN. */
-  readonly operatorToken: string;
-  /** Mints a token when the authority is unreachable; resolves the token and its expiry (epoch ms). */
+  readonly operatorToken?: string;
+  /** Mints a token when the authority is unreachable or not configured; resolves the token and its expiry (epoch ms). */
   readonly generate: () => Promise<{ readonly accessToken: string; readonly expiresAt: number }>;
+  /** Called when our own token is rejected (401), so its owner can drop it and log in again. */
+  readonly rejectOwn?: () => Promise<void>;
   readonly fetchImpl?: typeof fetch;
   readonly now?: () => number;
   /** Treat a token as expired this long before it really is. Default 2 minutes. */
@@ -82,10 +86,13 @@ export class DhanTokenProvider {
   /**
    * A request was rejected with 401; plug into `DhanClientConfig.onTokenExpired`.
    * Drops the cached token so the next `get()` re-asks the authority. It never renews a shared
-   * token itself: algo_scalper_api owns renewal.
+   * token itself: algo_scalper_api owns renewal. Our own token is handed to `rejectOwn`, since its
+   * owner may still hold the rejected copy and would otherwise serve it again.
    */
-  public readonly onTokenExpired = (): void => {
+  public readonly onTokenExpired = async (): Promise<void> => {
+    const rejected = this.cached;
     this.cached = undefined;
+    if (rejected?.source === "own") await this.options.rejectOwn?.();
   };
 
   private resolve(): Promise<CachedToken> {
@@ -116,10 +123,12 @@ export class DhanTokenProvider {
   /** The shared token, or undefined when the connection failed (algo_scalper_api not running). */
   private async tryAuthority(): Promise<CachedToken | undefined> {
     this.lastProbeAt = this.now();
+    const { authorityBaseUrl, operatorToken } = this.options;
+    if (authorityBaseUrl === undefined || operatorToken === undefined) return undefined;
     let response: Response;
     try {
-      response = await this.fetchImpl(`${this.options.authorityBaseUrl.replace(/\/$/, "")}/api/dhan/token`, {
-        headers: { Authorization: `Bearer ${this.options.operatorToken}` },
+      response = await this.fetchImpl(`${authorityBaseUrl.replace(/\/$/, "")}/api/dhan/token`, {
+        headers: { Authorization: `Bearer ${operatorToken}` },
         signal: AbortSignal.timeout(this.options.timeoutMs ?? DEFAULT_TIMEOUT_MS),
         cache: "no-store",
       });
@@ -144,3 +153,37 @@ export class DhanTokenProvider {
     return { accessToken, expiresAt, source: "own" };
   }
 }
+
+/** A code generated with fewer seconds than this left in its window can arrive after the roll-over and be rejected. */
+export const TOTP_MIN_VALID_SECONDS = 5;
+
+/** Supplies a fresh TOTP code per login, waiting for the next window when the current one is nearly over. */
+export const createTotpProvider = (
+  secret: string,
+  clock: { readonly now?: () => number; readonly sleep?: (ms: number) => Promise<void> } = {},
+): (() => Promise<string>) => {
+  const now = clock.now ?? Date.now;
+  const sleep = clock.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  return async () => {
+    const remaining = DhanAuth.totpSecondsRemaining({ timestamp: now() });
+    // The extra second lands the wait inside the next window.
+    if (remaining < TOTP_MIN_VALID_SECONDS) await sleep((remaining + 1) * 1000);
+    return DhanAuth.generateTotp(secret, { timestamp: now() });
+  };
+};
+
+/**
+ * Refuses a token with no usable expiry: the SDK treats it as always due for renewal, so every request
+ * would start a fresh PIN+TOTP login, and each login can invalidate the token before it.
+ */
+export const assertUsableToken = (token: { readonly expiresAt?: number } | undefined, now: number): { readonly expiresAt: number } => {
+  if (token === undefined) throw new Error("Dhan login returned no token");
+  const { expiresAt } = token;
+  if (expiresAt === undefined || !Number.isFinite(expiresAt)) {
+    throw new Error("Dhan login returned a token without an expiry; refusing it, since every request would start a fresh PIN+TOTP login");
+  }
+  if (now >= expiresAt) {
+    throw new Error(`Dhan login returned a token that already expired (${new Date(expiresAt).toISOString()}); check the host clock`);
+  }
+  return { expiresAt };
+};

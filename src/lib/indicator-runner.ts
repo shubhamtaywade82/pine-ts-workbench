@@ -108,7 +108,10 @@ export const isOverlayScript = (userCode: string): boolean => {
   }
 };
 
-export type LiveRunner = (userCode: string, bars: readonly Bar[], inputs?: InputsBag) => Promise<ScriptRun>;
+/** Identifies a bar history by its first bar: another symbol or interval has a different one, live ticks do not. */
+export const historyKey = (bars: readonly Bar[]): string => `${bars[0]?.time}:${bars[0]?.open}`;
+
+export type LiveRunner =(userCode: string, bars: readonly Bar[], inputs?: InputsBag) => Promise<ScriptRun>;
 
 /**
  * One script slot on a live chart (the TypeScript Editor, or a saved script on a
@@ -122,9 +125,9 @@ export const createLiveRunner = (getHtfBars?: HtfBarLoader): LiveRunner => {
   let queue: Promise<unknown> = Promise.resolve();
 
   const runOnce = async (userCode: string, bars: readonly Bar[], inputs: InputsBag): Promise<ScriptRun> => {
-    // The first bar anchors the history: another symbol or interval keeps the code but not the prices,
-    // and updating the old live state with its bars would carry the old history into every plot.
-    const nextKey = `${userCode}\u0000${JSON.stringify(inputs)}\u0000${bars[0]?.time}:${bars[0]?.open}`;
+    // Another symbol or interval keeps the code but not the prices; updating the old live state with
+    // its bars would carry the old history into every plot.
+    const nextKey = `${userCode}\u0000${JSON.stringify(inputs)}\u0000${historyKey(bars)}`;
     if (nextKey !== key || current === undefined) {
       key = undefined;
       current = undefined;

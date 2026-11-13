@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { AuthorityError, DhanTokenProvider } from "./dhan-token";
+import { assertUsableToken, AuthorityError, createTotpProvider, DhanTokenProvider, TOTP_MIN_VALID_SECONDS } from "./dhan-token";
 
 const HOUR = 3_600_000;
 
@@ -131,5 +131,78 @@ describe("DhanTokenProvider", () => {
     await Promise.all([h.provider.get(), h.provider.get(), h.provider.get()]);
 
     expect(h.calls.authority).toBe(1);
+  });
+});
+
+describe("without an authority configured", () => {
+  const ownOnly = (rejectOwn?: () => Promise<void>) => {
+    const calls = { fetch: 0, generate: 0 };
+    const provider = new DhanTokenProvider({
+      fetchImpl: (async () => { calls.fetch++; throw new Error("must not be called"); }) as unknown as typeof fetch,
+      generate: async () => { calls.generate++; return { accessToken: "own-token", expiresAt: Date.now() + 6 * HOUR }; },
+      rejectOwn,
+    });
+    return { provider, calls };
+  };
+
+  it("logs in on its own and never contacts an authority", async () => {
+    const { provider, calls } = ownOnly();
+
+    expect(await provider.get()).toBe("own-token");
+    expect(provider.source()).toBe("own");
+    expect(calls).toEqual({ fetch: 0, generate: 1 });
+  });
+
+  it("tells the owner of our own token when it is rejected, then logs in again", async () => {
+    let rejected = 0;
+    const { provider, calls } = ownOnly(async () => { rejected++; });
+    await provider.get();
+
+    await provider.onTokenExpired();
+    await provider.get();
+
+    expect(rejected).toBe(1);
+    expect(calls.generate).toBe(2);
+  });
+});
+
+describe("createTotpProvider", () => {
+  const SECRET = "JBSWY3DPEHPK3PXP";
+  const WINDOW_MS = 30_000;
+
+  it("waits for the next window when the current one is nearly over", async () => {
+    const clock = { now: 10 * WINDOW_MS + (WINDOW_MS - 2_000) };
+    const slept: number[] = [];
+    const next = createTotpProvider(SECRET, {
+      now: () => clock.now,
+      sleep: async (ms) => { slept.push(ms); clock.now += ms; },
+    });
+
+    const code = await next();
+
+    expect(slept).toEqual([3_000]);
+    expect(code).toMatch(/^\d{6}$/);
+  });
+
+  it("answers at once while the window has time left", async () => {
+    const slept: number[] = [];
+    const next = createTotpProvider(SECRET, { now: () => 10 * WINDOW_MS + 1_000, sleep: async (ms) => { slept.push(ms); } });
+
+    await next();
+
+    expect(slept).toEqual([]);
+    expect(TOTP_MIN_VALID_SECONDS).toBeLessThan(WINDOW_MS / 1000);
+  });
+});
+
+describe("assertUsableToken", () => {
+  it("accepts a token that expires later and returns its expiry", () => {
+    expect(assertUsableToken({ expiresAt: 2_000 }, 1_000)).toEqual({ expiresAt: 2_000 });
+  });
+
+  it("refuses a missing token, a missing expiry and an expired token", () => {
+    expect(() => assertUsableToken(undefined, 1_000)).toThrow("no token");
+    expect(() => assertUsableToken({}, 1_000)).toThrow("without an expiry");
+    expect(() => assertUsableToken({ expiresAt: 1_000 }, 1_000)).toThrow("already expired");
   });
 });

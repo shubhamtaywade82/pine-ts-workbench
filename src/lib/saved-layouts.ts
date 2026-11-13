@@ -10,6 +10,7 @@
  */
 
 import { SUPPORTED_SYMBOLS, type SymbolOption, type ChartInterval } from "@/lib/public-binance-feed";
+import { findSymbol as findCatalogSymbol } from "@/lib/symbol-catalog";
 import type { MountedIndicator } from "@/components/chart/indicator-dialogs";
 
 export interface SavedCellConfig {
@@ -135,7 +136,7 @@ export const saveCurrentLayout = (
     id,
     name,
     layout,
-    cells: cells.map((c) => ({ symbolProduct: c.symbol.binanceSymbol, interval: c.interval })),
+    cells: cells.map((c) => ({ symbolProduct: c.symbol.ticker, interval: c.interval })),
   };
   const all = loadLayouts();
   saveLayouts([...all, saved]);
@@ -149,11 +150,12 @@ export const deleteLayout = (id: string): void => {
   saveLayouts(all.filter((l) => l.id !== id));
 };
 
-/** Layouts saved before the Binance switch store Coinbase ids ("BTC-USD"); map them to "BTCUSDT". */
-export const findSymbol = (symbolProduct: string): SymbolOption => {
-  const binanceSymbol = symbolProduct.replace(/-USD$/, "USDT");
-  return SUPPORTED_SYMBOLS.find((s) => s.binanceSymbol === binanceSymbol) ?? SUPPORTED_SYMBOLS[0]!;
-};
+/**
+ * A saved cell's symbol: built-in, or one picked from search earlier. Layouts saved before the Binance
+ * switch store Coinbase ids ("BTC-USD"), mapped to "BTCUSDT". Anything unknown opens the first symbol.
+ */
+export const findSymbol = (symbolProduct: string): SymbolOption =>
+  findCatalogSymbol(symbolProduct.replace(/-USD$/, "USDT")) ?? SUPPORTED_SYMBOLS[0]!;
 
 /** Converts a SavedLayout's cell configs back to runtime cell configs. */
 export const layoutToCells = (saved: SavedLayout): { symbol: SymbolOption; interval: ChartInterval }[] => {

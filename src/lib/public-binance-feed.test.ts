@@ -21,9 +21,20 @@ describe("quote asset", () => {
     }
   });
 
-  test("the quote asset comes from the table, not from a fixed assumption", () => {
+  test("the quote asset is read from any market's symbol, not assumed to be USDT", () => {
     expect(quoteAssetOf("BTCUSDT")).toBe("USDT");
-    expect(quoteAssetOf("SOLUSDT")).toBe("USDT");
+    expect(quoteAssetOf("DOGEUSDC")).toBe("USDC");
+    expect(quoteAssetOf("ETHBTC")).toBe("BTC");
+    expect(quoteAssetOf("BTCEUR")).toBe("EUR");
+  });
+
+  test("a longer quote wins over a shorter one it ends with", () => {
+    expect(quoteAssetOf("BTCFDUSD")).toBe("FDUSD");
+  });
+
+  test("a symbol that is only a quote name, or ends in none, falls back to USDT", () => {
+    expect(quoteAssetOf("USDT")).toBe("USDT");
+    expect(quoteAssetOf("XYZABC")).toBe("USDT");
   });
 });
 

@@ -176,7 +176,7 @@ export default function Home() {
     if (!isRestored) return;
     saveWorkspace({
       layout,
-      cells: cells.map((c) => ({ symbolProduct: c.symbol.binanceSymbol, interval: c.interval, indicators: c.indicators })),
+      cells: cells.map((c) => ({ symbolProduct: c.symbol.ticker, interval: c.interval, indicators: c.indicators })),
       activeCellIndex: Math.max(0, cells.findIndex((c) => c.id === activeCellId)),
       isEditorOpen, isTesterOpen, theme,
     });

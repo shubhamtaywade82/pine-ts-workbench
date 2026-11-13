@@ -10,8 +10,8 @@ import type { ChartSettings } from "@/lib/chart-settings";
 import { Button } from "@/components/ui/button";
 import type { ScriptRunner } from "@/lib/script-worker-client";
 import { History, X } from "lucide-react";
-import { useLiveBars, type FeedHealth, type LiveStatus } from "@/hooks/use-live-bars";
-import { useDhanBars } from "@/hooks/use-dhan-bars";
+import type { FeedHealth, LiveStatus } from "@/hooks/use-live-bars";
+import { useSymbolFeed } from "@/hooks/use-symbol-feed";
 import { useBarReplay } from "@/hooks/use-bar-replay";
 import { ReplayControls } from "@/components/chart/replay-controls";
 import { buildSinks, dispatchScriptAlerts, formatScriptAlertMessage, loadAlertSettings } from "@/lib/alert-sinks";
@@ -57,11 +57,9 @@ export function ChartCell({
   isEditorOverlay = false, chartSettings, onChartSettingsChange, onOpenChartSettings,
   tradeMarkers, onActiveBarsChange, onEditorScriptAction,
 }: ChartCellProps) {
-  const isDhan = symbol.provider === "dhan";
-  const binanceFeed = useLiveBars(symbol.binanceSymbol, interval, !isDhan);
-  const dhanFeed = useDhanBars(symbol.ticker, interval, isDhan);
-  const { bars, status, error, health, loadOlder, subscribe } = isDhan ? dhanFeed : binanceFeed;
-  const feedName = isDhan ? "DhanHQ" : "Binance";
+  const isBinance = symbol.provider === "binance";
+  const feed = useSymbolFeed(symbol, interval);
+  const { bars, status, error, health, loadOlder, subscribe, feedName } = feed;
   const replay = useBarReplay(bars.length);
   const visibleBars = useMemo(
     () => (replay.isReplay ? bars.slice(0, replay.replayIndex) : bars),
@@ -201,7 +199,7 @@ export function ChartCell({
         {!replay.isReplay ? (
           <>
             <LiveBadge status={status} health={health} interval={interval} symbol={symbol.displayName} />
-            <DepthDiagnostics symbol={isDhan ? undefined : symbol.binanceSymbol} tradeAgeMs={health.lastTickAgeMs} />
+            <DepthDiagnostics symbol={isBinance ? symbol.binanceSymbol : undefined} tradeAgeMs={health.lastTickAgeMs} />
             <Button
               variant="ghost"
               size="sm"
@@ -243,9 +241,9 @@ export function ChartCell({
             subPanes={allSubPanes}
             tradeMarkers={tradeMarkers}
             drawings={drawings}
-            depthSymbol={replay.isReplay || isDhan ? undefined : symbol.binanceSymbol}
-            subscribeTrades={replay.isReplay || isDhan ? undefined : binanceFeed.subscribeTrades}
-            timeZone={isDhan ? "Asia/Kolkata" : undefined}
+            depthSymbol={replay.isReplay || !isBinance ? undefined : symbol.binanceSymbol}
+            subscribeTrades={replay.isReplay || !isBinance ? undefined : feed.subscribeTrades}
+            timeZone={symbol.provider === "dhan" ? "Asia/Kolkata" : undefined}
             settings={chartSettings}
             onSettingsChange={onChartSettingsChange}
             onOpenSettings={onOpenChartSettings}

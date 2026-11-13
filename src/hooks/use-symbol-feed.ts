@@ -2,28 +2,52 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { Bar } from "@nemesis-oss/pine-ts";
-import { countBarGaps, mergeBar, type LiveBars, type LiveStatus } from "@/hooks/use-live-bars";
+import { countBarGaps, mergeBar, useLiveBars, type LiveBars, type LiveStatus } from "@/hooks/use-live-bars";
 import { INTERVAL_MS, type ChartInterval } from "@/lib/public-binance-feed";
+import type { SymbolOption } from "@/lib/symbol-catalog";
 
 const HISTORY_BARS = 1000;
-/** Dhan has no per-bar push here, so the forming bar is refreshed by polling the newest few bars. */
+/** Dhan and CoinDCX have no per-bar push here, so the forming bar is refreshed by polling the newest few bars. */
 const POLL_MS = 5_000;
 const POLL_BARS = 3;
 
-const fetchBars = async (ticker: string, interval: string, limit: number): Promise<readonly Bar[]> => {
-  const params = new URLSearchParams({ ticker, interval, limit: String(limit) });
-  const res = await fetch(`/api/dhan/bars?${params}`);
+/** A REST candle source for providers without a socket: where to fetch, and what to call it. */
+interface PolledSource {
+  readonly label: string;
+  /** Request URL up to the interval; the history size is appended. */
+  readonly endpoint: string;
+}
+
+const pollSourceOf = (symbol: SymbolOption, interval: ChartInterval): PolledSource | undefined => {
+  if (symbol.provider === "dhan") {
+    const { dhanSegment: segment = "", dhanSecurityId: securityId = "" } = symbol;
+    return {
+      label: "DhanHQ",
+      endpoint: `/api/dhan/bars?${new URLSearchParams({ segment, securityId, interval })}`,
+    };
+  }
+  if (symbol.provider === "coindcx") {
+    const pair = symbol.coindcxPair ?? "";
+    return {
+      label: "CoinDCX",
+      endpoint: `/api/coindcx/candles?${new URLSearchParams({ pair, interval })}`,
+    };
+  }
+  return undefined;
+};
+
+const fetchBars = async (endpoint: string, limit: number): Promise<readonly Bar[]> => {
+  const res = await fetch(`${endpoint}&limit=${limit}`);
   const body = (await res.json()) as { ok: boolean; bars?: readonly Bar[]; error?: string };
   if (!body.ok || body.bars === undefined) throw new Error(body.error ?? `HTTP ${res.status}`);
   return body.bars;
 };
 
 /**
- * DhanHQ candles for a catalog ticker (e.g. "NSE:NIFTY50"): one history load, then the newest
- * bars are re-polled every few seconds. Same shape as `useLiveBars` so ChartCell can use either.
- * `enabled=false` keeps the hook idle (Binance symbols).
+ * Candles from a REST source: one history load, then the newest bars are re-polled every few
+ * seconds. Same shape as `useLiveBars` so ChartCell can use either. Idle while `source` is undefined.
  */
-export function useDhanBars(ticker: string, interval: ChartInterval, enabled: boolean): LiveBars {
+function usePolledBars(source: PolledSource | undefined, name: string, interval: ChartInterval): LiveBars {
   const [bars, setBars] = useState<readonly Bar[]>([]);
   const [status, setStatus] = useState<LiveStatus>("loading");
   const [error, setError] = useState<string | null>(null);
@@ -31,6 +55,8 @@ export function useDhanBars(ticker: string, interval: ChartInterval, enabled: bo
   const [nowTick, setNowTick] = useState(() => Date.now());
   const workingRef = useRef<readonly Bar[]>([]);
   const listenersRef = useRef(new Set<(bars: readonly Bar[]) => void>());
+  const endpoint = source?.endpoint;
+  const label = source?.label ?? "";
 
   const publish = useCallback((next: readonly Bar[]) => {
     workingRef.current = next;
@@ -45,7 +71,7 @@ export function useDhanBars(ticker: string, interval: ChartInterval, enabled: bo
   }, []);
 
   useEffect(() => {
-    if (!enabled) return;
+    if (endpoint === undefined) return;
     let cancelled = false;
     workingRef.current = [];
     setBars([]);
@@ -54,17 +80,19 @@ export function useDhanBars(ticker: string, interval: ChartInterval, enabled: bo
 
     const load = async () => {
       try {
-        publish(await fetchBars(ticker, interval, HISTORY_BARS));
+        const history = await fetchBars(endpoint, HISTORY_BARS);
+        if (cancelled) return;
+        publish(history);
         setStatus("live");
         setLastTickAt(Date.now());
       } catch (err) {
-        if (!cancelled) { setError(`Failed to load ${ticker} ${interval} from Dhan: ${err instanceof Error ? err.message : String(err)}`); setStatus("reconnecting"); }
+        if (!cancelled) { setError(`Failed to load ${name} ${interval} from ${label}: ${err instanceof Error ? err.message : String(err)}`); setStatus("reconnecting"); }
       }
     };
 
     const poll = async () => {
       try {
-        const fresh = await fetchBars(ticker, interval, POLL_BARS);
+        const fresh = await fetchBars(endpoint, POLL_BARS);
         if (cancelled || workingRef.current.length === 0) return;
         publish(fresh.reduce(mergeBar, workingRef.current));
         setStatus("live");
@@ -72,14 +100,14 @@ export function useDhanBars(ticker: string, interval: ChartInterval, enabled: bo
         setLastTickAt(Date.now());
       } catch (err) {
         if (!cancelled) setStatus("reconnecting");
-        console.warn("[dhan bars] poll failed", err);
+        console.warn(`[${label} bars] poll failed`, err);
       }
     };
 
     void load();
     const timer = setInterval(() => void (workingRef.current.length === 0 ? load() : poll()), POLL_MS);
     return () => { cancelled = true; clearInterval(timer); };
-  }, [ticker, interval, enabled, publish]);
+  }, [endpoint, label, name, interval, publish]);
 
   useEffect(() => {
     const t = setInterval(() => setNowTick(Date.now()), 1_000);
@@ -100,4 +128,12 @@ export function useDhanBars(ticker: string, interval: ChartInterval, enabled: bo
   };
 
   return { bars, status, error, health, loadOlder, subscribe, subscribeTrades };
+}
+
+/** Candles for any symbol, from whichever provider it belongs to: Binance live socket, Dhan or CoinDCX polled. */
+export function useSymbolFeed(symbol: SymbolOption, interval: ChartInterval): LiveBars & { readonly feedName: string } {
+  const polled = pollSourceOf(symbol, interval);
+  const binance = useLiveBars(symbol.binanceSymbol, interval, polled === undefined);
+  const other = usePolledBars(polled, symbol.displayName, interval);
+  return polled === undefined ? { ...binance, feedName: "Binance" } : { ...other, feedName: polled.label };
 }

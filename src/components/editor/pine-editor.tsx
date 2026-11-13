@@ -9,7 +9,7 @@ import type { CodeError } from "@/components/editor/code-editor";
 import { OpenScriptDialog, ScriptMenu } from "@/components/editor/script-menu";
 import { AiScriptDialog } from "@/components/editor/ai-script-dialog";
 import { ScriptCompileError } from "@/lib/script-loader";
-import type { PlotSpec } from "@/lib/indicator-runner";
+import { historyKey, type PlotSpec } from "@/lib/indicator-runner";
 import { createScriptRunner } from "@/lib/script-worker-client";
 import { describeCode } from "@/lib/script-library";
 import { DEFAULT_STRATEGY, loadStrategyCode } from "@/lib/strategy-runner";
@@ -75,6 +75,8 @@ export interface IndicatorRun {
   readonly alerts?: readonly { readonly message: string; readonly barIndex?: number; readonly barTime?: number }[];
   readonly isOverlay: boolean;
   readonly inputs: readonly InputConfig[];
+  /** `historyKey` of the bars it ran on, so a chart on other bars can ignore it. */
+  readonly historyKey: string;
 }
 
 const AUTO_RUN_DEBOUNCE_MS = 500;
@@ -196,7 +198,7 @@ function useScriptRunner({ bars, inputs, onResults, onStrategyCode, log, setErro
     }
     try {
       const { firstBarError, ...run } = await runner.run(code, bars, inputs);
-      onResults(run);
+      onResults({ ...run, historyKey: historyKey(bars) });
       setError(null);
       log(firstBarError ?? "Compiled successfully. Script added to chart.", firstBarError !== null);
     } catch (err) {

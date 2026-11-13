@@ -39,8 +39,8 @@ export interface BinanceKlineEvent {
 
 // ---------- supported symbols + intervals ----------
 
-/** Binance spot symbol (REST + WebSocket). */
-export type BinanceSymbol = "BTCUSDT" | "ETHUSDT" | "SOLUSDT" | "BNBUSDT";
+/** Binance spot symbol such as "BTCUSDT" (REST + WebSocket); any listed market, not a fixed few. */
+export type BinanceSymbol = string;
 
 /** Workbench intervals — the strings are valid Binance kline intervals as-is. */
 export type ChartInterval = "1s" | "1m" | "3m" | "5m" | "15m" | "30m" | "1h" | "2h" | "4h" | "1d" | "1w" | "1M";
@@ -48,17 +48,8 @@ export type ChartInterval = "1s" | "1m" | "3m" | "5m" | "15m" | "30m" | "1h" | "
 export type { SymbolOption } from "./symbol-catalog";
 export { SYMBOL_CATALOG as SUPPORTED_SYMBOLS } from "./symbol-catalog";
 
-/**
- * Quote asset of each supported market. The table is typed over every
- * `BinanceSymbol`, so a new market cannot be added without declaring its quote
- * asset. Nothing assumes USDT.
- */
-export const QUOTE_ASSET: Record<BinanceSymbol, string> = {
-  BTCUSDT: "USDT",
-  ETHUSDT: "USDT",
-  SOLUSDT: "USDT",
-  BNBUSDT: "USDT",
-};
+// Longest first, so "BTCFDUSD" is read as FDUSD and not USD.
+const QUOTE_ASSETS = ["FDUSD", "USDT", "USDC", "TUSD", "BUSD", "USDP", "EUR", "TRY", "BRL", "JPY", "GBP", "BTC", "ETH", "BNB"] as const;
 
 const TIMEFRAME_INTERVAL_MAP: Record<string, ChartInterval> = {
   "1s": "1s", "1": "1m", "1m": "1m", "3": "3m", "3m": "3m", "5": "5m", "5m": "5m",
@@ -94,7 +85,9 @@ export const fetchHtfBars = async (
   }
 };
 
-export const quoteAssetOf = (symbol: BinanceSymbol): string => QUOTE_ASSET[symbol];
+/** The asset a Binance market is priced in; USDT when the symbol ends in none of the known quotes. */
+export const quoteAssetOf = (symbol: BinanceSymbol): string =>
+  QUOTE_ASSETS.find((quote) => symbol.endsWith(quote) && symbol.length > quote.length) ?? "USDT";
 
 export const SUPPORTED_INTERVALS: readonly ChartInterval[] = ["1s", "1m", "3m", "5m", "15m", "30m", "1h", "2h", "4h", "1d", "1w", "1M"];
 
