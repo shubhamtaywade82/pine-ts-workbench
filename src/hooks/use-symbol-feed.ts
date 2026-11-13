@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { Bar } from "@nemesis-oss/pine-ts";
 import { countBarGaps, mergeBar, useLiveBars, type LiveBars, type LiveStatus } from "@/hooks/use-live-bars";
 import { INTERVAL_MS, type ChartInterval } from "@/lib/public-binance-feed";
+import { countSessionGaps, IST_OFFSET_MS, isSessionClosed } from "@/lib/session-bars";
 import type { SymbolOption } from "@/lib/symbol-catalog";
 
 const HISTORY_BARS = 1000;
@@ -14,6 +15,8 @@ const POLL_BARS = 3;
 /** A REST candle source for providers without a socket: where to fetch, and what to call it. */
 interface PolledSource {
   readonly label: string;
+  /** Trades in sessions with a close (NSE, BSE, MCX): stale tails and overnight breaks are not data problems. */
+  readonly isSessionMarket: boolean;
   /** Request URL up to the interval; the history size is appended. */
   readonly endpoint: string;
 }
@@ -23,6 +26,7 @@ const pollSourceOf = (symbol: SymbolOption, interval: ChartInterval): PolledSour
     const { dhanSegment: segment = "", dhanSecurityId: securityId = "" } = symbol;
     return {
       label: "DhanHQ",
+      isSessionMarket: true,
       endpoint: `/api/dhan/bars?${new URLSearchParams({ segment, securityId, interval })}`,
     };
   }
@@ -30,32 +34,37 @@ const pollSourceOf = (symbol: SymbolOption, interval: ChartInterval): PolledSour
     const pair = symbol.coindcxPair ?? "";
     return {
       label: "CoinDCX",
+      isSessionMarket: false,
       endpoint: `/api/coindcx/candles?${new URLSearchParams({ pair, interval })}`,
     };
   }
   return undefined;
 };
 
-const fetchBars = async (endpoint: string, limit: number): Promise<readonly Bar[]> => {
+interface FetchedBars { readonly bars: readonly Bar[]; readonly closedSince: number | undefined }
+
+const fetchBars = async (endpoint: string, limit: number): Promise<FetchedBars> => {
   const res = await fetch(`${endpoint}&limit=${limit}`);
-  const body = (await res.json()) as { ok: boolean; bars?: readonly Bar[]; error?: string };
+  const body = (await res.json()) as { ok: boolean; bars?: readonly Bar[]; closedSince?: number; error?: string };
   if (!body.ok || body.bars === undefined) throw new Error(body.error ?? `HTTP ${res.status}`);
-  return body.bars;
+  return { bars: body.bars, closedSince: body.closedSince };
 };
 
 /**
  * Candles from a REST source: one history load, then the newest bars are re-polled every few
  * seconds. Same shape as `useLiveBars` so ChartCell can use either. Idle while `source` is undefined.
  */
-function usePolledBars(source: PolledSource | undefined, name: string, interval: ChartInterval): LiveBars {
+function usePolledBars(source: PolledSource | undefined, name: string, interval: ChartInterval): LiveBars & { readonly isMarketClosed: boolean } {
   const [bars, setBars] = useState<readonly Bar[]>([]);
   const [status, setStatus] = useState<LiveStatus>("loading");
   const [error, setError] = useState<string | null>(null);
   const [lastTickAt, setLastTickAt] = useState<number | undefined>(undefined);
   const [nowTick, setNowTick] = useState(() => Date.now());
+  const [hasClosed, setHasClosed] = useState(false);
   const workingRef = useRef<readonly Bar[]>([]);
   const listenersRef = useRef(new Set<(bars: readonly Bar[]) => void>());
   const endpoint = source?.endpoint;
+  const isSession = source?.isSessionMarket ?? false;
   const label = source?.label ?? "";
 
   const publish = useCallback((next: readonly Bar[]) => {
@@ -82,7 +91,8 @@ function usePolledBars(source: PolledSource | undefined, name: string, interval:
       try {
         const history = await fetchBars(endpoint, HISTORY_BARS);
         if (cancelled) return;
-        publish(history);
+        publish(history.bars);
+        setHasClosed(history.closedSince !== undefined);
         setStatus("live");
         setLastTickAt(Date.now());
       } catch (err) {
@@ -94,7 +104,8 @@ function usePolledBars(source: PolledSource | undefined, name: string, interval:
       try {
         const fresh = await fetchBars(endpoint, POLL_BARS);
         if (cancelled || workingRef.current.length === 0) return;
-        publish(fresh.reduce(mergeBar, workingRef.current));
+        publish(fresh.bars.reduce(mergeBar, workingRef.current));
+        setHasClosed(fresh.closedSince !== undefined);
         setStatus("live");
         setError(null);
         setLastTickAt(Date.now());
@@ -123,17 +134,18 @@ function usePolledBars(source: PolledSource | undefined, name: string, interval:
   const health = {
     lastTickAgeMs,
     isStale: status === "live" && lastTickAgeMs !== undefined && lastTickAgeMs > Math.max(intervalMs * 3, POLL_MS * 3),
-    gapCount: bars.length > 1 ? countBarGaps(bars, intervalMs) : 0,
+    gapCount: bars.length < 2 ? 0 : isSession ? countSessionGaps(bars, intervalMs, IST_OFFSET_MS) : countBarGaps(bars, intervalMs),
     lastBarTime: bars.at(-1)?.time,
   };
 
-  return { bars, status, error, health, loadOlder, subscribe, subscribeTrades };
+  const isMarketClosed = isSession && isSessionClosed({ hasClosed, lastBarTime: bars.at(-1)?.time, now: nowTick, intervalMs });
+  return { bars, status, error, health, loadOlder, subscribe, subscribeTrades, isMarketClosed };
 }
 
 /** Candles for any symbol, from whichever provider it belongs to: Binance live socket, Dhan or CoinDCX polled. */
-export function useSymbolFeed(symbol: SymbolOption, interval: ChartInterval): LiveBars & { readonly feedName: string } {
+export function useSymbolFeed(symbol: SymbolOption, interval: ChartInterval): LiveBars & { readonly feedName: string; readonly isMarketClosed: boolean } {
   const polled = pollSourceOf(symbol, interval);
   const binance = useLiveBars(symbol.binanceSymbol, interval, polled === undefined);
   const other = usePolledBars(polled, symbol.displayName, interval);
-  return polled === undefined ? { ...binance, feedName: "Binance" } : { ...other, feedName: polled.label };
+  return polled === undefined ? { ...binance, feedName: "Binance", isMarketClosed: false } : { ...other, feedName: polled.label };
 }

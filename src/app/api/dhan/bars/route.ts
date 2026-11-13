@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 
 const MAX_BARS = 2000;
 
-/** GET /api/dhan/bars?segment=IDX_I&securityId=13&interval=5m&limit=500 → { ok, bars }; any instrument from the symbol search. */
+/** GET /api/dhan/bars?segment=IDX_I&securityId=13&interval=5m&limit=500 → { ok, bars, closedSince? }; any instrument from the symbol search. */
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
   const segment = searchParams.get("segment") ?? "";
@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
   if (!isDhanInterval(interval)) return NextResponse.json({ ok: false, error: `Dhan has no ${interval} candles` }, { status: 400 });
 
   try {
-    return NextResponse.json({ ok: true, bars: await fetchDhanBars({ segment, securityId }, interval, limit) }, { headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json({ ok: true, ...(await fetchDhanBars({ segment, securityId }, interval, limit)) }, { headers: { "Cache-Control": "no-store" } });
   } catch (err) {
     return NextResponse.json({ ok: false, error: err instanceof Error ? err.message : String(err) }, { status: 502 });
   }
