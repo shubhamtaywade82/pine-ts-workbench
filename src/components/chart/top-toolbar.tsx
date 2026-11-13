@@ -101,7 +101,8 @@ export function TopToolbar(props: TopToolbarProps) {
       <ToolbarSeparator />
       {SUPPORTED_INTERVALS.map((i) => (
         <Button
-          key={i} variant={i === activeCell.interval ? "secondary" : "ghost"} size="sm" className="h-8 px-2 text-sm"
+          key={i} variant="ghost" size="sm"
+          className={`h-8 px-2 text-sm tabular-nums ${i === activeCell.interval ? "bg-primary/20 font-semibold text-foreground hover:bg-primary/30" : "text-muted-foreground hover:text-foreground"}`}
           onClick={() => onActiveCellChange({ interval: i })}
         >
           {INTERVAL_LABELS[i]}
@@ -155,7 +156,7 @@ export function TopToolbar(props: TopToolbarProps) {
           ))}
         </SelectContent>
       </Select>
-      <Button variant="ghost" size="sm" className="h-8 w-8 p-0" title="Add chart" onClick={props.onAddCell} disabled={!props.canAddCell}>
+      <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground" title="Add chart" onClick={props.onAddCell} disabled={!props.canAddCell}>
         <Plus className="h-4 w-4" />
       </Button>
       <ToolbarSeparator />
@@ -175,14 +176,14 @@ export function TopToolbar(props: TopToolbarProps) {
             <ToolbarSeparator />
           </>
         )}
-        <Button variant="ghost" size="sm" className="h-8 w-8 p-0" title="Toggle theme" onClick={props.onToggleTheme}>
+        <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground" title="Toggle theme" onClick={props.onToggleTheme}>
           {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
         </Button>
-        <Button variant="ghost" size="sm" className="h-8 w-8 p-0" title="Chart settings" onClick={props.onOpenChartSettings}>
+        <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground" title="Chart settings" onClick={props.onOpenChartSettings}>
           <Settings className="h-4 w-4" />
         </Button>
         <SettingsDialog onSaved={props.onSettingsSaved} />
-        <Button variant="ghost" size="sm" className="h-8 w-8 p-0" title="Fullscreen" onClick={toggleFullscreen}>
+        <Button variant="ghost" size="sm" className="h-8 w-8 p-0 text-muted-foreground hover:text-foreground" title="Fullscreen" onClick={toggleFullscreen}>
           <Maximize className="h-4 w-4" />
         </Button>
       </div>

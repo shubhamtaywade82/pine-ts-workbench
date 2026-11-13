@@ -173,7 +173,7 @@ export function ChartCell({
 
   return (
     <div
-      className={`relative flex h-full flex-col border ${isActive && canRemove ? "border-primary" : "border-transparent"}`}
+      className={`relative flex h-full flex-col border transition-colors duration-150 ${isActive && canRemove ? "border-primary" : "border-transparent"}`}
       onClick={() => onActivate(cellId)}
     >
       {replay.isReplay && (
@@ -199,7 +199,7 @@ export function ChartCell({
             <Button
               variant="ghost"
               size="sm"
-              className="h-5 px-1.5 text-[10px] text-muted-foreground hover:text-white"
+              className="h-5 px-1.5 text-[10px] text-muted-foreground hover:text-foreground"
               onClick={() => replay.startReplay()}
               title="Bar Replay mode"
             >
@@ -211,7 +211,7 @@ export function ChartCell({
             <span className="inline-block h-2 w-2 rounded-full bg-[#a855f7] animate-pulse" /> Replay Mode
           </span>
         )}
-        <span className="text-[10px] text-muted-foreground">{visibleBars.length} bars</span>
+        <span className="text-[10px] tabular-nums text-muted-foreground">{visibleBars.length} bars</span>
         {canRemove && onRemove && (
           <Button variant="ghost" size="sm" className="h-6 w-6 p-0" onClick={(e) => { e.stopPropagation(); onRemove(cellId); }}>
             <X className="h-3 w-3" />

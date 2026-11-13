@@ -1,21 +1,19 @@
 "use client";
 
 import { useCallback, useState, useEffect, useRef } from "react";
+import dynamic from "next/dynamic";
 import type { ImperativePanelHandle } from "react-resizable-panels";
 import { NO_DRAWINGS } from "@/lib/editor-output";
 import { MemoizedChartCell } from "@/components/chart/chart-cell";
 import { TopToolbar, LAYOUT_OPTIONS, type GridLayout } from "@/components/chart/top-toolbar";
 import { useChartGrid, newCell } from "@/hooks/use-chart-grid";
 import { useEditorScript } from "@/hooks/use-editor-script";
-import { ChartSettingsDialog } from "@/components/chart/chart-settings-dialog";
 import { DEFAULT_CHART_SETTINGS, loadChartSettings, saveChartSettings, type ChartSettings } from "@/lib/chart-settings";
 import { quoteAssetOf, SUPPORTED_SYMBOLS, INTERVAL_MS } from "@/lib/public-binance-feed";
-import { PineEditor } from "@/components/editor/pine-editor";
 import { ScriptSettingsDialog } from "@/components/editor/script-settings-dialog";
 import { createScriptIndicator } from "@/components/chart/indicator-dialogs";
 import { currentCode } from "@/lib/script-library";
 import { isOverlayScript } from "@/lib/indicator-runner";
-import { StrategyTester } from "@/components/strategy/strategy-panel";
 import { RightSidebar, type RightPanel } from "@/components/chart/right-sidebar";
 import { TechnicalsPanel } from "@/components/technicals/technicals-panel";
 import { WatchlistPanel } from "@/components/chart/watchlist-panel";
@@ -27,7 +25,6 @@ import {
   loadFiredAlerts, saveFiredAlerts, type AlertRule, type FiredAlert,
 } from "@/lib/alert-engine";
 import { computeAlertContext } from "@/lib/alert-context";
-import { AlertsPanel } from "@/components/alerts/alerts-panel";
 import {
   saveCurrentLayout, layoutToCells, findSymbol, loadWorkspace, saveWorkspace,
   type SavedLayout, type Workspace,
@@ -37,6 +34,19 @@ import { Button } from "@/components/ui/button";
 import { usePersistedState } from "@/hooks/use-persisted-state";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Code2, FlaskConical } from "lucide-react";
+
+const PineEditor = dynamic(() => import("@/components/editor/pine-editor").then((m) => m.PineEditor), {
+  ssr: false, loading: () => null,
+});
+const StrategyTester = dynamic(() => import("@/components/strategy/strategy-panel").then((m) => m.StrategyTester), {
+  ssr: false, loading: () => null,
+});
+const ChartSettingsDialog = dynamic(() => import("@/components/chart/chart-settings-dialog").then((m) => m.ChartSettingsDialog), {
+  ssr: false, loading: () => null,
+});
+const AlertsPanel = dynamic(() => import("@/components/alerts/alerts-panel").then((m) => m.AlertsPanel), {
+  ssr: false, loading: () => null,
+});
 
 /**
  * Chart workbench — Wave 18. Multi-chart grid.

@@ -146,7 +146,7 @@ function OhlcValues({ bar, valuesRef }: { bar: Bar; valuesRef?: RefObject<HTMLSp
   const { color, fields } = legendValues(bar);
   const labels = ["O", "H", "L", "C"] as const;
   return (
-    <span ref={valuesRef} className="flex gap-2">
+    <span ref={valuesRef} className="flex gap-2 tabular-nums">
       {labels.map((label) => (
         <span key={label} className="text-[#787b86]">
           {label}<span data-field={label} style={{ color }}>{fields[label]}</span>
