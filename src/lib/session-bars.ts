@@ -25,7 +25,11 @@ export const lastTradeTime = (minuteBars: readonly Bar[]): number | undefined =>
   if (hasPlaceholder) end -= 1;
   let first = end - 1;
   while (first >= 1 && minuteBars[first]!.volume > 0 && minuteBars[first]!.volume === minuteBars[first - 1]!.volume) first -= 1;
-  return hasPlaceholder || end - 1 - first >= MIN_REPEATED_VOLUMES ? minuteBars[first]?.time : undefined;
+  if (!hasPlaceholder && end - 1 - first < MIN_REPEATED_VOLUMES) return undefined;
+  // An index's price can keep moving for a minute or two after its volume field freezes: keep those bars.
+  let lastMoving = first;
+  while (lastMoving + 1 < end && minuteBars[lastMoving + 1]!.close !== minuteBars[lastMoving]!.close) lastMoving += 1;
+  return minuteBars[lastMoving]?.time;
 };
 
 /**
@@ -62,4 +66,27 @@ export const isSessionClosed = (input: {
   if (hasClosed) return true;
   return lastBarTime !== undefined && intervalMs <= LONGEST_CHECKED_INTERVAL_MS
     && now - lastBarTime > intervalMs * 2 + MARKET_CLOSED_GRACE_MS;
+};
+
+/**
+ * Merges consecutive bars into bigger ones, restarting at each trading day's first bar. NSE builds its 2h and
+ * 4h candles this way from hourly bars (09:15-13:15, then the rest of the day), not from clock-aligned buckets.
+ */
+export const groupSessionBars = (bars: readonly Bar[], groupSize: number, utcOffsetMs = IST_OFFSET_MS): Bar[] => {
+  const grouped: Bar[] = [];
+  let day = Number.NaN;
+  let inGroup = 0;
+  for (const bar of bars) {
+    const barDay = Math.floor((bar.time + utcOffsetMs) / DAY_MS);
+    const held = grouped.at(-1);
+    if (held === undefined || barDay !== day || inGroup === groupSize) {
+      grouped.push({ ...bar });
+      day = barDay;
+      inGroup = 1;
+    } else {
+      grouped[grouped.length - 1] = { ...held, high: Math.max(held.high, bar.high), low: Math.min(held.low, bar.low), close: bar.close, volume: held.volume + bar.volume, isClosed: bar.isClosed };
+      inGroup += 1;
+    }
+  }
+  return grouped;
 };

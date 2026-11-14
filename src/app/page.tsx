@@ -268,7 +268,7 @@ export default function Home() {
                     isEditorOverlay={activeOutput.isOverlay}
                     onEditorScriptAction={editor.onScriptAction}
                     tradeMarkers={cell.id === activeCellId ? editor.tradeMarkers : NO_MARKERS}
-                    onActiveBarsChange={editor.setEditorBars}
+                    onActiveBarsChange={editor.onActiveChart}
                     chartSettings={chartSettings}
                     onChartSettingsChange={onChartSettingsChange}
                     onOpenChartSettings={openChartSettings}

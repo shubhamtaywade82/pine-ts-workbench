@@ -11,7 +11,7 @@ describe("script execution timeout budget", () => {
     // A synthetic wedge: patch the timeout down via fake timers is overkill;
     // instead verify the race machinery by racing a never-resolving run.
     const { createScriptRunner } = await import("./script-worker-client");
-    const runner = createScriptRunner("BTCUSDT");
+    const runner = createScriptRunner({ kind: "binance", symbol: "BTCUSDT" });
     // A script with an infinite loop would hang; here we assert the runner
     // still resolves normal scripts fine under the budget.
     const bars = Array.from({ length: 30 }, (_, i) => ({

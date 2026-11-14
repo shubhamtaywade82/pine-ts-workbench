@@ -165,3 +165,11 @@ export const buildSinks = (alert: AlertSettings, binance: BinanceSettings): Aler
   }
   return sinks;
 };
+
+/**
+ * The channels for information alerts only: webhook, Telegram, email and browser notification. Never the broker
+ * sink, which places orders, even when broker actions are switched on for script alerts. A message that merely
+ * reports a change must not be able to trade.
+ */
+export const buildNotificationSinks = (alert: AlertSettings, binance: BinanceSettings): AlertSink[] =>
+  buildSinks({ ...alert, brokerActionEnabled: false }, binance);

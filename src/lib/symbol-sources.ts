@@ -112,10 +112,21 @@ const rankDhan = (found: readonly SymbolOption[], query: string): SymbolOption[]
   return [...found].sort((a, b) => rank(a) - rank(b) || a.displayName.length - b.displayName.length).slice(0, PER_SOURCE_LIMIT);
 };
 
+/** Two instruments can share a name (two "NIFTY 500" indices); the later one gets its security id, so tickers stay unique keys. */
+const uniqueTickers = (options: readonly SymbolOption[]): SymbolOption[] => {
+  const seen = new Set<string>();
+  return options.map((option) => {
+    if (!seen.has(option.ticker)) { seen.add(option.ticker); return option; }
+    return { ...option, ticker: `${option.ticker} #${option.dhanSecurityId}` };
+  });
+};
+
 const searchDhan = async (query: string, category: Exclude<SymbolCategory, "crypto">): Promise<SymbolOption[]> => {
   const client = await getDhanClient();
   const found = await client.instruments.search(query, { segments: [...DHAN_SEGMENTS[category]], limit: DHAN_FETCH_LIMIT });
-  return rankDhan(found.flatMap((i) => dhanOption(i) ?? []), query);
+  // The scrip master can list one instrument under more than one row.
+  const distinct = new Map(found.flatMap((i) => dhanOption(i) ?? []).map((o) => [`${o.dhanSegment}:${o.dhanSecurityId}`, o] as const));
+  return uniqueTickers(rankDhan([...distinct.values()], query));
 };
 
 export interface SymbolSearchResult { readonly symbols: readonly SymbolOption[]; readonly warnings: readonly string[] }

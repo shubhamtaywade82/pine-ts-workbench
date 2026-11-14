@@ -11,6 +11,7 @@ import { usePersistedState } from "@/hooks/use-persisted-state";
 import { NO_DRAWINGS, NO_OVERLAYS, toChartDrawings, toEditorOverlays } from "@/lib/editor-output";
 import { historyKey } from "@/lib/indicator-runner";
 import type { ChartInterval } from "@/lib/public-binance-feed";
+import type { SymbolOption } from "@/lib/symbol-catalog";
 import { describeCode, type ScriptSettings } from "@/lib/script-library";
 import type { BacktestTrade } from "@/lib/strategy-runner";
 
@@ -23,6 +24,7 @@ export function useEditorScript(onOpenEditor: () => void, onOpenTester: () => vo
   const scripts = useScriptLibrary(SCRIPT_TEMPLATES, legacyScripts);
   const { settings } = scripts;
   const [editorBars, setEditorBars] = useState<readonly Bar[]>([]);
+  const [editorSymbol, setEditorSymbol] = useState<SymbolOption | undefined>(undefined);
   const [run, setRun] = useState<IndicatorRun | null>(null);
   const [isHidden, setIsHidden] = usePersistedState("editor-script-hidden", false);
   const [isOnChart, setIsOnChart] = usePersistedState("editor-script-on-chart", true);
@@ -54,6 +56,12 @@ export function useEditorScript(onOpenEditor: () => void, onOpenTester: () => vo
     setRun(next);
     setStrategyCode(null);
     setTrades([]);
+  }, []);
+
+  /** The active chart's bars and symbol, which the script runs on. */
+  const onActiveChart = useCallback((bars: readonly Bar[], symbol: SymbolOption) => {
+    setEditorBars(bars);
+    setEditorSymbol(symbol);
   }, []);
 
   const onScriptAction = useCallback((action: IndicatorAction) => {
@@ -91,10 +99,11 @@ export function useEditorScript(onOpenEditor: () => void, onOpenTester: () => vo
   };
 
   return {
-    scripts, editorBars, setEditorBars, backtest, tradeMarkers, chartOutput, onScriptAction, settingsDialog, strategyCode,
+    scripts, editorBars, onActiveChart, backtest, tradeMarkers, chartOutput, onScriptAction, settingsDialog, strategyCode,
     openSettings: () => setIsSettingsOpen(true),
     editorProps: {
       bars: editorBars,
+      symbol: editorSymbol,
       onResults: onIndicatorRun,
       onStrategyCode,
       onAddToChart: () => setIsOnChart(true),

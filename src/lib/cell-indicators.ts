@@ -7,6 +7,7 @@ import { loadLibrary, currentCode, EMPTY_SETTINGS } from "@/lib/script-library";
 import { toChartDrawings } from "@/lib/editor-output";
 import type { LiveRunner } from "@/lib/indicator-runner";
 import { createScriptRunner, type ScriptRunner } from "@/lib/script-worker-client";
+import type { HtfSource } from "@/lib/htf-bars";
 
 export const INDICATOR_COLORS: Record<string, string> = {
   sma: "#1e88e5", ema: "#ff6d00", rsi: "#7e57c2", macd: "#1e88e5",
@@ -74,11 +75,11 @@ export const runMounted = async (
   m: MountedIndicator,
   bars: readonly Bar[],
   runners: Map<string, ScriptRunner>,
-  symbol?: string,
+  htf?: HtfSource,
 ): Promise<IndicatorRunResult | undefined> => {
   if (m.scriptId !== undefined) {
     let runner = runners.get(m.instanceId);
-    if (runner === undefined) runners.set(m.instanceId, (runner = createScriptRunner(symbol)));
+    if (runner === undefined) runners.set(m.instanceId, (runner = createScriptRunner(htf)));
     return runSavedScript(runner.run, m.scriptId, bars);
   }
   if (bars.length === 0) return undefined;

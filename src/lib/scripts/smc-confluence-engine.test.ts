@@ -69,8 +69,8 @@ describe("runMounted confirmed-bar cache", () => {
   it("does not serve one symbol's confirmed history to another with the same bar times", async () => {
     const sma = { instanceId: "sma-1", indicatorId: "sma", indicatorName: "SMA", inputs: {}, pane: "main" } as const;
     const runners = new Map();
-    const cheap = await runMounted(sma, forming(1), runners, "SOLUSDT");
-    const dear = await runMounted(sma, forming(20), runners, "ETHUSDT");
+    const cheap = await runMounted(sma, forming(1), runners, { kind: "binance", symbol: "SOLUSDT" });
+    const dear = await runMounted(sma, forming(20), runners, { kind: "binance", symbol: "ETHUSDT" });
     const plot = Object.keys(cheap!.plots)[0]!;
     expect(dear!.plots[plot]!.at(-2)!).toBeGreaterThan(cheap!.plots[plot]!.at(-2)! * 10);
   });

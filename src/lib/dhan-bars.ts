@@ -59,9 +59,10 @@ export interface DhanBars {
 export const fetchDhanBars = async (instrument: DhanInstrumentRef, interval: string, limit: number): Promise<DhanBars> => {
   const timeframe = DHAN_TIMEFRAMES[interval];
   if (timeframe === undefined) throw new RangeError(`Dhan has no ${interval} candles`);
+  // A daily bar starts before any intraday cutoff, so daily history needs neither the cutoff nor the call behind it.
   const [bars, closedSince] = await Promise.all([
     (await getProvider()).getHistoricalBars({ symbol: `${instrument.segment}:${instrument.securityId}`, timeframe, limit }),
-    tradingStoppedAt(instrument),
+    interval === "1d" ? undefined : tradingStoppedAt(instrument),
   ]);
   return closedSince === undefined ? { bars } : { bars: bars.filter((b) => b.time <= closedSince), closedSince };
 };

@@ -5,11 +5,16 @@ import type { Bar } from "@nemesis-oss/pine-ts";
 import { countBarGaps, mergeBar, useLiveBars, type LiveBars, type LiveStatus } from "@/hooks/use-live-bars";
 import { INTERVAL_MS, type ChartInterval } from "@/lib/public-binance-feed";
 import { countSessionGaps, IST_OFFSET_MS, isSessionClosed } from "@/lib/session-bars";
+import { startPolling } from "@/lib/visible-polling";
 import type { SymbolOption } from "@/lib/symbol-catalog";
 
 const HISTORY_BARS = 1000;
 /** Dhan and CoinDCX have no per-bar push here, so the forming bar is refreshed by polling the newest few bars. */
 const POLL_MS = 5_000;
+/** While the newest bar stops changing (a closed market, a quiet stock) polling slows to this; it pauses with the tab. */
+const QUIET_POLL_MS = 60_000;
+/** How often the "age of the last update" label is refreshed; it does not need to tick every second. */
+const AGE_TICK_MS = 5_000;
 const POLL_BARS = 3;
 
 /** A REST candle source for providers without a socket: where to fetch, and what to call it. */
@@ -115,13 +120,18 @@ function usePolledBars(source: PolledSource | undefined, name: string, interval:
       }
     };
 
-    void load();
-    const timer = setInterval(() => void (workingRef.current.length === 0 ? load() : poll()), POLL_MS);
-    return () => { cancelled = true; clearInterval(timer); };
+    const newest = (bars: readonly Bar[]): string => { const bar = bars.at(-1); return `${bars.length}:${bar?.time}:${bar?.close}:${bar?.volume}`; };
+    const run = async (): Promise<boolean> => {
+      const before = newest(workingRef.current);
+      await (workingRef.current.length === 0 ? load() : poll());
+      return newest(workingRef.current) !== before;
+    };
+    const stop = startPolling({ run, baseMs: POLL_MS, maxMs: QUIET_POLL_MS });
+    return () => { cancelled = true; stop(); };
   }, [endpoint, label, name, interval, publish]);
 
   useEffect(() => {
-    const t = setInterval(() => setNowTick(Date.now()), 1_000);
+    const t = setInterval(() => setNowTick(Date.now()), AGE_TICK_MS);
     return () => clearInterval(t);
   }, []);
 
@@ -133,7 +143,8 @@ function usePolledBars(source: PolledSource | undefined, name: string, interval:
   const lastTickAgeMs = lastTickAt === undefined ? undefined : nowTick - lastTickAt;
   const health = {
     lastTickAgeMs,
-    isStale: status === "live" && lastTickAgeMs !== undefined && lastTickAgeMs > Math.max(intervalMs * 3, POLL_MS * 3),
+    // A quiet feed polls as slowly as QUIET_POLL_MS, so only a gap well beyond that means the feed is stale.
+    isStale: status === "live" && lastTickAgeMs !== undefined && lastTickAgeMs > Math.max(intervalMs * 3, QUIET_POLL_MS * 2),
     gapCount: bars.length < 2 ? 0 : isSession ? countSessionGaps(bars, intervalMs, IST_OFFSET_MS) : countBarGaps(bars, intervalMs),
     lastBarTime: bars.at(-1)?.time,
   };

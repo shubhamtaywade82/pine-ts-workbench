@@ -1,8 +1,9 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Bar } from "@nemesis-oss/pine-ts";
-import { type ChartInterval, type SymbolOption } from "@/lib/public-binance-feed";
+import { INTERVAL_MS, type ChartInterval, type SymbolOption } from "@/lib/public-binance-feed";
 import { ChartWorkbench, type ChartOverlay, type IndicatorAction, type TradeMarker } from "@/components/chart/chart-workbench";
 import { IndicatorSettingsDialog, type MountedIndicator } from "@/components/chart/indicator-dialogs";
 import type { ChartDrawing } from "@/components/chart/script-drawings-primitive";
@@ -12,6 +13,13 @@ import type { ScriptRunner } from "@/lib/script-worker-client";
 import { History, X } from "lucide-react";
 import { useSymbolFeed } from "@/hooks/use-symbol-feed";
 import { LiveBadge } from "@/components/chart/live-badge";
+import { htfSourceOf } from "@/lib/htf-bars";
+import { useOptionsDashboard } from "@/hooks/use-option-chain";
+// Loaded when first opened: most charts never show the option panel.
+const OptionChainPanel = dynamic(() => import("@/components/chart/option-chain-panel").then((m) => m.OptionChainPanel), { ssr: false });
+import { rememberRemoteSymbol } from "@/lib/remote-symbols";
+import { OptionHud } from "@/components/chart/option-hud";
+import { usePersistedState } from "@/hooks/use-persisted-state";
 import { useBarReplay } from "@/hooks/use-bar-replay";
 import { ReplayControls } from "@/components/chart/replay-controls";
 import { buildSinks, dispatchScriptAlerts, formatScriptAlertMessage, loadAlertSettings } from "@/lib/alert-sinks";
@@ -45,7 +53,7 @@ export interface ChartCellProps extends CellSettings {
   readonly onChartSettingsChange: (settings: ChartSettings) => void;
   readonly onOpenChartSettings: () => void;
   readonly tradeMarkers?: TradeMarker[];
-  readonly onActiveBarsChange?: (bars: readonly Bar[]) => void;
+  readonly onActiveBarsChange?: (bars: readonly Bar[], symbol: SymbolOption) => void;
   readonly onEditorScriptAction?: (action: IndicatorAction) => void;
 }
 
@@ -61,10 +69,19 @@ export function ChartCell({
   const feed = useSymbolFeed(symbol, interval);
   const { bars, status, error, health, loadOlder, subscribe, feedName } = feed;
   const replay = useBarReplay(bars.length);
+
   const visibleBars = useMemo(
     () => (replay.isReplay ? bars.slice(0, replay.replayIndex) : bars),
     [replay.isReplay, replay.replayIndex, bars],
   );
+
+  const options = useOptionsDashboard(symbol, visibleBars, INTERVAL_MS[interval]);
+  const [isHudExpanded, setIsHudExpanded] = usePersistedState("option-hud-expanded", true);
+  const openContract = (contract: SymbolOption) => {
+    rememberRemoteSymbol(contract);
+    onChange(cellId, { symbol: contract });
+    options.setIsOpen(false);
+  };
 
   const [runResults, setRunResults] = useState<Record<string, IndicatorRunResult>>({});
   const [settingsInstanceId, setSettingsInstanceId] = useState<string | null>(null);
@@ -106,7 +123,7 @@ export function ChartCell({
     }
     const first = visibleBars[0];
     const last = visibleBars[visibleBars.length - 1];
-    const runKey = `${symbol.binanceSymbol}:${interval}:${visibleBars.length}:${first?.time}:${last?.time}:${mounted.map((m) => m.instanceId).join(",")}`;
+    const runKey = `${symbol.ticker}:${interval}:${visibleBars.length}:${first?.time}:${last?.time}:${mounted.map((m) => m.instanceId).join(",")}`;
     const isNewBarOrConfig = runKey !== prevRunKeyRef.current;
     const now = Date.now();
     // Throttle sub-tick recalculations within a forming candle to reduce main-thread pressure.
@@ -118,7 +135,7 @@ export function ChartCell({
       const out: Record<string, IndicatorRunResult> = {};
       for (const m of mounted) {
         try {
-          const result = await runMounted(m, visibleBars, liveRunners, symbol.binanceSymbol);
+          const result = await runMounted(m, visibleBars, liveRunners, htfSourceOf(symbol));
           if (result !== undefined) out[m.instanceId] = result;
         } catch {
           // A saved script that no longer compiles draws nothing.
@@ -127,15 +144,15 @@ export function ChartCell({
       if (!cancelled) setRunResults(out);
     })();
     return () => { cancelled = true; };
-  }, [visibleBars, mounted, liveRunners, symbol.binanceSymbol, interval]);
+  }, [visibleBars, mounted, liveRunners, symbol, interval]);
 
   const { mainOverlays, subPanes } = useMemo(
     () => computeOverlays(visibleBars, mounted, runResults, interval),
     [visibleBars, mounted, runResults, interval],
   );
   const drawings = useMemo(
-    () => [...(editorDrawings ?? []), ...scriptDrawings(visibleBars, mounted, runResults, interval)],
-    [editorDrawings, visibleBars, mounted, runResults, interval],
+    () => [...(editorDrawings ?? []), ...scriptDrawings(visibleBars, mounted, runResults, interval), ...options.drawings],
+    [editorDrawings, visibleBars, mounted, runResults, interval, options.drawings],
   );
 
   const dispatchedAlertKeysRef = useRef(new Set<string>());
@@ -163,12 +180,12 @@ export function ChartCell({
     const first = visibleBars[0];
     const last = visibleBars[visibleBars.length - 1];
     if (first === undefined || last === undefined) { notifiedRef.current = null; return; }
-    const signature = `${symbol.binanceSymbol}:${interval}:${first.time}:${last.time}:${visibleBars.length}`;
+    const signature = `${symbol.ticker}:${interval}:${first.time}:${last.time}:${visibleBars.length}`;
     if (wasActiveRef.current && signature === notifiedRef.current) return;
     wasActiveRef.current = true;
     notifiedRef.current = signature;
-    onActiveBarsChange?.(visibleBars);
-  }, [isActive, visibleBars, onActiveBarsChange, symbol.binanceSymbol, interval]);
+    onActiveBarsChange?.(visibleBars, symbol);
+  }, [isActive, visibleBars, onActiveBarsChange, symbol, interval]);
 
   const allMainOverlays = isEditorOverlay ? [...mainOverlays, ...editorOverlays] : mainOverlays;
   const allSubPanes = editorOverlays.length > 0 && !isEditorOverlay
@@ -209,6 +226,17 @@ export function ChartCell({
             >
               <History className="mr-1 h-3 w-3" /> Replay
             </Button>
+            {options.expiries.length > 0 && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className={`h-5 px-1.5 text-[10px] hover:text-foreground ${options.isOpen ? "text-[#2962ff]" : options.isLinesOnly ? "text-[#089981]" : "text-muted-foreground"}`}
+                onClick={(e) => { e.stopPropagation(); options.setIsOpen(!options.isOpen); }}
+                title={options.isLinesOnly ? "Options dashboard (its OI levels are still on the chart)" : "Options dashboard: OI levels, PCR, IV, VIX, greeks, and which long option side the evidence supports"}
+              >
+                Options{options.isLinesOnly ? " •" : ""}
+              </Button>
+            )}
           </>
         ) : (
           <span className="flex items-center gap-1 text-[10px] font-medium text-[#c084fc]">
@@ -223,12 +251,13 @@ export function ChartCell({
         )}
       </div>
 
-      <div className="flex-1 overflow-hidden px-1 pb-1">
+      <div className="relative flex-1 overflow-hidden px-1 pb-1">
         {visibleBars.length === 0 ? (
           <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
             {error ?? `Loading ${symbol.displayName} from ${feedName}…`}
           </div>
         ) : (
+          <>
           <ChartWorkbench
             cellId={cellId}
             title={`${symbol.displayName} · ${interval} · ${feedName}${replay.isReplay ? " (Replay)" : ""}`}
@@ -248,8 +277,15 @@ export function ChartCell({
             onSettingsChange={onChartSettingsChange}
             onOpenSettings={onOpenChartSettings}
           />
+          {options.showLines && options.filter && options.state.summary && (
+            <OptionHud filter={options.filter} summary={options.state.summary} vix={options.vix} isExpanded={isHudExpanded} onToggle={() => setIsHudExpanded(!isHudExpanded)} onOpenPanel={() => options.setIsOpen(true)} onTurnOff={() => options.setShowLines(false)} />
+          )}
+          </>
         )}
       </div>
+      {options.isOpen && options.underlying !== undefined && options.expiries.length > 0 && (
+        <OptionChainPanel symbol={symbol} dashboard={options} onOpenContract={openContract} />
+      )}
       <IndicatorSettingsDialog
         indicator={mounted.find((m) => m.instanceId === settingsInstanceId)}
         onClose={() => setSettingsInstanceId(null)}

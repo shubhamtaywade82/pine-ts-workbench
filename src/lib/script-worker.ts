@@ -3,7 +3,7 @@ import type { Bar, InputsBag } from "@nemesis-oss/pine-ts";
 import { createLiveRunner, type LiveRunner, type ScriptRun } from "./indicator-runner";
 import { ScriptCompileError, type CodePosition } from "./script-loader";
 
-import { fetchHtfBars, type BinanceSymbol } from "./public-binance-feed";
+import { createHtfLoader, type HtfSource } from "./htf-bars";
 
 /**
  * Runs TypeScript Editor and saved scripts off the main thread, so a heavy indicator
@@ -12,7 +12,7 @@ import { fetchHtfBars, type BinanceSymbol } from "./public-binance-feed";
  */
 
 export type WorkerRequest =
-  | { readonly type: "run"; readonly id: number; readonly slot: number; readonly code: string; readonly bars: readonly Bar[]; readonly inputs: InputsBag; readonly symbol?: string }
+  | { readonly type: "run"; readonly id: number; readonly slot: number; readonly code: string; readonly bars: readonly Bar[]; readonly inputs: InputsBag; readonly source?: HtfSource }
   | { readonly type: "dispose"; readonly slot: number };
 
 export type WorkerReply =
@@ -31,8 +31,8 @@ scope.onmessage = async ({ data }: MessageEvent<WorkerRequest>) => {
   }
   let run = runners.get(data.slot);
   if (run === undefined) {
-    const symbol = (data.symbol ?? "BTCUSDT") as BinanceSymbol;
-    runners.set(data.slot, (run = createLiveRunner((tf) => fetchHtfBars(tf, symbol))));
+    const source = data.source ?? { kind: "binance", symbol: "BTCUSDT" };
+    runners.set(data.slot, (run = createLiveRunner(createHtfLoader(source))));
   }
   try {
     reply({ id: data.id, ok: true, run: await run(data.code, data.bars, data.inputs) });

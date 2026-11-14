@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Plus, Settings, Sparkles, X } from "lucide-react";
 import type { Bar, InputConfig, InputsBag, ScriptDrawings } from "@nemesis-oss/pine-ts";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,8 @@ import { AiScriptDialog } from "@/components/editor/ai-script-dialog";
 import { ScriptCompileError } from "@/lib/script-loader";
 import { historyKey, type PlotSpec } from "@/lib/indicator-runner";
 import { createScriptRunner } from "@/lib/script-worker-client";
+import { htfSourceOf } from "@/lib/htf-bars";
+import type { SymbolOption } from "@/lib/symbol-catalog";
 import { describeCode } from "@/lib/script-library";
 import { DEFAULT_STRATEGY, loadStrategyCode } from "@/lib/strategy-runner";
 import type { ScriptLibraryState, ScriptTemplates } from "@/hooks/use-script-library";
@@ -24,6 +26,8 @@ import { EditorMoreMenu, useEditorPrefs } from "@/components/editor/editor-more-
 
 export interface PineEditorProps {
   readonly bars: readonly Bar[];
+  /** The symbol of `bars`, so the script's higher-timeframe data comes from the same provider. */
+  readonly symbol?: SymbolOption;
   /** An indicator run: plot values per bar (aligned with `bars`), plot specs, drawings and declared inputs. */
   readonly onResults: (run: IndicatorRun) => void;
   /** Strategy code to backtest (the Strategy Tester shows results and errors). */
@@ -97,7 +101,7 @@ function useConsole() {
   return { lines, log };
 }
 
-export function PineEditor({ bars, onResults, onStrategyCode, onAddToChart, onClose, scripts, onOpenSettings, isVisible = true }: PineEditorProps) {
+export function PineEditor({ bars, symbol, onResults, onStrategyCode, onAddToChart, onClose, scripts, onOpenSettings, isVisible = true }: PineEditorProps) {
   // Latched during render (not in an effect): once shown, keep CodeMirror mounted so undo history survives.
   const [hasShown, setHasShown] = useState(isVisible);
   if (isVisible && !hasShown) setHasShown(true);
@@ -108,7 +112,7 @@ export function PineEditor({ bars, onResults, onStrategyCode, onAddToChart, onCl
   const [isAiDialogOpen, setIsAiDialogOpen] = useState(false);
   const [aiErrorToFix, setAiErrorToFix] = useState<string | null>(null);
   const { lines, log } = useConsole();
-  const runCode = useScriptRunner({ bars, inputs: scripts.settings.inputs, onResults, onStrategyCode, log, setError });
+  const runCode = useScriptRunner({ bars, symbol, inputs: scripts.settings.inputs, onResults, onStrategyCode, log, setError });
   useAutoRun(scripts.draft, bars, autoRun, runCode);
   // New input values from the settings dialog apply at once, like TradingView's Ok.
   // Via refs: runCode changes whenever the page re-renders, the inputs only on Ok.
@@ -179,15 +183,18 @@ export function PineEditor({ bars, onResults, onStrategyCode, onAddToChart, onCl
 }
 
 /** Runs the code by kind: indicators on the bars here, strategies handed to the Strategy Tester. */
-function useScriptRunner({ bars, inputs, onResults, onStrategyCode, log, setError }: {
+function useScriptRunner({ bars, symbol, inputs, onResults, onStrategyCode, log, setError }: {
   bars: readonly Bar[];
+  symbol: SymbolOption | undefined;
   inputs: InputsBag;
   onResults: PineEditorProps["onResults"];
   onStrategyCode: PineEditorProps["onStrategyCode"];
   log: (text: string, isError: boolean) => void;
   setError: (error: CodeError | null) => void;
 }) {
-  const [runner] = useState(createScriptRunner);
+  // A runner is bound to its symbol's higher-timeframe data, so a new symbol gets a new runner.
+  const source = useMemo(() => (symbol === undefined ? undefined : htfSourceOf(symbol)), [symbol]);
+  const runner = useMemo(() => createScriptRunner(source), [source]);
   useEffect(() => runner.dispose, [runner]);
   return useCallback(async (code: string) => {
     if (describeCode(code).kind === "strategy") {

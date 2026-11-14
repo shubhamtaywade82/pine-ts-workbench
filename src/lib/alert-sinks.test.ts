@@ -1,5 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import {
+  buildNotificationSinks,
+  buildSinks,
+  DEFAULT_ALERT_SETTINGS,
   dispatchScriptAlerts,
   formatScriptAlertMessage,
   type AlertSink,
@@ -59,5 +62,20 @@ describe("dispatchScriptAlerts", () => {
     expect(delivered.length).toBe(1);
     expect(delivered[0]!.symbol).toBe("BTCUSDT");
     expect(delivered[0]!.message).toBe("Test alert triggered");
+  });
+});
+
+describe("buildNotificationSinks", () => {
+  const withBrokerOn = { ...DEFAULT_ALERT_SETTINGS, brokerActionEnabled: true };
+  const noBinance = {} as never;
+
+  it("is the guard for the alerts that must not trade: the broker sink is there for script alerts and absent here", () => {
+    expect(buildSinks(withBrokerOn, noBinance).some((sink) => sink.id === "broker-action")).toBe(true);
+    expect(buildNotificationSinks(withBrokerOn, noBinance).some((sink) => sink.id === "broker-action")).toBe(false);
+  });
+
+  it("keeps the channels that only send a message", () => {
+    const names = buildNotificationSinks(withBrokerOn, noBinance).map((sink) => sink.name);
+    for (const channel of ["Webhook", "Telegram", "Email"]) expect(names).toContain(channel);
   });
 });

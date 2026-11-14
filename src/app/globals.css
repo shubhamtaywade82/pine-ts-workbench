@@ -37,6 +37,11 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+  --color-up: var(--up);
+  --color-down: var(--down);
+  --color-warn: var(--warn);
+  --color-panel: var(--panel);
+  --color-panel-border: var(--panel-border);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -76,6 +81,12 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+  /* Market tones for data views: darker in light mode so small text keeps 4.5:1 on white. */
+  --up: #067a62;
+  --down: #c62235;
+  --warn: #a15c00;
+  --panel: oklch(0.985 0 0);
+  --panel-border: oklch(0.9 0 0);
 }
 
 .dark {
@@ -111,6 +122,12 @@
   --sidebar-accent-foreground: #d1d4dc;
   --sidebar-border: #1f1f1f;
   --sidebar-ring: #2962ff;
+  /* Brighter than the chart's candle colours: small text on black needs more light to read. */
+  --up: #2ebd85;
+  --down: #f6465d;
+  --warn: #f0b90b;
+  --panel: #0c0e13;
+  --panel-border: #262a33;
 }
 
 @layer base {
@@ -122,6 +139,35 @@
   }
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+@layer components {
+  /* Data cards and tables shared by the options panel, options history and bot research. */
+  .data-card {
+    @apply min-w-0 rounded-md border border-panel-border bg-panel p-2.5;
+  }
+  .data-card-title {
+    @apply mb-2 flex items-baseline gap-2 font-semibold text-foreground;
+  }
+  .data-table {
+    @apply w-full border-separate border-spacing-0 tabular-nums;
+  }
+  .data-table th {
+    @apply border-b border-panel-border px-2 py-1 font-medium whitespace-nowrap text-muted-foreground;
+  }
+  .data-table td {
+    @apply px-2 py-1;
+  }
+  .data-table tbody tr:nth-child(even) {
+    background: color-mix(in oklab, var(--foreground) 3%, transparent);
+  }
+  .data-table tbody tr:hover {
+    background: color-mix(in oklab, var(--foreground) 7%, transparent);
+  }
+  .tone-pill {
+    @apply inline-block rounded px-1.5 py-px font-medium whitespace-nowrap;
+    background: color-mix(in oklab, currentColor 14%, transparent);
   }
 }
 
