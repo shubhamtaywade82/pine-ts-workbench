@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { buildBook, dropMixedExtremes, sessionMinute, simulateDay, type BookRow, type Quote } from "./held-options";
+import { buildBook, repairMixedExtremes, sessionMinute, simulateDay, trailedStop, type BookRow, type Quote } from "./held-options";
 
 // 09:15 IST on 11 Nov 2026.
 const OPEN = Date.UTC(2026, 10, 11, 3, 45);
@@ -91,12 +91,55 @@ describe("simulateDay", () => {
   });
 });
 
-describe("dropMixedExtremes", () => {
+describe("repairMixedExtremes", () => {
   it("keeps only closes on a bar where the money moved, whose high and low mix two strikes", () => {
     const rows = [bar(15, 25000, { 25000: q(100, 104, 98) }), bar(20, 25050, { 25000: q(110, 112, 60) }), bar(25, 25050, { 25000: q(111, 115, 108) })];
-    const [first, moved, steady] = dropMixedExtremes(rows);
+    const [first, moved, steady] = repairMixedExtremes(rows);
     expect(first!.ce["25000"]).toEqual({ close: 100, high: 104, low: 98 });
     expect(moved!.ce["25000"]).toEqual({ close: 110, high: 110, low: 110 });
     expect(steady!.ce["25000"]).toEqual({ close: 111, high: 115, low: 108 });
+  });
+});
+
+describe("repairMixedExtremes with the underlying's range", () => {
+  // Calls at three strikes 50 apart: closes 150 / 120 / 95, so the 25000 call moves about (150 − 95) ÷ 100 = 0.55 per point.
+  const row = (range: { high: number; low: number }, low = 60): BookRow => ({
+    time: OPEN + 20 * MIN, spot: 25010, atm: 25000, iv: 15, range,
+    ce: { 24950: q(150, 155, 145), 25000: q(120, 125, low), 25050: q(95, 98, 90) }, pe: {},
+  });
+
+  it("trusts a bar whose underlying stayed inside one strike's band", () => {
+    const [kept] = repairMixedExtremes([row({ high: 25020, low: 24990 })]);
+    expect(kept!.ce["25000"]).toEqual({ close: 120, high: 125, low: 60 });
+  });
+
+  it("re-estimates a bar where the underlying crossed a strike boundary and came back", () => {
+    // The low of 24970 sits in 24950's band, so the 25000 series mixed strikes; its true low is about 120 − 0.55 × 40.
+    const [fixed] = repairMixedExtremes([row({ high: 25020, low: 24970 })]);
+    expect(fixed!.ce["25000"]!.low).toBeCloseTo(98, 0);
+    expect(fixed!.ce["25000"]!.high).toBeCloseTo(125.5, 0);
+    expect(fixed!.ce["25000"]!.close).toBe(120);
+  });
+});
+
+describe("trailing stops", () => {
+  // Bought at 100; the premium runs to 160, then falls back to 90.
+  const run = [bar(15, 25000, { 25000: q(100) }), bar(20, 25100, { 25000: q(140, 140, 120) }), bar(25, 25200, { 25000: q(160, 160, 150) }), bar(30, 25000, { 25000: q(90, 150, 90) })];
+  const rules = { side: "CE" as const, entryMinute: 15, stopPct: 30, exitMinute: 360 };
+
+  it("moves the stop up on a bar's high, from the next bar on", () => {
+    expect(trailedStop({ kind: "breakeven", afterPct: 30 }, 100, 129, 70)).toBe(70);
+    expect(trailedStop({ kind: "breakeven", afterPct: 30 }, 100, 130, 70)).toBe(100);
+    expect(trailedStop({ kind: "giveback", afterPct: 30, givebackPct: 25 }, 100, 160, 70)).toBe(120);
+    expect(trailedStop({ kind: "step", stepPct: 15 }, 100, 160, 70)).toBeCloseTo(130);
+  });
+
+  it("exits at the trailed level and names it", () => {
+    expect(simulateDay(run, { ...rules, trail: { kind: "giveback", afterPct: 30, givebackPct: 25 } })).toMatchObject({ exitReason: "trailing stop", exitPrice: 120 });
+    expect(simulateDay(run, rules)).toMatchObject({ exitReason: "day end", exitPrice: 90 });
+  });
+
+  it("exits on the close when the trade's reason is gone", () => {
+    expect(simulateDay(run, { ...rules, isInvalidated: (row) => row.spot < 25050 })).toMatchObject({ exitReason: "invalidated", exitPrice: 90 });
   });
 });

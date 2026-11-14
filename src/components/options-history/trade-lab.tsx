@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import type { BookRow } from "@/lib/held-options";
+import type { BookRow, Trail } from "@/lib/held-options";
 import type { HistorySettings } from "@/lib/history-settings";
 import { dateWindows, trackedOffsets } from "@/lib/rolling-request";
 import { runLab, vixPercentileByDay, type LabRules } from "@/lib/trade-lab";
@@ -13,6 +13,15 @@ const ENTRY_TIMES: readonly (readonly [number, string])[] = [[at(9, 20), "09:20"
 const EXIT_TIMES: readonly (readonly [number, string])[] = [[at(12, 0), "12:00"], [at(14, 0), "14:00"], [at(15, 0), "15:00"], [at(15, 15), "15:15"], [at(15, 25), "15:25"]];
 const TARGETS: readonly (number | undefined)[] = [undefined, 20, 30, 50, 100];
 const STOPS: readonly (number | undefined)[] = [undefined, 20, 30, 50];
+/** The trailing rules the replay experiments compare; the same set here, so the page shows what was tested. */
+const TRAILS: Readonly<Record<string, readonly [string, Trail | undefined]>> = {
+  none: ["no trail", undefined],
+  breakeven: ["breakeven after +30%", { kind: "breakeven", afterPct: 30 }],
+  tight: ["after +30%, 25% below best", { kind: "giveback", afterPct: 30, givebackPct: 25 }],
+  loose: ["after +50%, 40% below best", { kind: "giveback", afterPct: 50, givebackPct: 40 }],
+  step: ["step +15% per +15%", { kind: "step", stepPct: 15 }],
+};
+const trailKey = (trail: Trail | undefined): string => Object.entries(TRAILS).find(([, [, t]]) => JSON.stringify(t) === JSON.stringify(trail))?.[0] ?? "none";
 
 // Windows already read this visit, by request, so changing a rule never refetches.
 const windowCache = new Map<string, Promise<BookRow[]>>();
@@ -47,6 +56,10 @@ const fetchVixPercentiles = (): Promise<Map<string, number>> =>
     .then((b) => vixPercentileByDay(b.ok ? b.bars ?? [] : []))
     .catch(() => { vixDays = undefined; return new Map<string, number>(); }));
 
+// One-minute bars: on five-minute bars a stop is checked minutes late, and more bars span a change of strike, whose
+// high and low then have to be thrown away (see dropMixedExtremes). Same number of calls, five times the rows.
+const LAB_BARS = "1";
+
 const ENTRY_MODES: readonly (readonly [EntryMode, string])[] = [["time", "both sides at a fixed time"], ["orb", "on the 15-min range breakout"], ["orb-twap", "on the breakout, average price following"]];
 
 export function TradeLab({ settings }: { readonly settings: HistorySettings }) {
@@ -57,7 +70,7 @@ export function TradeLab({ settings }: { readonly settings: HistorySettings }) {
   const [vixPercentiles, setVixPercentiles] = useState<ReadonlyMap<string, number>>(new Map());
   useEffect(() => { void fetchVixPercentiles().then(setVixPercentiles); }, []);
   const { underlying: u, expiryFlag, expiryCode, from, to } = settings;
-  const base = useMemo(() => new URLSearchParams({ segment: u.segment, securityId: String(u.securityId), instrument: u.instrument, expiryFlag, expiryCode: String(expiryCode) }).toString(), [u, expiryFlag, expiryCode]);
+  const base = useMemo(() => new URLSearchParams({ segment: u.segment, securityId: String(u.securityId), instrument: u.instrument, expiryFlag, expiryCode: String(expiryCode), interval: LAB_BARS }).toString(), [u, expiryFlag, expiryCode]);
 
   useEffect(() => {
     const windows = dateWindows(from, to);
@@ -97,6 +110,12 @@ export function TradeLab({ settings }: { readonly settings: HistorySettings }) {
         <Pick label="Target" value={rules.targetPct} options={TARGETS.map((t) => [t, t === undefined ? "none" : `+${t}%`] as const)} onChange={(targetPct) => setRules((r) => ({ ...r, targetPct }))} />
         <Pick label="Stop" value={rules.stopPct} options={STOPS.map((s) => [s, s === undefined ? "none" : `−${s}%`] as const)} onChange={(stopPct) => setRules((r) => ({ ...r, stopPct }))} />
         <Pick label="Exit by" value={rules.exitMinute} options={EXIT_TIMES} onChange={(exitMinute) => setRules((r) => ({ ...r, exitMinute }))} />
+        <Pick label="Trail" value={trailKey(rules.trail)} options={Object.entries(TRAILS).map(([key, [label]]) => [key, label] as const)} onChange={(key) => setRules((r) => ({ ...r, trail: TRAILS[key]![1] }))} />
+        {(rules.entry ?? "time") !== "time" && (
+          <label className="flex items-center gap-1 text-muted-foreground" title="Exit when the underlying closes back past the middle of the 09:15–09:30 range">
+            <input type="checkbox" checked={rules.exitOnFailedBreakout === true} onChange={(e) => setRules((r) => ({ ...r, exitOnFailedBreakout: e.target.checked }))} /> exit if the breakout fails
+          </label>
+        )}
         <div className="ml-auto flex min-w-48 items-center gap-2">
           {progress.total > 0 && (isLoading || progress.error) && (
             <div className="h-1.5 flex-1 overflow-hidden rounded bg-muted" role="progressbar" aria-valuenow={progress.done} aria-valuemax={progress.total} title={`${progress.done} of ${progress.total} date windows`}>

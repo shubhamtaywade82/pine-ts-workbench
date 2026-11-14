@@ -13,7 +13,7 @@ export const OPENING_RANGE_MINUTES = 15;
 /** No new breakout entries after 14:00: too little session left for a long option to pay. */
 export const LAST_SIGNAL_MINUTE = 14 * 60 - (9 * 60 + 15);
 
-export interface EntrySignal { readonly side: Side; readonly entryMinute: number }
+export interface EntrySignal { readonly side: Side; readonly entryMinute: number; readonly rangeHigh: number; readonly rangeLow: number }
 
 /**
  * The session's single breakout: the first bar after the opening range that closes above its high (calls) or below
@@ -42,7 +42,7 @@ export const orbSignal = (day: readonly BookRow[], withTwap: boolean): EntrySign
     const twap = total / (i + 1);
     if (withTwap && (side === "CE" ? twap <= twapAtRangeEnd : twap >= twapAtRangeEnd)) return undefined;
     const next = day[i + 1];
-    return next === undefined ? undefined : { side, entryMinute: sessionMinute(next.time) };
+    return next === undefined ? undefined : { side, entryMinute: sessionMinute(next.time), rangeHigh: high, rangeLow: low };
   }
   return undefined;
 };

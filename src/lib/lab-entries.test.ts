@@ -14,11 +14,11 @@ describe("orbSignal", () => {
   const range = [100, 104, 102];
 
   it("calls on the first close above the range and enters on the next bar", () => {
-    expect(orbSignal(bars([...range, 103, 105, 106]), false)).toEqual({ side: "CE", entryMinute: 25 });
+    expect(orbSignal(bars([...range, 103, 105, 106]), false)).toEqual({ side: "CE", entryMinute: 25, rangeHigh: 104, rangeLow: 100 });
   });
 
   it("puts on the first close below the range", () => {
-    expect(orbSignal(bars([...range, 99, 98]), false)).toEqual({ side: "PE", entryMinute: 20 });
+    expect(orbSignal(bars([...range, 99, 98]), false)).toMatchObject({ side: "PE", entryMinute: 20 });
   });
 
   it("takes only the session's first breakout", () => {
@@ -30,7 +30,7 @@ describe("orbSignal", () => {
     const sagging = [...range, 100.5, 100.5, 100.5, 100.5, 100.5, 100.5, 105, 106, 99, 98];
     expect(orbSignal(bars(sagging), false)?.side).toBe("CE");
     expect(orbSignal(bars(sagging), true)).toBeUndefined();
-    expect(orbSignal(bars([...range, 105, 106]), true)).toEqual({ side: "CE", entryMinute: 20 });
+    expect(orbSignal(bars([...range, 105, 106]), true)).toMatchObject({ side: "CE", entryMinute: 20 });
   });
 
   it("needs the whole opening range and a bar to enter on", () => {

@@ -216,7 +216,11 @@ const planFor = (day: readonly BookRow[], rules: LabRules, side: Side): TradeRul
   const plan = { ...rules, side };
   if ((rules.entry ?? "time") === "time") return plan;
   const signal = orbSignal(day, rules.entry === "orb-twap");
-  return signal?.side === side ? { ...plan, entryMinute: signal.entryMinute } : undefined;
+  if (signal?.side !== side) return undefined;
+  // A breakout that falls back past the middle of its range has failed: the reason for holding is gone.
+  const middle = (signal.rangeHigh + signal.rangeLow) / 2;
+  const isInvalidated = rules.exitOnFailedBreakout === true ? (row: BookRow) => (side === "CE" ? row.spot < middle : row.spot > middle) : undefined;
+  return { ...plan, entryMinute: signal.entryMinute, isInvalidated };
 };
 
 interface LabDays { readonly days: readonly BookRow[][]; readonly facts: readonly DayFacts[]; readonly medianIv: number; readonly lotSize: number | undefined }
@@ -247,7 +251,11 @@ const sideReport = (lab: LabDays, rules: LabRules, side: Side): SideReport => {
   };
 };
 
-export type LabRules = Omit<TradeRules, "side"> & { readonly entry?: EntryMode };
+export type LabRules = Omit<TradeRules, "side" | "isInvalidated"> & {
+  readonly entry?: EntryMode;
+  /** Breakout entries only: exit when the underlying closes back past the middle of the opening range. */
+  readonly exitOnFailedBreakout?: boolean;
+};
 
 /** Long call and long put reports over the same days and rules. */
 export const runLab = (rows: readonly BookRow[], rules: LabRules, context: LabContext = {}): { readonly days: number; readonly ce: SideReport; readonly pe: SideReport } => {
