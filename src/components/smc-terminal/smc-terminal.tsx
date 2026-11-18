@@ -83,27 +83,32 @@ export function SmcTerminal(): React.JSX.Element {
     return () => ro.disconnect();
   }, [handleResize]);
 
-  const handleHistorical = useCallback((bars: Bar[], book: Map<number, number>, tick: number) => {
+  const handleHistorical = useCallback((bars: Bar[], tick: number) => {
     const sim = simRef.current;
     sim.tick = tick;
-    if (bars.length > 0) {
-      sim.bars = bars;
-      sim.playhead = bars.length - 1;
-      sim.zones = computeAllFvgZones(bars, tick);
-      const v = viewportRef.current;
-      v.tCenter = sim.playhead - v.tVisible * 0.34;
-      v.center = v.tCenter;
-      let minP = Infinity;
-      let maxP = -Infinity;
-      for (const b of bars.slice(-Math.round(v.visible))) { minP = Math.min(minP, b.l); maxP = Math.max(maxP, b.h); }
-      if (Number.isFinite(minP) && Number.isFinite(maxP)) {
-        v.minP = Math.floor((minP - 0.2) / tick) * tick;
-        v.maxP = Math.ceil((maxP + 0.2) / tick) * tick;
-        v.tMinP = v.minP;
-        v.tMaxP = v.maxP;
-      }
+    sim.bars = bars;
+    sim.playhead = bars.length - 1;
+    sim.zones = computeAllFvgZones(bars, tick);
+    const v = viewportRef.current;
+    v.tCenter = sim.playhead - v.tVisible * 0.34;
+    v.center = v.tCenter;
+    let minP = Infinity;
+    let maxP = -Infinity;
+    for (const b of bars.slice(-Math.round(v.visible))) { minP = Math.min(minP, b.l); maxP = Math.max(maxP, b.h); }
+    if (Number.isFinite(minP) && Number.isFinite(maxP)) {
+      v.minP = Math.floor((minP - 0.2) / tick) * tick;
+      v.maxP = Math.ceil((maxP + 0.2) / tick) * tick;
+      v.tMinP = v.minP;
+      v.tMaxP = v.maxP;
     }
-    if (book.size > 0) { sim.book = book; syncOrderBookSnap(sim, book); }
+    setUi(makeUiState(sim));
+  }, []);
+
+  const handleBook = useCallback((book: Map<number, number>, tick: number) => {
+    const sim = simRef.current;
+    sim.tick = tick;
+    sim.book = book;
+    syncOrderBookSnap(sim, book);
     setUi(makeUiState(sim));
   }, []);
 
@@ -142,7 +147,7 @@ export function SmcTerminal(): React.JSX.Element {
   }, []);
 
   const { isConnected: isLiveConnected } = useBinanceLive("SOLUSDT", ui.tf, isLiveFeed, {
-    onHistoricalLoaded: handleHistorical, onLiveTrade: handleTrade, onLiveKline: handleKline, onTapeEvent: () => {},
+    onHistoricalLoaded: handleHistorical, onBook: handleBook, onLiveTrade: handleTrade, onLiveKline: handleKline, onTapeEvent: () => {},
   });
 
   useEffect(() => {

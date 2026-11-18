@@ -1,5 +1,5 @@
 import { NORMAL, type MarketEvent, type PlotLayout, type TerminalParams, type ThemeColors, type ViewportState } from "./terminal-types";
-import { type SimulationState, binTicks, clamp, lerp } from "./terminal-simulation";
+import { type SimulationState, binTicks, clamp, lerp, wallThreshold } from "./terminal-simulation";
 import { drawRoundRect, fmtP, fmtS, fmtT, rgba, tickDecimals } from "./terminal-formatters";
 
 interface FormingBar {
@@ -44,11 +44,33 @@ const X = (i: number, v: ViewportState, l: PlotLayout): number =>
 const Y = (p: number, v: ViewportState, l: PlotLayout): number =>
   l.y + ((v.maxP - p) / (v.maxP - v.minP)) * l.h;
 
+const MIN_LABEL_ROW_PX = 11;
+
+function drawLadderLabel(c: CanvasRenderingContext2D, size: number, isWall: boolean, isBid: boolean, barX: number, midY: number, barW: number, t: ThemeColors): void {
+  c.save();
+  c.font = '600 9px "IBM Plex Mono", monospace';
+  c.textBaseline = "middle";
+  c.textAlign = "left";
+  if (barW > 30) {
+    c.fillStyle = "#E9EFFA";
+    c.fillText(fmtS(size), barX + 4, midY + 0.5);
+  }
+  if (isWall) {
+    const tag = isBid ? "BIG BUYERS" : "BIG SELLERS";
+    c.textAlign = "right";
+    c.fillStyle = isBid ? t.bid : t.ask;
+    c.fillText(tag, barX - 6, midY + 0.5);
+  }
+  c.restore();
+}
+
 function drawDepthLadder(c: CanvasRenderingContext2D, map: Map<number, number> | undefined, maxS: number, l: PlotLayout, v: ViewportState, p: TerminalParams, t: ThemeColors, last: number, tick: number): void {
   if (!p.ladder || !map) return;
   const lw = p.ladderW;
   const binSize = binTicks(p.bin, tick) * tick;
   const binPx = Math.max(1.5, (binSize / (v.maxP - v.minP)) * l.h - 1);
+  const wallMin = wallThreshold([...map.values()]);
+  const hasRoomForText = binPx >= MIN_LABEL_ROW_PX;
   const g = c.createLinearGradient(l.r - lw - 24, 0, l.r, 0);
   g.addColorStop(0, "rgba(7,13,26,0)");
   g.addColorStop(1, "rgba(7,13,26,0.62)");
@@ -63,6 +85,7 @@ function drawDepthLadder(c: CanvasRenderingContext2D, map: Map<number, number> |
     const col = price < last ? t.bid : t.ask;
     c.fillStyle = rgba(col, 0.22 + 0.55 * ratio);
     c.fillRect(l.r - w, y, w, binPx);
+    if (hasRoomForText) drawLadderLabel(c, s, s >= wallMin, price < last, l.r - w, y + binPx / 2, w, t);
     if (s >= NORMAL * 4) {
       c.save();
       if (p.glow > 0) { c.shadowBlur = p.glow * 12; c.shadowColor = col; }

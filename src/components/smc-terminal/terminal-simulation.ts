@@ -27,7 +27,7 @@ export interface SimulationState {
   events: MarketEvent[];
   zones: FvgZone[];
   book: Map<number, number>;
-  bigs: Map<number, { born: number; side: "bid" | "ask" }>;
+  bigs: Map<number, { born: number; side: "bid" | "ask"; seenAt?: number }>;
   playhead: number;
   startTime: number;
   tick: number;
@@ -181,25 +181,48 @@ export function ensureBars(state: SimulationState, count: number): void {
   while (state.bars.length <= limit) stepBar(state, state.bars.length);
 }
 
-export function syncOrderBookSnap(sim: SimulationState, book: Map<number, number>): void {
+// A wall is a level this many times the median level; thinner levels are book noise, not support/resistance.
+const WALL_MEDIAN_MULTIPLE = 5;
+const MAX_WALLS_PER_SIDE = 6;
+// Spoofed or flickering orders vanish within seconds; only walls that stay are worth a rail.
+const WALL_MIN_AGE_MS = 10_000;
+
+function median(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.floor(sorted.length / 2)] ?? 0;
+}
+
+/** Smallest size that counts as a wall among `sizes`. */
+export const wallThreshold = (sizes: number[]): number => median(sizes) * WALL_MEDIAN_MULTIPLE;
+
+/** Largest levels per side that stand out from the median, as `[idx, size]`. */
+function pickWallCandidates(entries: [number, number][], tick: number, price: number): [number, number][] {
+  const threshold = wallThreshold(entries.map(([, size]) => size));
+  const big = entries.filter(([, size]) => size >= threshold).sort((a, b) => b[1] - a[1]);
+  const perSide = { bid: 0, ask: 0 };
+  return big.filter(([idx]) => {
+    const side = idx * tick < price ? "bid" : "ask";
+    return perSide[side]++ < MAX_WALLS_PER_SIDE;
+  });
+}
+
+export function syncOrderBookSnap(sim: SimulationState, book: Map<number, number>, now: number = Date.now()): void {
   const f = Math.floor(sim.playhead);
-  const snapEntries = [...book.entries()].filter((e) => e[1] > 0);
-  sim.snaps[f] = snapEntries;
-  let total = 0;
-  for (const [, size] of snapEntries) total += size;
-  const avg = snapEntries.length > 0 ? total / snapEntries.length : NORMAL;
-  const curP = sim.bars[f]?.c ?? 0;
-  // Birth persists across polls so a rail starts where its wall first appeared, not at a fixed offset.
+  const entries = [...book.entries()].filter((e) => e[1] > 0);
+  sim.snaps[f] = entries;
+  const price = sim.bars[f]?.c ?? 0;
+  // Birth and first-seen time persist while a wall stays in the book, so rails start where the wall appeared.
   const previous = sim.bigs;
   sim.bigs = new Map();
-  sim.bigsSnap[f] = snapEntries
-    .filter(([, s]) => s >= avg * 1.5)
-    .map(([idx, size]) => {
-      const side = idx * sim.tick < curP ? ("bid" as const) : ("ask" as const);
-      const born = previous.get(idx)?.born ?? f;
-      sim.bigs.set(idx, { born, side });
-      return { idx, born, side, size };
-    });
+  const walls: BigWall[] = [];
+  for (const [idx, size] of pickWallCandidates(entries, sim.tick, price)) {
+    const side = idx * sim.tick < price ? ("bid" as const) : ("ask" as const);
+    const seen = previous.get(idx);
+    const meta = { born: seen?.born ?? f, side, seenAt: seen?.seenAt ?? now };
+    sim.bigs.set(idx, meta);
+    if (now - meta.seenAt >= WALL_MIN_AGE_MS) walls.push({ idx, born: meta.born, side, size });
+  }
+  sim.bigsSnap[f] = walls;
 }
 
 export function computeAllFvgZones(bars: Bar[], tick: number = BASE_BIN): FvgZone[] {

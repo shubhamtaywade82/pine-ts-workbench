@@ -2,12 +2,14 @@ import { useEffect, useRef, useState } from "react";
 import {
   fetchHistoricalBars, fetchTickSize, openMarketStream, type ChartInterval,
 } from "@/lib/public-binance-feed";
-import { fetchSnapshot } from "@/lib/depth-feed-browser";
+import { subscribeBook, type BookSubscription } from "@/lib/depth-feed-browser";
+import type { BookView } from "@/lib/depth-walls";
 import type { Bar, MarketEvent } from "./terminal-types";
 import { buildIntraBarPath } from "./terminal-simulation";
 
 interface LiveFeedCallbacks {
-  onHistoricalLoaded: (bars: Bar[], book: Map<number, number>, tick: number) => void;
+  onHistoricalLoaded: (bars: Bar[], tick: number) => void;
+  onBook: (book: Map<number, number>, tick: number) => void;
   onLiveTrade: (price: number, quantity: number, aggressor: "buy" | "sell") => void;
   onLiveKline: (bar: Bar) => void;
   onTapeEvent: (event: MarketEvent) => void;
@@ -30,18 +32,17 @@ function convertBars(rawBars: Awaited<ReturnType<typeof fetchHistoricalBars>>): 
   });
 }
 
-function parseDepthBook(
-  bids: readonly (readonly [string, string])[],
-  asks: readonly (readonly [string, string])[],
-  tick: number,
-): Map<number, number> {
+// Depth diffs arrive every ~100ms; repainting walls at 4Hz keeps them live without churning React state.
+const BOOK_FLUSH_MS = 250;
+// Half-width around mid, in percent, that the shared depth feed must cover.
+const BOOK_WINDOW_PCT = 1;
+
+function bookToTickMap(book: BookView, tick: number): Map<number, number> {
   const map = new Map<number, number>();
-  for (const [pStr, qStr] of [...bids, ...asks]) {
-    const p = parseFloat(pStr);
-    const q = parseFloat(qStr);
-    if (!Number.isNaN(p) && !Number.isNaN(q)) {
-      const idx = Math.round(p / tick);
-      map.set(idx, (map.get(idx) || 0) + q);
+  for (const side of ["bid", "ask"] as const) {
+    for (const [price, quantity] of book.levels(side)) {
+      const idx = Math.round(price / tick);
+      map.set(idx, (map.get(idx) ?? 0) + quantity);
     }
   }
   return map;
@@ -67,20 +68,30 @@ export function useBinanceLive(
 
     let isDisposed = false;
     const interval = TF_TO_INTERVAL[timeframe] || "5m";
-    let tick = 0;
+    let bookSub: BookSubscription | undefined;
+    let flushTimer: ReturnType<typeof setInterval> | undefined;
+
+    const startBookStream = (tick: number) => {
+      let latest: BookView | undefined;
+      bookSub = subscribeBook(symbol, BOOK_WINDOW_PCT, (state) => {
+        latest = state.status === "live" ? state.book : undefined;
+      });
+      flushTimer = setInterval(() => {
+        if (isDisposed || latest === undefined) return;
+        cbRef.current.onBook(bookToTickMap(latest, tick), tick);
+        latest = undefined;
+      }, BOOK_FLUSH_MS);
+    };
 
     const loadInitialData = async () => {
       try {
-        const [rawBars, depth, tickSize] = await Promise.all([
+        const [rawBars, tick] = await Promise.all([
           fetchHistoricalBars(symbol, interval, 200),
-          fetchSnapshot(symbol, 100),
           fetchTickSize(symbol),
         ]);
-        tick = tickSize;
         if (isDisposed) return;
-        const converted = convertBars(rawBars);
-        const book = parseDepthBook(depth.bids, depth.asks, tick);
-        cbRef.current.onHistoricalLoaded(converted, book, tick);
+        cbRef.current.onHistoricalLoaded(convertBars(rawBars), tick);
+        startBookStream(tick);
         setIsConnected(true);
       } catch {
         // Failed to load historical klines or depth
@@ -111,22 +122,10 @@ export function useBinanceLive(
       },
     });
 
-    const depthPollInterval = setInterval(async () => {
-      if (isDisposed || tick === 0) return;
-      try {
-        const depth = await fetchSnapshot(symbol, 100);
-        if (!isDisposed) {
-          const book = parseDepthBook(depth.bids, depth.asks, tick);
-          cbRef.current.onHistoricalLoaded([], book, tick);
-        }
-      } catch {
-        // Depth poll error
-      }
-    }, 4000);
-
     return () => {
       isDisposed = true;
-      clearInterval(depthPollInterval);
+      clearInterval(flushTimer);
+      bookSub?.unsubscribe();
       closeStream();
     };
   }, [symbol, timeframe, isLiveMode]);

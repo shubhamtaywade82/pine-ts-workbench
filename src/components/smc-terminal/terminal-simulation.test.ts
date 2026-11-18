@@ -59,17 +59,31 @@ describe("SMC Terminal Simulation", () => {
     expect(total).toBe(300);
   });
 
-  it("syncs order book snapshots and computes big wall levels", () => {
+  it("shows only walls that stand out from the median and have rested long enough", () => {
     const session = buildSession(0, 5);
-    const book = new Map<number, number>([
-      [Math.round(74.0 / BASE_BIN), 100],
-      [Math.round(74.5 / BASE_BIN), 2500],
-    ]);
-    syncOrderBookSnap(session, book);
+    const book = new Map<number, number>();
+    for (let k = 0; k < 20; k++) book.set(7400 + k, 100);
+    book.set(7410, 2500);
+    syncOrderBookSnap(session, book, 0);
     const f = Math.floor(session.playhead);
-    expect(session.snaps[f].length).toBe(2);
-    expect(session.bigsSnap[f].length).toBeGreaterThan(0);
+    expect(session.snaps[f].length).toBe(20);
+    expect(session.bigsSnap[f]).toHaveLength(0);
+    syncOrderBookSnap(session, book, 11_000);
+    expect(session.bigsSnap[f]).toHaveLength(1);
     expect(session.bigsSnap[f][0].size).toBe(2500);
+  });
+
+  it("drops a wall's age when it leaves the book", () => {
+    const session = buildSession(0, 5);
+    const book = new Map<number, number>();
+    for (let k = 0; k < 20; k++) book.set(7400 + k, 100);
+    book.set(7410, 2500);
+    syncOrderBookSnap(session, book, 0);
+    book.set(7410, 100);
+    syncOrderBookSnap(session, book, 6_000);
+    book.set(7410, 2500);
+    syncOrderBookSnap(session, book, 12_000);
+    expect(session.bigsSnap[Math.floor(session.playhead)]).toHaveLength(0);
   });
 
   it("computes FVG zones across confirmed bars", () => {
