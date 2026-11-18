@@ -68,6 +68,10 @@ export interface TerminalParams {
   fvg: boolean;
   filled: boolean;
   vol: boolean;
+  bos: boolean;
+  ob: boolean;
+  liq: boolean;
+  pd: boolean;
   pulled: boolean;
   bin: number;
   rayScale: number;

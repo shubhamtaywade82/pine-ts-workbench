@@ -35,6 +35,8 @@ function convertBars(rawBars: Awaited<ReturnType<typeof fetchHistoricalBars>>): 
 
 // Depth diffs arrive every ~100ms; repainting walls at 4Hz keeps them live without churning React state.
 const BOOK_FLUSH_MS = 250;
+// Enough history for structure and the previous day's high/low on 5m charts.
+const HISTORY_BARS = 1000;
 // Half-width around mid, in percent, that the shared depth feed must cover.
 const BOOK_WINDOW_PCT = 1;
 
@@ -140,7 +142,7 @@ export function useBinanceLive(
     const loadInitialData = async () => {
       try {
         const [rawBars, tickSize] = await Promise.all([
-          fetchHistoricalBars(symbol, interval, 200),
+          fetchHistoricalBars(symbol, interval, HISTORY_BARS),
           fetchTickSize(symbol),
         ]);
         if (isDisposed) return;

@@ -28,7 +28,7 @@ const LIVE_PRICE_EASE = 0.012;
 
 const DEF_PARAMS: TerminalParams = {
   zoom: 96, candle: "hollow", theme: "ion", rays: true, ladder: true, fvg: true, filled: false,
-  vol: true, pulled: true, bin: 0.05, rayScale: 1, ladderW: 110, glow: 0.6, density: 1, raySpan: "birth", speed: 1, follow: true,
+  bos: true, ob: true, liq: true, pd: true, vol: true, pulled: true, bin: 0.05, rayScale: 1, ladderW: 110, glow: 0.6, density: 1, raySpan: "birth", speed: 1, follow: true,
 };
 
 export function SmcTerminal(): React.JSX.Element {
@@ -274,8 +274,8 @@ export function SmcTerminal(): React.JSX.Element {
             <span className={styles.ohlcTitle}>Vol <b style={{ color: "var(--cyan)" }}>{fmtS(ui.curBar.v)}</b></span>
           </div>
           <div className={styles.legend}>
-            <div style={{ letterSpacing: ".16em", color: "var(--faint)", marginBottom: 6 }}>LIQUIDITY RAILS + LADDER</div>
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}><span>FVG</span><span>ladder</span><span>✕ pulled</span><span>◎ held</span><span>▮ wall</span></div>
+            <div style={{ letterSpacing: ".16em", color: "var(--faint)", marginBottom: 6 }}>SMC LAYERS + LIQUIDITY RAILS</div>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}><span>FVG</span><span>BOS/CHoCH</span><span>OB</span><span>EQH/EQL</span><span>ladder</span><span>✕ pulled</span><span>◎ held</span><span>▮ wall</span></div>
           </div>
           {isHalted && <div className={styles.banner}>⏻ KILL SWITCH ENGAGED — ENGINE HALTED</div>}
           {rayInfo && hover && (
