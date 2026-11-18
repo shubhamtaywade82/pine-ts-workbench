@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { analyzeStructure } from "./terminal-smc";
+import { analyzeStructure, type LiquidityPool, type OrderBlock, type SmcAnalysis, type StructureBreak, type Sweep } from "./terminal-smc";
+import { selectValid } from "./terminal-smc-valid";
 import type { Bar } from "./terminal-types";
 
 const bar = (o: number, h: number, l: number, c: number): Bar => ({ t: 0, o, h, l, c, v: 1, buyR: 0.5, path: [o, c] });
@@ -98,5 +99,40 @@ describe("dealing range and daily levels", () => {
 
   it("has no daily levels when history covers a single day", () => {
     expect(analyzeStructure(flat(10, 4)).daily).toBeUndefined();
+  });
+});
+
+describe("selectValid", () => {
+  const smc = (over: Partial<SmcAnalysis>): SmcAnalysis => ({ swings: [], breaks: [], blocks: [], pools: [], sweeps: [], ...over });
+
+  it("drops mitigated and expired order blocks and keeps the 2 latest active per side", () => {
+    const block = (start: number, over: Partial<OrderBlock> = {}): OrderBlock =>
+      ({ dir: "bull", lo: 1, hi: 2, start, isMitigated: false, ...over });
+    const result = selectValid(smc({ blocks: [block(1), block(2), block(3), block(4, { isMitigated: true, end: 9 }), block(5, { end: 99 })] }), 100);
+    expect(result.blocks.map((b) => b.start)).toEqual([2, 3]);
+  });
+
+  it("keeps only unswept pools near price", () => {
+    const pool = (price: number, sweptAt?: number): LiquidityPool => ({ kind: "EQH", price, fromIdx: 1, toIdx: 2, sweptAt });
+    const result = selectValid(smc({ pools: [pool(100), pool(101, 5), pool(150)] }), 100, 100);
+    expect(result.pools.map((p) => p.price)).toEqual([100]);
+  });
+
+  it("keeps only recent sweeps and the latest few structure breaks", () => {
+    const sweep = (idx: number): Sweep => ({ dir: "bear", level: 1, fromIdx: 0, idx });
+    const brk = (idx: number): StructureBreak => ({ kind: "BOS", dir: "bull", level: 1, fromIdx: 0, idx });
+    const result = selectValid(smc({ sweeps: [sweep(10), sweep(90)], breaks: [brk(1), brk(2), brk(3), brk(4)] }), 100);
+    expect(result.sweeps.map((s) => s.idx)).toEqual([90]);
+    expect(result.breaks.map((b) => b.idx)).toEqual([2, 3, 4]);
+  });
+});
+
+describe("displacement", () => {
+  it("ignores a break that is only a drift over the level and counts the first real impulse", () => {
+    const base = [...flat(10, 6), bar(10, 15, 10, 12), ...flat(10, 6)];
+    const drift = [...base, bar(14.9, 15.2, 14.9, 15.1)];
+    const options = { swingLen: 5, requireDisplacement: true };
+    expect(analyzeStructure(drift, options).breaks).toHaveLength(0);
+    expect(analyzeStructure([...drift, bar(15.1, 20, 15.1, 19.8)], options).breaks).toHaveLength(1);
   });
 });

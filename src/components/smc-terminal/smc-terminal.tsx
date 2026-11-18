@@ -19,6 +19,7 @@ import { TerminalSidebar } from "./terminal-sidebar";
 import { TerminalDeck } from "./terminal-deck";
 import { useTerminalGestures } from "./use-terminal-gestures";
 import { useBinanceLive } from "./use-binance-live";
+import { loadTerminalState, saveTerminalState } from "./terminal-storage";
 import type { LevelFlow } from "@/lib/level-activity";
 import { exportCanvasAsPng, findHoveredRay, formatRayTooltip } from "./terminal-actions";
 import { fmtP, fmtS, tickDecimals } from "./terminal-formatters";
@@ -26,10 +27,11 @@ import { fmtP, fmtS, tickDecimals } from "./terminal-formatters";
 // Per-ms easing rate; ~80ms time constant keeps the forming candle smooth without lagging the tape.
 const LIVE_PRICE_EASE = 0.012;
 const HOVER_RENDER_MS = 100;
+const DEFAULT_TF = 5;
 
 const DEF_PARAMS: TerminalParams = {
   zoom: 96, candle: "hollow", theme: "ion", rays: true, ladder: true, fvg: true, filled: false,
-  bos: true, ob: true, liq: true, pd: true, vol: true, grid: true, gridAlpha: 0.3, pulled: true, bin: 0.05, rayScale: 1, ladderW: 110, glow: 0.6, density: 1, raySpan: "birth", speed: 1, follow: true,
+  bos: true, ob: true, liq: true, pd: false, vol: true, grid: true, gridAlpha: 0.3, pulled: true, bin: 0.05, rayScale: 1, ladderW: 110, glow: 0.6, density: 1, raySpan: "birth", speed: 1, follow: true,
 };
 
 export function SmcTerminal(): React.JSX.Element {
@@ -47,6 +49,7 @@ export function SmcTerminal(): React.JSX.Element {
   const [focusPrice, setFocusPrice] = useState<{ price: number; until: number } | null>(null);
   const [ui, setUi] = useState<UiState>(() => makeUiState(buildSession(0, 5)));
   const dec = tickDecimals(ui.sim.tick);
+  const [isRestored, setIsRestored] = useState(false);
   const simRef = useRef<SimulationState>(buildSession(0, 5));
   const sceneRef = useRef<HTMLCanvasElement>(null);
   const overlayRef = useRef<HTMLCanvasElement>(null);
@@ -61,6 +64,24 @@ export function SmcTerminal(): React.JSX.Element {
     setToasts((prev) => [...prev, { id, msg, kind }]);
     setTimeout(() => setToasts((prev) => prev.filter((t) => t.id !== id)), 2800);
   }, []);
+
+  // Restored after mount, not in the initial state, so server and first client render still match.
+  useEffect(() => {
+    const saved = loadTerminalState({ params: DEF_PARAMS, tf: DEFAULT_TF, isSoundOn: true, isLiveFeed: true });
+    setParams(saved.params);
+    setIsSoundOn(saved.isSoundOn);
+    setSoundMuted(!saved.isSoundOn);
+    setIsLiveFeed(saved.isLiveFeed);
+    viewportRef.current.tVisible = saved.params.zoom;
+    viewportRef.current.visible = saved.params.zoom;
+    simRef.current = buildSession(0, saved.tf);
+    setUi(makeUiState(simRef.current));
+    setIsRestored(true);
+  }, []);
+
+  useEffect(() => {
+    if (isRestored) saveTerminalState({ params, tf: ui.tf, isSoundOn, isLiveFeed });
+  }, [isRestored, params, ui.tf, isSoundOn, isLiveFeed]);
 
   const onParamChange = useCallback(<K extends keyof TerminalParams>(key: K, val: TerminalParams[K]) => {
     setParams((prev) => (prev[key] === val ? prev : { ...prev, [key]: val }));

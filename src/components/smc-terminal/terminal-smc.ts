@@ -1,4 +1,5 @@
 import type { Bar } from "./terminal-types";
+import { DISPLAY_OPTIONS, selectValid } from "./terminal-smc-valid";
 
 export const SWING_LEN = 5;
 // An unmitigated block stops being drawn after this many bars; stale zones are noise, not support.
@@ -12,6 +13,17 @@ const SWEEP_MIN_WICK_FRACTION = 0.12;
 const MAX_SWEEPS = 12;
 const MAX_POOLS = 8;
 const DAY_MS = 86_400_000;
+const ATR_BARS = 14;
+// Matches the Pine engine defaults: a break only counts when it is a real impulse, not a drift over the level.
+const DISPLACEMENT_ATR_MULT = 0.8;
+const DISPLACEMENT_MIN_BODY_FRACTION = 0.55;
+
+export interface SmcOptions {
+  swingLen: number;
+  requireDisplacement: boolean;
+}
+
+const RAW_OPTIONS: SmcOptions = { swingLen: SWING_LEN, requireDisplacement: false };
 
 export type StructureLabel = "HH" | "HL" | "LH" | "LL";
 
@@ -104,11 +116,11 @@ interface Tracker {
   trend: 0 | 1 | -1;
 }
 
-function registerPivots(bars: Bar[], t: number, tracker: Tracker, swings: Swing[]): void {
-  const p = t - SWING_LEN;
-  if (p < SWING_LEN) return;
+function registerPivots(bars: Bar[], t: number, tracker: Tracker, swings: Swing[], len: number): void {
+  const p = t - len;
+  if (p < len) return;
   for (const kind of ["high", "low"] as const) {
-    if (!isPivot(bars, p, SWING_LEN, kind)) continue;
+    if (!isPivot(bars, p, len, kind)) continue;
     const price = kind === "high" ? bars[p].h : bars[p].l;
     const previous = kind === "high" ? tracker.lastHigh : tracker.lastLow;
     const swing = { idx: p, price, kind, label: labelFor(kind, price, previous), broken: false };
@@ -118,7 +130,19 @@ function registerPivots(bars: Bar[], t: number, tracker: Tracker, swings: Swing[
   }
 }
 
-function detectBreak(close: number, t: number, tracker: Tracker): StructureBreak | undefined {
+/** Range and body of bar `t` against the average range of the bars before it. */
+export function isDisplacement(bars: Bar[], t: number): boolean {
+  const range = bars[t].h - bars[t].l;
+  const from = Math.max(0, t - ATR_BARS);
+  let total = 0;
+  for (let i = from; i < t; i++) total += bars[i].h - bars[i].l;
+  const atr = t > from ? total / (t - from) : range;
+  const body = Math.abs(bars[t].c - bars[t].o);
+  return range >= DISPLACEMENT_ATR_MULT * atr && body >= DISPLACEMENT_MIN_BODY_FRACTION * range;
+}
+
+function detectBreak(close: number, t: number, tracker: Tracker, isImpulse: boolean): StructureBreak | undefined {
+  if (!isImpulse) return undefined;
   const { lastHigh, lastLow } = tracker;
   if (lastHigh && !lastHigh.broken && close > lastHigh.price) {
     lastHigh.broken = true;
@@ -198,10 +222,10 @@ function hasRealWick(bar: Bar, kind: Swing["kind"], level: number): boolean {
 }
 
 /** First wick through each swing level that closes back inside it. A close through is a break, not a sweep. */
-export function findSweeps(bars: Bar[], swings: Swing[]): Sweep[] {
+export function findSweeps(bars: Bar[], swings: Swing[], swingLen: number = SWING_LEN): Sweep[] {
   const sweeps: Sweep[] = [];
   for (const swing of swings) {
-    const touched = firstWickThrough(bars, swing.kind, swing.price, swing.idx + SWING_LEN);
+    const touched = firstWickThrough(bars, swing.kind, swing.price, swing.idx + swingLen);
     if (touched === undefined) continue;
     const closedBack = swing.kind === "high" ? bars[touched].c < swing.price : bars[touched].c > swing.price;
     if (!closedBack || !hasRealWick(bars[touched], swing.kind, swing.price)) continue;
@@ -235,28 +259,28 @@ export function findDailyLevels(bars: Bar[]): DailyLevels | undefined {
 }
 
 /** Swing pivots with HH/HL/LH/LL labels and close-confirmed BOS/CHoCH breaks over confirmed bars. */
-export function analyzeStructure(bars: Bar[]): SmcAnalysis {
+export function analyzeStructure(bars: Bar[], options: SmcOptions = RAW_OPTIONS): SmcAnalysis {
   const swings: Swing[] = [];
   const breaks: StructureBreak[] = [];
   const tracker: Tracker = { trend: 0 };
   for (let t = 0; t < bars.length; t++) {
-    registerPivots(bars, t, tracker, swings);
-    const found = detectBreak(bars[t].c, t, tracker);
+    registerPivots(bars, t, tracker, swings, options.swingLen);
+    const found = detectBreak(bars[t].c, t, tracker, !options.requireDisplacement || isDisplacement(bars, t));
     if (found) breaks.push(found);
   }
   return {
     swings, breaks, blocks: findOrderBlocks(bars, breaks),
-    pools: findLiquidityPools(bars, swings), sweeps: findSweeps(bars, swings),
+    pools: findLiquidityPools(bars, swings), sweeps: findSweeps(bars, swings, options.swingLen),
     range: findDealingRange(swings), daily: findDailyLevels(bars),
   };
 }
 
 let cache: { bars: Bar[]; count: number; result: SmcAnalysis } | undefined;
 
-/** Analysis of the first `count` (confirmed) bars, recomputed only when the bar list or count changes. */
+/** Major-swing analysis of the first `count` (confirmed) bars, reduced to the valid, relevant items. */
 export function analyzeSmc(bars: Bar[], count: number): SmcAnalysis {
   if (cache && cache.bars === bars && cache.count === count) return cache.result;
-  const result = analyzeStructure(bars.slice(0, count));
+  const result = selectValid(analyzeStructure(bars.slice(0, count), DISPLAY_OPTIONS), count, bars[count - 1]?.c);
   cache = { bars, count, result };
   return result;
 }

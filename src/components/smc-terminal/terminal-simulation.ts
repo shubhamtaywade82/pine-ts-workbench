@@ -228,13 +228,27 @@ export function syncOrderBookSnap(sim: SimulationState, book: Map<number, number
   sim.bigsSnap[f] = walls;
 }
 
+// Gaps smaller than this share of the recent average range are noise, not imbalance worth trading.
+const FVG_MIN_RANGE_FRACTION = 0.3;
+const FVG_RANGE_BARS = 14;
+const MAX_OPEN_FVGS = 5;
+const MAX_FILLED_FVGS = 10;
+
+function averageRange(bars: Bar[], end: number): number {
+  const from = Math.max(0, end - FVG_RANGE_BARS);
+  let total = 0;
+  for (let i = from; i < end; i++) total += bars[i].h - bars[i].l;
+  return end > from ? total / (end - from) : 0;
+}
+
 export function computeAllFvgZones(bars: Bar[], tick: number = BASE_BIN): FvgZone[] {
   const zones: FvgZone[] = [];
   for (let i = 2; i < bars.length; i++) {
     const b = bars[i];
     const p2 = bars[i - 2];
-    if (b.l - p2.h > tick) zones.push({ lo: p2.h, hi: b.l, start: i, side: "bull", filled: null });
-    if (p2.l - b.h > tick) zones.push({ lo: b.h, hi: p2.l, start: i, side: "bear", filled: null });
+    const minGap = Math.max(tick, averageRange(bars, i) * FVG_MIN_RANGE_FRACTION);
+    if (b.l - p2.h > minGap) zones.push({ lo: p2.h, hi: b.l, start: i, side: "bull", filled: null });
+    if (p2.l - b.h > minGap) zones.push({ lo: b.h, hi: p2.l, start: i, side: "bear", filled: null });
   }
   for (let i = 0; i < bars.length; i++) {
     const b = bars[i];
@@ -245,7 +259,9 @@ export function computeAllFvgZones(bars: Bar[], tick: number = BASE_BIN): FvgZon
       }
     }
   }
-  return zones.slice(-80);
+  const open = zones.filter((z) => z.filled === null).slice(-MAX_OPEN_FVGS);
+  const filled = zones.filter((z) => z.filled !== null).slice(-MAX_FILLED_FVGS);
+  return [...filled, ...open].sort((a, b) => a.start - b.start);
 }
 
 export function restoreSnapshot(state: SimulationState, frame: number): void {
