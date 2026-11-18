@@ -1,0 +1,73 @@
+import React, { useRef } from "react";
+import type { PlotLayout, TerminalParams, ViewportState } from "./terminal-types";
+import { clamp, type SimulationState } from "./terminal-simulation";
+import { initAudio, resumeAudioIfNeeded } from "./terminal-audio";
+
+interface GesturesParams {
+  viewportRef: React.MutableRefObject<ViewportState>;
+  dimsRef: React.MutableRefObject<{ w: number; h: number; dpr: number; axisW: number; timeH: number }>;
+  simRef: React.MutableRefObject<SimulationState>;
+  setHover: (pos: { px: number; py: number } | null) => void;
+  onParamChange: <K extends keyof TerminalParams>(key: K, val: TerminalParams[K]) => void;
+  addToast: (msg: string, kind?: "warn" | "danger" | "ok") => void;
+  setFocusPrice: (focus: { price: number; until: number } | null) => void;
+}
+
+export function useTerminalGestures({
+  viewportRef, dimsRef, simRef, setHover, onParamChange, addToast, setFocusPrice,
+}: GesturesParams) {
+  const dragRef = useRef<{ x: number; center: number } | null>(null);
+  const pointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
+
+  const onPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    initAudio();
+    resumeAudioIfNeeded();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    pointersRef.current.set(e.pointerId, { x: e.nativeEvent.offsetX, y: e.nativeEvent.offsetY });
+    if (pointersRef.current.size === 1) {
+      dragRef.current = { x: e.nativeEvent.offsetX, center: viewportRef.current.tCenter };
+    }
+  };
+
+  const onPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const v = viewportRef.current;
+    const { w, axisW } = dimsRef.current;
+    const bw = (w - axisW - 12) / v.visible;
+    if (dragRef.current) {
+      const dx = e.nativeEvent.offsetX - dragRef.current.x;
+      if (Math.abs(dx) > 3) onParamChange("follow", false);
+      v.tCenter = dragRef.current.center - dx / bw;
+    }
+    setHover({ px: e.nativeEvent.offsetX, py: e.nativeEvent.offsetY });
+  };
+
+  const onPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    pointersRef.current.delete(e.pointerId);
+    if (pointersRef.current.size === 0) dragRef.current = null;
+  };
+
+  const onWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
+    const v = viewportRef.current;
+    const { w, axisW } = dimsRef.current;
+    const plotW = w - axisW - 12;
+    const bw = plotW / v.visible;
+    const px = clamp(e.nativeEvent.offsetX, 8, plotW + 8);
+    const anchor = (v.center - v.visible / 2) + (px - 8) / bw;
+    v.tVisible = clamp(v.tVisible * Math.exp(e.deltaY * 0.0012), 40, 240);
+    v.tCenter = anchor - ((px - 8) / plotW) * v.tVisible + v.tVisible / 2;
+    onParamChange("zoom", Math.round(v.tVisible));
+    onParamChange("follow", false);
+  };
+
+  const resetView = () => {
+    viewportRef.current.tVisible = 96;
+    viewportRef.current.tCenter = simRef.current.playhead - 96 * 0.34;
+    onParamChange("zoom", 96);
+    onParamChange("follow", true);
+    setFocusPrice(null);
+    addToast("View reset", "ok");
+  };
+
+  return { dragRef, onPointerDown, onPointerMove, onPointerUp, onWheel, resetView };
+}

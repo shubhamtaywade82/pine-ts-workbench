@@ -137,6 +137,18 @@ export const fetchHistoricalBars = async (
   }));
 };
 
+interface PriceFilter { readonly filterType: string; readonly tickSize?: string }
+
+/** Smallest price increment for `symbol` (PRICE_FILTER.tickSize). Throws if Binance omits it. */
+export const fetchTickSize = async (symbol: BinanceSymbol): Promise<number> => {
+  const res = await fetch(`${BINANCE_REST_URL}/api/v3/exchangeInfo?symbol=${symbol}`);
+  if (!res.ok) throw new Error(`Binance exchangeInfo ${symbol} failed with ${res.status}: ${await res.text()}`);
+  const body = (await res.json()) as { symbols?: { filters?: PriceFilter[] }[] };
+  const tickSize = Number(body.symbols?.[0]?.filters?.find((f) => f.filterType === "PRICE_FILTER")?.tickSize);
+  if (!(tickSize > 0)) throw new Error(`Binance exchangeInfo ${symbol} has no PRICE_FILTER tickSize`);
+  return tickSize;
+};
+
 // ---------- WebSocket: live klines + trades ----------
 
 /**
