@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { INTERVAL_LABELS, SUPPORTED_INTERVALS, SUPPORTED_SYMBOLS } from "@/lib/public-binance-feed";
 import type { CellSettings } from "@/components/chart/chart-cell";
@@ -18,7 +19,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { SymbolSearchDialog } from "@/components/chart/symbol-search-dialog";
 import {
   Activity, AreaChart, BarChart3, CandlestickChart, ChartLine, LayoutGrid,
-  LineChart, Maximize, Moon, Plus, Save, Settings, Sun,
+  LineChart, Maximize, Moon, Plus, Radar, Save, Settings, Sun,
 } from "lucide-react";
 import type { ChartSettings } from "@/lib/chart-settings";
 import {
@@ -162,6 +163,9 @@ export function TopToolbar(props: TopToolbarProps) {
       <ToolbarSeparator />
       <AlertSettingsDialog onSaved={props.onAlertSettingsSaved} />
       <DocsDialog />
+      <Button asChild variant="ghost" size="sm" className="h-8 gap-1 px-2 text-muted-foreground hover:text-foreground" title="Open SMC Terminal">
+        <Link href="/smc-terminal"><Radar className="h-4 w-4" />SMC</Link>
+      </Button>
 
       <div className="ml-auto flex items-center gap-0.5">
         <SavedLayoutsMenu onSave={props.onSaveLayout} onLoad={props.onLoadLayout} />

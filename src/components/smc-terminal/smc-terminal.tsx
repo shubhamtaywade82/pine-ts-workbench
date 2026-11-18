@@ -3,7 +3,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import styles from "./smc-terminal.module.css";
 import {
-  TF_MS, THEMES, type Bar, type PlotLayout, type RayHit, type TerminalParams,
+  TF_MS, THEMES, type Bar, type MarketEvent, type PlotLayout, type RayHit, type TerminalParams,
   type ThemeColors, type ToastItem, type ViewportState,
 } from "./terminal-types";
 import {
@@ -19,6 +19,7 @@ import { TerminalSidebar } from "./terminal-sidebar";
 import { TerminalDeck } from "./terminal-deck";
 import { useTerminalGestures } from "./use-terminal-gestures";
 import { useBinanceLive } from "./use-binance-live";
+import type { LevelFlow } from "@/lib/level-activity";
 import { exportCanvasAsPng, findHoveredRay, formatRayTooltip } from "./terminal-actions";
 import { fmtP, fmtS, tickDecimals } from "./terminal-formatters";
 
@@ -104,10 +105,11 @@ export function SmcTerminal(): React.JSX.Element {
     setUi(makeUiState(sim));
   }, []);
 
-  const handleBook = useCallback((book: Map<number, number>, tick: number) => {
+  const handleBook = useCallback((book: Map<number, number>, tick: number, activity: ReadonlyMap<number, LevelFlow>) => {
     const sim = simRef.current;
     sim.tick = tick;
     sim.book = book;
+    sim.activity = activity;
     syncOrderBookSnap(sim, book);
     setUi(makeUiState(sim));
   }, []);
@@ -123,9 +125,13 @@ export function SmcTerminal(): React.JSX.Element {
       bar.v += qty;
       bar.path = buildIntraBarPath({ o: bar.o, c: price, h: bar.h, l: bar.l });
     }
-    sim.events.push({ bar: Math.max(0, lastIdx), type: "held", price, size: qty, side: aggressor === "buy" ? "bid" : "ask" });
-    if (sim.events.length > 250) sim.events.splice(0, sim.events.length - 150);
     setUi(makeUiState(sim));
+  }, []);
+
+  const handleTape = useCallback((event: Omit<MarketEvent, "bar">) => {
+    const sim = simRef.current;
+    sim.events.push({ ...event, bar: Math.max(0, sim.bars.length - 1) });
+    if (sim.events.length > 250) sim.events.splice(0, sim.events.length - 150);
   }, []);
 
   const handleKline = useCallback((bar: Bar) => {
@@ -147,7 +153,7 @@ export function SmcTerminal(): React.JSX.Element {
   }, []);
 
   const { isConnected: isLiveConnected } = useBinanceLive("SOLUSDT", ui.tf, isLiveFeed, {
-    onHistoricalLoaded: handleHistorical, onBook: handleBook, onLiveTrade: handleTrade, onLiveKline: handleKline, onTapeEvent: () => {},
+    onHistoricalLoaded: handleHistorical, onBook: handleBook, onLiveTrade: handleTrade, onLiveKline: handleKline, onTapeEvent: handleTape,
   });
 
   useEffect(() => {
@@ -281,7 +287,7 @@ export function SmcTerminal(): React.JSX.Element {
         </div>
 
         <TerminalSidebar
-          state={ui.sim} curPrice={ui.curPrice} isHalted={isHalted} isOpen={isSidebarOpen}
+          state={ui.sim} curPrice={ui.curPrice} binSize={params.bin} isHalted={isHalted} isOpen={isSidebarOpen}
           onClose={() => setIsSidebarOpen(false)}
           onFocusPrice={(price) => { setFocusPrice({ price, until: performance.now() + 3000 }); viewportRef.current.tCenter = simRef.current.playhead - viewportRef.current.tVisible * 0.34; }}
           onHighlightPrice={setHighlightPrice}

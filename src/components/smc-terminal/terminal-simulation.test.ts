@@ -1,4 +1,6 @@
 import { describe, expect, it } from "bun:test";
+import type { Wall, WallFrame } from "@/lib/depth-walls";
+import { diffWalls, type TrackedWall } from "./use-binance-live";
 import {
   aggregateOrderBook, buildIntraBarPath, buildSession, computeAllFvgZones, createRng, ensureBars,
   restoreSnapshot, stepBar, syncOrderBookSnap,
@@ -157,5 +159,28 @@ describe("SMC Terminal Formatters", () => {
     expect(hexRGB("#19E3B1")).toEqual([25, 227, 177]);
     expect(rgba("#19E3B1", 0.5)).toBe("rgba(25,227,177,0.5)");
     expect(mixHex("#000000", "#FFFFFF", 0.5)).toBe("#808080");
+  });
+});
+
+describe("diffWalls", () => {
+  const wall = (price: number, status: "holding" | "tested" | "removed", side: "bid" | "ask" = "bid"): Wall => ({
+    side, price, quantity: 1000, notional: 1000 * price, observedSince: 0, status,
+  });
+  const frame = (bids: Wall[], mid = 74): WallFrame => ({
+    mid, bid: undefined, ask: undefined, bids, asks: [], searchedPct: 1, clippedByCoverage: false,
+  });
+
+  it("emits wall, held, pull, then brk when price crosses a vanished wall", () => {
+    const tracked = new Map<string, TrackedWall>();
+    expect(diffWalls(tracked, frame([wall(73.5, "holding")])).map((e) => e.type)).toEqual(["wall"]);
+    expect(diffWalls(tracked, frame([wall(73.5, "tested")])).map((e) => e.type)).toEqual(["held"]);
+    expect(diffWalls(tracked, frame([wall(73.5, "removed")])).map((e) => e.type)).toEqual(["pull"]);
+    expect(diffWalls(tracked, frame([], 73.4)).map((e) => e.type)).toEqual(["brk"]);
+  });
+
+  it("stays silent when a wall merely drops out of the top list", () => {
+    const tracked = new Map<string, TrackedWall>();
+    diffWalls(tracked, frame([wall(73.5, "holding")]));
+    expect(diffWalls(tracked, frame([], 74))).toEqual([]);
   });
 });

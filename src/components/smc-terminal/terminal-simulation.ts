@@ -1,3 +1,4 @@
+import type { LevelFlow } from "@/lib/level-activity";
 import {
   BASE_BIN, MAX_BARS, NORMAL, SEEDS, SESSION_BARS, START_PLAY, TF_MS,
   type Bar, type BigWall, type FvgZone, type MarketEvent,
@@ -33,6 +34,8 @@ export interface SimulationState {
   tick: number;
   /** Live mode only: eased on-screen price of the forming candle. */
   shown?: number;
+  /** Live mode only: prints and pulled size per tick index over the last minute. */
+  activity?: ReadonlyMap<number, LevelFlow>;
 }
 
 function getRegime(i: number, tf: number, lastClose: number): { d: number; v: number } {

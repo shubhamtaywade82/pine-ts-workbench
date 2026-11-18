@@ -2,11 +2,13 @@ import React, { useState } from "react";
 import styles from "./smc-terminal.module.css";
 import { NORMAL, type LevelFilter, type MarketEvent, type SortOption } from "./terminal-types";
 import type { SimulationState } from "./terminal-simulation";
+import { TerminalDomPanel } from "./terminal-dom-panel";
 import { fmtAge, fmtP as fmtPrice, fmtS, fmtT, tickDecimals } from "./terminal-formatters";
 
 interface TerminalSidebarProps {
   state: SimulationState;
   curPrice: number;
+  binSize: number;
   isHalted: boolean;
   isOpen: boolean;
   onClose: () => void;
@@ -42,7 +44,7 @@ function filterAndSortLevels(state: SimulationState, filter: LevelFilter, query:
 }
 
 export function TerminalSidebar({
-  state, curPrice, isHalted, isOpen, onClose, onFocusPrice, onHighlightPrice,
+  state, curPrice, binSize, isHalted, isOpen, onClose, onFocusPrice, onHighlightPrice,
 }: TerminalSidebarProps): React.JSX.Element {
   const fmtP = (p: number): string => fmtPrice(p, tickDecimals(state.tick));
   const [filter, setFilter] = useState<LevelFilter>("all");
@@ -95,14 +97,14 @@ export function TerminalSidebar({
 
       <div className={styles.sbTools}>
         <div className={styles.chips}>
-          {(["all", "bid", "ask", "evt"] as const).map((f) => (
+          {(["all", "bid", "ask", "evt", "dom"] as const).map((f) => (
             <button
               key={f}
               type="button"
               className={`${styles.chipBtn} ${filter === f ? styles.chipBtnOn : ""}`}
               onClick={() => setFilter(f)}
             >
-              {f === "all" ? "All" : f === "bid" ? "Bids" : f === "ask" ? "Asks" : "Events"}
+              {f === "all" ? "All" : f === "bid" ? "Bids" : f === "ask" ? "Asks" : f === "evt" ? "Events" : "DOM"}
             </button>
           ))}
         </div>
@@ -123,7 +125,9 @@ export function TerminalSidebar({
       </div>
 
       <div className={styles.levelsList} role="list" onMouseLeave={() => onHighlightPrice(null)}>
-        {rows.length === 0 ? (
+        {filter === "dom" ? (
+          <TerminalDomPanel state={state} price={mid} binSize={binSize} />
+        ) : rows.length === 0 ? (
           <div style={{ padding: "18px 10px", textAlign: "center", color: "var(--faint)", fontSize: 10 }}>No levels match filter.</div>
         ) : (
           rows.map((r, i) => {

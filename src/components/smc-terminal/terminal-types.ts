@@ -11,7 +11,7 @@ export type ThemeName = "ion" | "classic" | "ultra";
 export type CandleStyle = "hollow" | "solid";
 export type RaySpan = "birth" | "window" | "full";
 export type WallEventType = "wall" | "pull" | "held" | "brk";
-export type LevelFilter = "all" | "bid" | "ask" | "evt";
+export type LevelFilter = "all" | "bid" | "ask" | "evt" | "dom";
 export type SortOption = "dist" | "size" | "new";
 
 export interface ThemeColors {
