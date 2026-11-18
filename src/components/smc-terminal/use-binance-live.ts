@@ -61,7 +61,8 @@ export interface TrackedWall { wall: Wall; wasPulled: boolean; wasTested: boolea
 const wallEvent = (type: WallEvent["type"], wall: Wall): WallEvent =>
   ({ type, price: wall.price, size: wall.quantity, side: wall.side });
 
-const isPulledStatus = (wall: Wall): boolean => wall.status === "removed" || wall.status === "reduced";
+// "reduced" (<=85% of peak) happens on routine order edits; only a near-total drop is a real pull.
+const isPulledStatus = (wall: Wall): boolean => wall.status === "removed";
 
 /** A vanished wall is "broken" only if price traded through it; otherwise it just fell out of the top list. */
 const hasPriceCrossed = (wall: Wall, mid: number): boolean =>

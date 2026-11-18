@@ -1,9 +1,10 @@
-import React, { useRef } from "react";
+import React, { useEffect, useRef } from "react";
 import type { PlotLayout, TerminalParams, ViewportState } from "./terminal-types";
 import { clamp, type SimulationState } from "./terminal-simulation";
 import { initAudio, resumeAudioIfNeeded } from "./terminal-audio";
 
 interface GesturesParams {
+  canvasRef: React.RefObject<HTMLCanvasElement | null>;
   viewportRef: React.MutableRefObject<ViewportState>;
   dimsRef: React.MutableRefObject<{ w: number; h: number; dpr: number; axisW: number; timeH: number }>;
   simRef: React.MutableRefObject<SimulationState>;
@@ -14,7 +15,7 @@ interface GesturesParams {
 }
 
 export function useTerminalGestures({
-  viewportRef, dimsRef, simRef, setHover, onParamChange, addToast, setFocusPrice,
+  canvasRef, viewportRef, dimsRef, simRef, setHover, onParamChange, addToast, setFocusPrice,
 }: GesturesParams) {
   const dragRef = useRef<{ x: number; center: number } | null>(null);
   const pointersRef = useRef<Map<number, { x: number; y: number }>>(new Map());
@@ -46,19 +47,46 @@ export function useTerminalGestures({
     if (pointersRef.current.size === 0) dragRef.current = null;
   };
 
-  const onWheel = (e: React.WheelEvent<HTMLCanvasElement>) => {
-    e.preventDefault();
+  const panByWheel = (deltaX: number): void => {
+    const v = viewportRef.current;
+    const { w, axisW } = dimsRef.current;
+    v.tCenter += deltaX / ((w - axisW - 12) / v.visible);
+    onParamChange("follow", false);
+  };
+
+  const zoomByWheel = (e: WheelEvent): void => {
     const v = viewportRef.current;
     const { w, axisW } = dimsRef.current;
     const plotW = w - axisW - 12;
     const bw = plotW / v.visible;
-    const px = clamp(e.nativeEvent.offsetX, 8, plotW + 8);
+    const px = clamp(e.offsetX, 8, plotW + 8);
     const anchor = (v.center - v.visible / 2) + (px - 8) / bw;
     v.tVisible = clamp(v.tVisible * Math.exp(e.deltaY * 0.0012), 40, 240);
     v.tCenter = anchor - ((px - 8) / plotW) * v.tVisible + v.tVisible / 2;
     onParamChange("zoom", Math.round(v.tVisible));
     onParamChange("follow", false);
   };
+
+  // Trackpad: two-finger horizontal swipe pans, pinch (ctrl+wheel) and vertical scroll zoom.
+  const onWheel = (e: WheelEvent): void => {
+    e.preventDefault();
+    const isHorizontalSwipe = !e.ctrlKey && Math.abs(e.deltaX) > Math.abs(e.deltaY);
+    if (isHorizontalSwipe) panByWheel(e.deltaX);
+    else zoomByWheel(e);
+  };
+  const wheelRef = useRef(onWheel);
+  useEffect(() => {
+    wheelRef.current = onWheel;
+  });
+
+  // React attaches wheel listeners as passive, so preventDefault (needed to stop page scroll/zoom) only works natively.
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return undefined;
+    const listener = (e: WheelEvent) => wheelRef.current(e);
+    canvas.addEventListener("wheel", listener, { passive: false });
+    return () => canvas.removeEventListener("wheel", listener);
+  }, [canvasRef]);
 
   const resetView = () => {
     viewportRef.current.tVisible = 96;
@@ -69,5 +97,5 @@ export function useTerminalGestures({
     addToast("View reset", "ok");
   };
 
-  return { dragRef, onPointerDown, onPointerMove, onPointerUp, onWheel, resetView };
+  return { dragRef, onPointerDown, onPointerMove, onPointerUp, resetView };
 }

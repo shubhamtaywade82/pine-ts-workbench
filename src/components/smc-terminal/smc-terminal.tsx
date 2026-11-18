@@ -63,8 +63,8 @@ export function SmcTerminal(): React.JSX.Element {
     setParams((prev) => ({ ...prev, [key]: val }));
   }, []);
 
-  const { dragRef, onPointerDown, onPointerMove, onPointerUp, onWheel, resetView } = useTerminalGestures({
-    viewportRef, dimsRef, simRef, setHover, onParamChange, addToast, setFocusPrice,
+  const { dragRef, onPointerDown, onPointerMove, onPointerUp, resetView } = useTerminalGestures({
+    canvasRef: overlayRef, viewportRef, dimsRef, simRef, setHover, onParamChange, addToast, setFocusPrice,
   });
 
   const handleResize = useCallback(() => {
@@ -265,7 +265,7 @@ export function SmcTerminal(): React.JSX.Element {
             ref={overlayRef} className={`${styles.canvasLayer} ${styles.overlayCanvas}`}
             onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
             onPointerCancel={onPointerUp} onPointerLeave={() => { setHover(null); dragRef.current = null; }}
-            onWheel={onWheel} onDoubleClick={resetView}
+            onDoubleClick={resetView}
           />
           <div className={styles.ohlc}>
             <span className={styles.ohlcTitle}>SOL/USDT · {ui.tf}m</span>

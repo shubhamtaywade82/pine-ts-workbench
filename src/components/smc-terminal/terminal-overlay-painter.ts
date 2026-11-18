@@ -97,7 +97,7 @@ function drawDepthLadder(c: CanvasRenderingContext2D, map: Map<number, number> |
   }
 }
 
-function drawPulledGhosts(c: CanvasRenderingContext2D, events: MarketEvent[], floor: number, playhead: number, ladderMax: number, l: PlotLayout, v: ViewportState, bw: number, lw: number): void {
+function drawPulledGhosts(c: CanvasRenderingContext2D, events: MarketEvent[], floor: number, playhead: number, ladderMax: number, l: PlotLayout, v: ViewportState, lw: number): void {
   for (let e = events.length - 1; e >= 0; e--) {
     const ev = events[e];
     if (ev.bar > floor) continue;
@@ -113,7 +113,8 @@ function drawPulledGhosts(c: CanvasRenderingContext2D, events: MarketEvent[], fl
     c.setLineDash([3, 3]);
     c.strokeRect(l.r - w + 0.5, y - 3, w - 1, 6);
     c.setLineDash([]);
-    const mx = X(ev.bar, v, l) + bw / 2;
+    // Anchored to the ladder, not the bar: live pulls land on the forming candle and would hide it.
+    const mx = l.r - w - 8;
     c.lineWidth = 1.4;
     c.beginPath();
     c.moveTo(mx - 4, y - 4); c.lineTo(mx + 4, y + 4);
@@ -286,7 +287,7 @@ export function drawOverlay(
   const lastCol = up ? theme.bid : theme.ask;
 
   drawDepthLadder(c, ladderMap, maxLadderSize, layout, viewport, params, theme, fv.cur, state.tick);
-  if (params.pulled) drawPulledGhosts(c, state.events, floor, state.playhead, maxLadderSize, layout, viewport, bw, params.ladderW);
+  if (params.pulled) drawPulledGhosts(c, state.events, floor, state.playhead, maxLadderSize, layout, viewport, params.ladderW);
   drawFlashes(c, flashes, now, layout, viewport, bw, theme);
   drawFormingCandle(c, fv, layout, viewport, bw, params, theme);
 
