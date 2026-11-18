@@ -104,7 +104,7 @@ export function TerminalDeck({
       <div className={styles.deckGrp}>
         <span className={styles.deckLabel}>LAYERS</span>
         <div className={styles.deckRow}>
-          {(["rays", "ladder", "fvg", "bos", "ob", "liq", "pd", "filled", "vol", "pulled"] as const).map((key) => (
+          {(["rays", "ladder", "fvg", "bos", "ob", "liq", "pd", "filled", "vol", "grid", "pulled"] as const).map((key) => (
             <button
               key={key}
               type="button"
@@ -153,6 +153,18 @@ export function TerminalDeck({
               step={5}
               value={params.ladderW}
               onChange={(e) => onParamChange("ladderW", Number(e.target.value))}
+            />
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+            <label style={{ fontSize: 8, color: "var(--faint)", letterSpacing: ".1em" }}>GRID</label>
+            <input
+              type="range"
+              className={styles.rangeInput}
+              min={0}
+              max={1}
+              step={0.05}
+              value={params.gridAlpha}
+              onChange={(e) => onParamChange("gridAlpha", Number(e.target.value))}
             />
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 1 }}>

@@ -270,16 +270,19 @@ export function buildSession(seedIdx: number, tf: number): SimulationState {
 /** Number of ticks merged into one ladder bin; never below one tick. */
 export const binTicks = (binSize: number, tick: number): number => Math.max(1, Math.round(binSize / tick));
 
-export function aggregateOrderBook(snaps: [number, number][][], binSize: number, tick: number = BASE_BIN): Map<number, number>[] {
+/** One book snapshot merged into ladder bins. Prefer this per frame; aggregating every snapshot is O(bars). */
+export function aggregateSnap(snap: [number, number][], binSize: number, tick: number = BASE_BIN): Map<number, number> {
   const k = binTicks(binSize, tick);
-  return snaps.map((snap) => {
-    const map = new Map<number, number>();
-    for (const [idx, s] of snap) {
-      const ai = Math.round(idx / k);
-      map.set(ai, (map.get(ai) || 0) + s);
-    }
-    return map;
-  });
+  const map = new Map<number, number>();
+  for (const [idx, s] of snap) {
+    const ai = Math.round(idx / k);
+    map.set(ai, (map.get(ai) || 0) + s);
+  }
+  return map;
+}
+
+export function aggregateOrderBook(snaps: [number, number][][], binSize: number, tick: number = BASE_BIN): Map<number, number>[] {
+  return snaps.map((snap) => aggregateSnap(snap, binSize, tick));
 }
 
 export interface UiState {

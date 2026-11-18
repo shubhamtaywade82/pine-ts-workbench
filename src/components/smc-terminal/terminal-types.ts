@@ -68,6 +68,8 @@ export interface TerminalParams {
   fvg: boolean;
   filled: boolean;
   vol: boolean;
+  grid: boolean;
+  gridAlpha: number;
   bos: boolean;
   ob: boolean;
   liq: boolean;

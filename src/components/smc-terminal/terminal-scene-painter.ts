@@ -17,6 +17,7 @@ const Y = (p: number, v: ViewportState, l: PlotLayout): number =>
   l.y + ((v.maxP - p) / (v.maxP - v.minP)) * l.h;
 
 const TARGET_AXIS_LINES = 10;
+const GRID_COLOR = "#2A3F66";
 
 /** Round 1/2/5 x 10^n step giving ~TARGET_AXIS_LINES lines, never finer than one tick. */
 function niceAxisStep(range: number, tick: number): number {
@@ -27,10 +28,10 @@ function niceAxisStep(range: number, tick: number): number {
   return nice * pow;
 }
 
-function drawGrid(ctx: SceneContext, pstep: number, i0: number, i1: number): void {
+function drawGrid(ctx: SceneContext, pstep: number, i0: number, i1: number, alpha: number): void {
   const { c, layout, viewport: v, bw } = ctx;
   c.lineWidth = 1;
-  c.strokeStyle = "#131F36";
+  c.strokeStyle = rgba(GRID_COLOR, alpha);
   const startIdx = Math.ceil(v.minP / pstep);
   const endIdx = Math.floor(v.maxP / pstep);
   for (let k = startIdx; k <= endIdx; k++) {
@@ -42,7 +43,7 @@ function drawGrid(ctx: SceneContext, pstep: number, i0: number, i1: number): voi
     c.stroke();
   }
   const k = Math.max(1, Math.ceil(84 / bw));
-  for (let i = Math.ceil(i0 / k) * k; i <= i1; i++) {
+  for (let i = Math.ceil(i0 / k) * k; i <= i1; i += k) {
     const x = Math.round(X(i, v, layout) + bw / 2) + 0.5;
     c.beginPath();
     c.moveTo(x, layout.y);
@@ -202,7 +203,7 @@ function drawAxes(ctx: SceneContext, state: SimulationState, pstep: number, i0: 
   }
   c.textAlign = "center";
   const k = Math.max(1, Math.ceil(84 / bw));
-  for (let i = Math.ceil(i0 / k) * k; i <= i1; i++) {
+  for (let i = Math.ceil(i0 / k) * k; i <= i1; i += k) {
     if (state.bars[i]) {
       c.fillText(fmtT(state.bars[i].t), X(i, v, layout) + bw / 2, layout.b + 13);
     }
@@ -234,7 +235,7 @@ export function drawScene(
   const pstep = niceAxisStep(range, state.tick);
   const ctx: SceneContext = { c, layout, viewport, bw };
 
-  drawGrid(ctx, pstep, i0, i1);
+  if (params.grid && params.gridAlpha > 0) drawGrid(ctx, pstep, i0, i1, params.gridAlpha);
   drawFvgZones(ctx, state, floor, params, theme);
   drawSmcLayers(ctx, state, floor, params, theme);
   const hits = drawRails(ctx, state, floor, params, theme);

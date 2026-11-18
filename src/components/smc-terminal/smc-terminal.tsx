@@ -7,7 +7,7 @@ import {
   type ThemeColors, type ToastItem, type ViewportState,
 } from "./terminal-types";
 import {
-  aggregateOrderBook, buildIntraBarPath, buildSession, clamp, computeAllFvgZones, ensureBars,
+  aggregateSnap, buildIntraBarPath, buildSession, clamp, computeAllFvgZones, ensureBars,
   makeUiState, restoreSnapshot, syncOrderBookSnap, updatePriceBounds,
   type SimulationState, type UiState,
 } from "./terminal-simulation";
@@ -25,10 +25,11 @@ import { fmtP, fmtS, tickDecimals } from "./terminal-formatters";
 
 // Per-ms easing rate; ~80ms time constant keeps the forming candle smooth without lagging the tape.
 const LIVE_PRICE_EASE = 0.012;
+const HOVER_RENDER_MS = 100;
 
 const DEF_PARAMS: TerminalParams = {
   zoom: 96, candle: "hollow", theme: "ion", rays: true, ladder: true, fvg: true, filled: false,
-  bos: true, ob: true, liq: true, pd: true, vol: true, pulled: true, bin: 0.05, rayScale: 1, ladderW: 110, glow: 0.6, density: 1, raySpan: "birth", speed: 1, follow: true,
+  bos: true, ob: true, liq: true, pd: true, vol: true, grid: true, gridAlpha: 0.3, pulled: true, bin: 0.05, rayScale: 1, ladderW: 110, glow: 0.6, density: 1, raySpan: "birth", speed: 1, follow: true,
 };
 
 export function SmcTerminal(): React.JSX.Element {
@@ -40,6 +41,8 @@ export function SmcTerminal(): React.JSX.Element {
   const [isLiveFeed, setIsLiveFeed] = useState(true);
   const [toasts, setToasts] = useState<ToastItem[]>([]);
   const [hover, setHover] = useState<{ px: number; py: number } | null>(null);
+  const hoverRef = useRef<{ px: number; py: number } | null>(null);
+  const lastHoverRenderRef = useRef(0);
   const [highlightPrice, setHighlightPrice] = useState<number | null>(null);
   const [focusPrice, setFocusPrice] = useState<{ price: number; until: number } | null>(null);
   const [ui, setUi] = useState<UiState>(() => makeUiState(buildSession(0, 5)));
@@ -60,11 +63,20 @@ export function SmcTerminal(): React.JSX.Element {
   }, []);
 
   const onParamChange = useCallback(<K extends keyof TerminalParams>(key: K, val: TerminalParams[K]) => {
-    setParams((prev) => ({ ...prev, [key]: val }));
+    setParams((prev) => (prev[key] === val ? prev : { ...prev, [key]: val }));
+  }, []);
+
+  // The canvas reads the ref every frame; React state only feeds the tooltip, so it updates at ~10Hz.
+  const updateHover = useCallback((pos: { px: number; py: number } | null) => {
+    hoverRef.current = pos;
+    const now = performance.now();
+    if (pos !== null && now - lastHoverRenderRef.current < HOVER_RENDER_MS) return;
+    lastHoverRenderRef.current = now;
+    setHover(pos);
   }, []);
 
   const { dragRef, onPointerDown, onPointerMove, onPointerUp, resetView } = useTerminalGestures({
-    canvasRef: overlayRef, viewportRef, dimsRef, simRef, setHover, onParamChange, addToast, setFocusPrice,
+    canvasRef: overlayRef, viewportRef, dimsRef, simRef, setHover: updateHover, onParamChange, addToast, setFocusPrice,
   });
 
   const handleResize = useCallback(() => {
@@ -207,17 +219,17 @@ export function SmcTerminal(): React.JSX.Element {
 
       if (sc) rayHitsRef.current = drawScene(sc, sim, v, params, themeColors, plot, dpr, hl, axisW, timeH, w, h);
       if (oc) {
-        const map = aggregateOrderBook(sim.snaps, params.bin, sim.tick)[Math.floor(sim.playhead)];
+        const map = aggregateSnap(sim.snaps[Math.floor(sim.playhead)] ?? [], params.bin, sim.tick);
         let maxS = 1;
         if (map) for (const s of map.values()) maxS = Math.max(maxS, s);
         flashesRef.current = flashesRef.current.filter((fl) => now - fl.t0 < 900);
-        drawOverlay(oc, sim, v, params, themeColors, plot, dpr, map, maxS, flashesRef.current, hover, !!dragRef.current, now, axisW, w, h);
+        drawOverlay(oc, sim, v, params, themeColors, plot, dpr, map, maxS, flashesRef.current, hoverRef.current, !!dragRef.current, now, axisW, w, h);
       }
       animId = requestAnimationFrame(loop);
     };
     animId = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(animId);
-  }, [isPlaying, isHalted, isLiveFeed, params, focusPrice, highlightPrice, hover, dragRef]);
+  }, [isPlaying, isHalted, isLiveFeed, params, focusPrice, highlightPrice, dragRef]);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -264,7 +276,7 @@ export function SmcTerminal(): React.JSX.Element {
           <canvas
             ref={overlayRef} className={`${styles.canvasLayer} ${styles.overlayCanvas}`}
             onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}
-            onPointerCancel={onPointerUp} onPointerLeave={() => { setHover(null); dragRef.current = null; }}
+            onPointerCancel={onPointerUp} onPointerLeave={() => { updateHover(null); dragRef.current = null; }}
             onDoubleClick={resetView}
           />
           <div className={styles.ohlc}>

@@ -37,7 +37,9 @@ export function useTerminalGestures({
     if (dragRef.current) {
       const dx = e.nativeEvent.offsetX - dragRef.current.x;
       if (Math.abs(dx) > 3) onParamChange("follow", false);
+      // Drag and swipe track the finger 1:1; easing is only for zoom, follow and focus moves.
       v.tCenter = dragRef.current.center - dx / bw;
+      v.center = v.tCenter;
     }
     setHover({ px: e.nativeEvent.offsetX, py: e.nativeEvent.offsetY });
   };
@@ -51,6 +53,7 @@ export function useTerminalGestures({
     const v = viewportRef.current;
     const { w, axisW } = dimsRef.current;
     v.tCenter += deltaX / ((w - axisW - 12) / v.visible);
+    v.center = v.tCenter;
     onParamChange("follow", false);
   };
 
