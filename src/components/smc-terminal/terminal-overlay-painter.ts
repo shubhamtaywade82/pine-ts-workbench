@@ -1,5 +1,5 @@
 import { NORMAL, type MarketEvent, type PlotLayout, type TerminalParams, type ThemeColors, type ViewportState } from "./terminal-types";
-import { type SimulationState, binTicks, clamp, lerp, wallThreshold } from "./terminal-simulation";
+import { type SimulationState, binTicks, clamp, lerp } from "./terminal-simulation";
 import { drawRoundRect, fmtP, fmtS, fmtT, rgba, tickDecimals } from "./terminal-formatters";
 
 interface FormingBar {
@@ -64,12 +64,12 @@ function drawLadderLabel(c: CanvasRenderingContext2D, size: number, isWall: bool
   c.restore();
 }
 
-function drawDepthLadder(c: CanvasRenderingContext2D, map: Map<number, number> | undefined, maxS: number, l: PlotLayout, v: ViewportState, p: TerminalParams, t: ThemeColors, last: number, tick: number): void {
+function drawDepthLadder(c: CanvasRenderingContext2D, map: Map<number, number> | undefined, maxS: number, l: PlotLayout, v: ViewportState, p: TerminalParams, t: ThemeColors, last: number, tick: number, walls: SimulationState["bigsSnap"][0]): void {
   if (!p.ladder || !map) return;
   const lw = p.ladderW;
   const binSize = binTicks(p.bin, tick) * tick;
   const binPx = Math.max(1.5, (binSize / (v.maxP - v.minP)) * l.h - 1);
-  const wallMin = wallThreshold([...map.values()]);
+  const wallBins = new Set(walls.map((w) => Math.round(w.idx / binTicks(p.bin, tick))));
   const hasRoomForText = binPx >= MIN_LABEL_ROW_PX;
   const g = c.createLinearGradient(l.r - lw - 24, 0, l.r, 0);
   g.addColorStop(0, "rgba(7,13,26,0)");
@@ -85,7 +85,7 @@ function drawDepthLadder(c: CanvasRenderingContext2D, map: Map<number, number> |
     const col = price < last ? t.bid : t.ask;
     c.fillStyle = rgba(col, 0.22 + 0.55 * ratio);
     c.fillRect(l.r - w, y, w, binPx);
-    if (hasRoomForText) drawLadderLabel(c, s, s >= wallMin, price < last, l.r - w, y + binPx / 2, w, t);
+    if (hasRoomForText) drawLadderLabel(c, s, wallBins.has(ai), price < last, l.r - w, y + binPx / 2, w, t);
     if (s >= NORMAL * 4) {
       c.save();
       if (p.glow > 0) { c.shadowBlur = p.glow * 12; c.shadowColor = col; }
@@ -286,7 +286,7 @@ export function drawOverlay(
   const up = fv.cur >= fv.b.o;
   const lastCol = up ? theme.bid : theme.ask;
 
-  drawDepthLadder(c, ladderMap, maxLadderSize, layout, viewport, params, theme, fv.cur, state.tick);
+  drawDepthLadder(c, ladderMap, maxLadderSize, layout, viewport, params, theme, fv.cur, state.tick, state.bigsSnap[floor] ?? []);
   if (params.pulled) drawPulledGhosts(c, state.events, floor, state.playhead, maxLadderSize, layout, viewport, params.ladderW);
   drawFlashes(c, flashes, now, layout, viewport, bw, theme);
   drawFormingCandle(c, fv, layout, viewport, bw, params, theme);

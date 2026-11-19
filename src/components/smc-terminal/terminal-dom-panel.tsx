@@ -1,6 +1,6 @@
 import React from "react";
 import type { SimulationState } from "./terminal-simulation";
-import { binTicks, wallThreshold } from "./terminal-simulation";
+import { binTicks } from "./terminal-simulation";
 import { fmtP, fmtS, tickDecimals } from "./terminal-formatters";
 
 const ROWS_PER_SIDE = 12;
@@ -52,13 +52,14 @@ export function TerminalDomPanel({ state, price, binSize }: TerminalDomPanelProp
   const decimals = tickDecimals(state.tick);
   const rows = buildRows(state, price, binSize);
   const maxSize = Math.max(1, ...rows.map((row) => row.size));
-  const wallMin = wallThreshold(rows.filter((row) => row.size > 0).map((row) => row.size));
+  const ticksPerBin = binTicks(binSize, state.tick);
+  const wallBins = new Set((state.bigsSnap[Math.floor(state.playhead)] ?? []).map((w) => Math.floor(w.idx / ticksPerBin)));
 
   return (
     <div style={{ fontSize: 10, fontFamily: '"IBM Plex Mono", monospace' }}>
       {rows.map((row) => {
         const color = row.side === "bid" ? "var(--bid)" : "var(--ask)";
-        const isWall = row.size > 0 && row.size >= wallMin;
+        const isWall = wallBins.has(Math.floor(row.price / (ticksPerBin * state.tick) + 1e-9));
         return (
           <div
             key={row.price}

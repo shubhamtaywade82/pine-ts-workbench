@@ -68,7 +68,8 @@ export function SmcTerminal(): React.JSX.Element {
   // Restored after mount, not in the initial state, so server and first client render still match.
   useEffect(() => {
     const saved = loadTerminalState({ params: DEF_PARAMS, tf: DEFAULT_TF, isSoundOn: true, isLiveFeed: true });
-    setParams(saved.params);
+    // Follow is session state: restoring "off" after a drag would leave the chart stuck while live candles scroll away.
+    setParams({ ...saved.params, follow: true });
     setIsSoundOn(saved.isSoundOn);
     setSoundMuted(!saved.isSoundOn);
     setIsLiveFeed(saved.isLiveFeed);
