@@ -1,3 +1,5 @@
+import React from "react";
+import { renderToString } from "react-dom/server";
 import { describe, expect, it } from "bun:test";
 import type { Wall, WallFrame } from "@/lib/depth-walls";
 import { diffWalls, type TrackedWall } from "./use-binance-live";
@@ -5,6 +7,7 @@ import {
   aggregateOrderBook, buildIntraBarPath, buildSession, computeAllFvgZones, createRng, ensureBars,
   restoreSnapshot, stepBar, syncOrderBookSnap,
 } from "./terminal-simulation";
+import { TerminalOrderBook } from "./terminal-dom-panel";
 import { getFormingValues } from "./terminal-overlay-painter";
 import { fmtAge, fmtP, fmtS, fmtT, hexRGB, mixHex, rgba, tickDecimals } from "./terminal-formatters";
 import { BASE_BIN, SESSION_BARS, START_PLAY, type Bar } from "./terminal-types";
@@ -182,5 +185,23 @@ describe("diffWalls", () => {
     const tracked = new Map<string, TrackedWall>();
     diffWalls(tracked, frame([wall(73.5, "holding")]));
     expect(diffWalls(tracked, frame([], 74))).toEqual([]);
+  });
+});
+
+describe("TerminalOrderBook", () => {
+  it("renders mark/future price headers, order book column headers, and depth rows", () => {
+    const session = buildSession(0, 5);
+    const html = renderToString(React.createElement(TerminalOrderBook, {
+      state: session,
+      curPrice: 74.25,
+      binSize: 0.05,
+    }));
+
+    expect(html).toContain("Mark price");
+    expect(html).toContain("Future price");
+    expect(html).toContain("VOL/DEPTH");
+    expect(html).toContain("BID");
+    expect(html).toContain("PRICE");
+    expect(html).toContain("ASK");
   });
 });

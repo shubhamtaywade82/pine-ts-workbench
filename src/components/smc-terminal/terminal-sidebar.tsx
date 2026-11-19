@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import styles from "./smc-terminal.module.css";
 import { NORMAL, type LevelFilter, type MarketEvent, type SortOption } from "./terminal-types";
 import type { SimulationState } from "./terminal-simulation";
-import { TerminalDomPanel } from "./terminal-dom-panel";
+import { TerminalDomPanel, TerminalOrderBook } from "./terminal-dom-panel";
 import { fmtAge, fmtP as fmtPrice, fmtS, fmtT, tickDecimals } from "./terminal-formatters";
 
 interface TerminalSidebarProps {
@@ -67,7 +67,6 @@ export function TerminalSidebar({
   }
   const totalBook = bidsTotal + asksTotal || 1;
   const rows = filterAndSortLevels(state, filter, search.trim(), sort, floor, mid);
-  const tapeEvents = state.events.filter((e) => e.bar <= floor).slice(-24).reverse();
 
   return (
     <aside className={`${styles.sidebar} ${styles.sidebarMobile} ${isOpen ? styles.sidebarOpen : ""}`}>
@@ -167,23 +166,13 @@ export function TerminalSidebar({
         )}
       </div>
 
-      <div className={styles.tapeList}>
-        <div className={styles.tapeHeader}>LIQUIDITY TAPE</div>
-        <div>
-          {tapeEvents.map((e, i) => (
-            <div key={`${e.bar}-${e.type}-${i}`} className={styles.tapeRow}>
-              <span style={{ width: 12, textAlign: "center", fontWeight: 600 }}>
-                {e.type === "wall" ? "▮" : e.type === "pull" ? "✕" : e.type === "held" ? "◎" : "⚡"}
-              </span>
-              <span style={{ flex: 1, color: "var(--text)" }}>
-                {e.type === "wall" ? "New wall" : e.type === "pull" ? "Pulled" : e.type === "held" ? "Held" : "Broken"}
-                <em style={{ fontStyle: "normal", color: "var(--muted)" }}> {fmtS(e.size)} @</em> {fmtP(e.price)}
-              </span>
-              <span style={{ color: "var(--faint)", fontSize: 9 }}>{fmtT(state.bars[e.bar]?.t ?? 0)}</span>
-            </div>
-          ))}
-        </div>
-      </div>
+      <TerminalOrderBook
+        state={state}
+        curPrice={curPrice}
+        binSize={binSize}
+        onFocusPrice={onFocusPrice}
+        onHighlightPrice={onHighlightPrice}
+      />
     </aside>
   );
 }
