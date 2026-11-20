@@ -4,7 +4,7 @@
   --bid: #19E3B1; --bid-deep: #0E8F76; --ask: #FF4D6D; --ask-deep: #A62643;
   --amber: #FFB224; --cyan: #3FC1FF; --lime: #9BE84C; --violet: #8F7BFF;
   --ok: #2BE08F; --warn: #FFB224; --danger: #FF3B5C; --info: #3FC1FF;
-  --hdrH: 56px; --deckH: 92px; --sideW: 322px;
+  --hdrH: 56px; --deckH: 92px; --sideW: 380px;
   position: relative; width: 100%; height: 100vh; height: 100dvh; background: var(--bg0);
   color: var(--text); font-family: "Space Grotesk", system-ui, sans-serif;
   overflow: hidden; display: grid; grid-template-rows: auto 1fr auto; -webkit-font-smoothing: antialiased;
@@ -168,12 +168,46 @@
   padding: 4px 2px; color: var(--muted);
 }
 
+.tabBar {
+  display: flex;
+  background: var(--bg0);
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--line);
+  gap: 5px;
+}
+
+.tabBtn {
+  flex: 1;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: .08em;
+  padding: 5px 0;
+  text-align: center;
+  border-radius: 5px;
+  border: 1px solid transparent;
+  color: var(--muted);
+  background: none;
+  cursor: pointer;
+  transition: all .15s;
+}
+
+.tabBtn:hover {
+  color: var(--text);
+  background: var(--surface2);
+}
+
+.tabBtnActive {
+  color: var(--cyan);
+  background: rgba(63, 193, 255, 0.09);
+  border-color: rgba(63, 193, 255, 0.35);
+}
+
 .bookPanel {
-  flex: 1.15;
+  flex: 1;
   display: flex;
   flex-direction: column;
   min-height: 0;
-  border-top: 1px solid var(--line);
   background: var(--surface);
   font-family: "IBM Plex Mono", monospace;
 }
@@ -181,8 +215,8 @@
 .bookHeaderFirst {
   display: flex;
   align-items: center;
-  justify-content: space-around;
-  padding: 6px 10px;
+  justify-content: space-between;
+  padding: 7px 12px;
   background: var(--surface);
   border-bottom: 1px solid var(--line);
 }
@@ -194,30 +228,38 @@
 }
 
 .bookPriceStatLabel {
-  font-size: 8.5px;
+  font-size: 9px;
   letter-spacing: .08em;
   text-transform: uppercase;
   color: var(--faint);
 }
 
 .bookPriceStatVal {
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
   color: var(--text);
 }
 
-.bookHeaderPipe {
-  color: var(--line2);
-  font-size: 11px;
+.bookSpreadBadge {
+  font-size: 8.5px;
+  letter-spacing: .06em;
+  padding: 2px 7px;
+  border-radius: 12px;
+  background: var(--surface2);
+  border: 1px solid var(--line2);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .bookColsHeader {
   display: grid;
-  grid-template-columns: 1fr 44px 54px 54px 44px 1fr;
-  padding: 4px 8px;
+  grid-template-columns: 1fr 50px 66px 66px 50px 1fr;
+  padding: 5px 10px;
   background: var(--surface2);
   border-bottom: 1px solid var(--line);
-  font-size: 8px;
+  font-size: 8.5px;
+  font-weight: 600;
   letter-spacing: .06em;
   color: var(--faint);
   position: sticky;
@@ -229,34 +271,35 @@
   flex: 1;
   overflow-y: auto;
   min-height: 0;
-  padding: 2px 0;
+  padding: 3px 0;
 }
 
 .bookRow {
   display: grid;
-  grid-template-columns: 1fr 44px 54px 54px 44px 1fr;
-  height: 19px;
+  grid-template-columns: 1fr 50px 66px 66px 50px 1fr;
+  height: 22px;
   align-items: center;
-  padding: 0 8px;
+  padding: 0 10px;
   position: relative;
-  font-size: 9px;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
   cursor: pointer;
   transition: background .12s;
 }
 
 .bookRow:hover {
-  background: rgba(255, 255, 255, 0.04);
+  background: rgba(255, 255, 255, 0.05);
 }
 
-.colDepthBid { text-align: left; color: var(--faint); font-size: 8px; z-index: 1; position: relative; }
-.colBid { text-align: right; color: var(--text); z-index: 1; position: relative; }
-.colPriceBid { text-align: right; color: var(--bid); font-weight: 600; padding-right: 4px; z-index: 1; position: relative; }
-.colPriceAsk { text-align: left; color: var(--ask); font-weight: 600; padding-left: 4px; z-index: 1; position: relative; }
-.colAsk { text-align: left; color: var(--text); z-index: 1; position: relative; }
-.colDepthAsk { text-align: right; color: var(--faint); font-size: 8px; z-index: 1; position: relative; }
+.colDepthBid { text-align: left; color: var(--faint); font-size: 9.5px; z-index: 1; position: relative; }
+.colBid { text-align: right; color: var(--text); font-size: 10.5px; z-index: 1; position: relative; }
+.colPriceBid { text-align: right; color: var(--bid); font-weight: 600; font-size: 11px; padding-right: 6px; z-index: 1; position: relative; }
+.colPriceAsk { text-align: left; color: var(--ask); font-weight: 600; font-size: 11px; padding-left: 6px; z-index: 1; position: relative; border-left: 1px solid rgba(255, 255, 255, 0.08); }
+.colAsk { text-align: left; color: var(--text); font-size: 10.5px; z-index: 1; position: relative; }
+.colDepthAsk { text-align: right; color: var(--faint); font-size: 9.5px; z-index: 1; position: relative; }
 
 .wallPrice {
-  text-shadow: 0 0 6px currentColor;
+  text-shadow: 0 0 8px currentColor;
   font-weight: 700;
 }
 
@@ -265,10 +308,10 @@
   right: 50%;
   top: 1px;
   bottom: 1px;
-  background: linear-gradient(270deg, rgba(25, 227, 177, 0.24), rgba(25, 227, 177, 0.04));
-  border-left: 1.5px solid rgba(25, 227, 177, 0.5);
+  background: linear-gradient(270deg, rgba(25, 227, 177, 0.28), rgba(25, 227, 177, 0.05));
+  border-left: 2px solid rgba(25, 227, 177, 0.65);
   pointer-events: none;
-  transition: width 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition: width 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
   animation: depthBarPulse 2.4s ease-in-out infinite alternate;
 }
 
@@ -277,16 +320,16 @@
   left: 50%;
   top: 1px;
   bottom: 1px;
-  background: linear-gradient(90deg, rgba(255, 77, 109, 0.24), rgba(255, 77, 109, 0.04));
-  border-right: 1.5px solid rgba(255, 77, 109, 0.5);
+  background: linear-gradient(90deg, rgba(255, 77, 109, 0.28), rgba(255, 77, 109, 0.05));
+  border-right: 2px solid rgba(255, 77, 109, 0.65);
   pointer-events: none;
-  transition: width 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition: width 0.28s cubic-bezier(0.2, 0.8, 0.2, 1);
   animation: depthBarPulse 2.4s ease-in-out infinite alternate;
 }
 
 .depthBarWall {
-  background: linear-gradient(270deg, rgba(255, 184, 77, 0.32), rgba(255, 184, 77, 0.06));
-  border-color: rgba(255, 184, 77, 0.8);
+  background: linear-gradient(270deg, rgba(255, 184, 77, 0.35), rgba(255, 184, 77, 0.08));
+  border-color: rgba(255, 184, 77, 0.9);
 }
 
 @keyframes depthBarPulse {
@@ -336,12 +379,13 @@
 .toastOk { border-left-color: var(--ok); }
 .scrim { position: fixed; inset: 0; z-index: 40; background: rgba(4,7,15,.6); backdrop-filter: blur(2px); }
 
-@media (max-width: 1120px) { .terminalContainer { --sideW: 284px; } }
+@media (max-width: 1400px) { .terminalContainer { --sideW: 348px; } }
+@media (max-width: 1120px) { .terminalContainer { --sideW: 300px; } }
 @media (max-width: 900px) {
   .mainGrid { grid-template-columns: 1fr; }
   .sideToggle { display: flex; }
   .sidebarMobile {
-    position: fixed; top: 0; right: 0; bottom: 0; width: min(340px, 88vw); z-index: 50;
+    position: fixed; top: 0; right: 0; bottom: 0; width: min(380px, 92vw); z-index: 50;
     transform: translateX(102%); transition: transform .3s cubic-bezier(.2,.8,.2,1); box-shadow: -20px 0 60px rgba(0,0,0,.5);
   }
   .sidebarOpen { transform: none; }

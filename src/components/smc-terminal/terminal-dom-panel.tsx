@@ -118,6 +118,8 @@ function aggregateBins(book: ReadonlyMap<number, number>, ticksPerBin: number, t
   return bins;
 }
 
+const DEPTH_ROWS = 24;
+
 function collectSideLevels(
   entries: Array<[number, number]>,
   binWidth: number,
@@ -126,7 +128,7 @@ function collectSideLevels(
 ): BookLevel[] {
   const levels: BookLevel[] = [];
   let cum = 0;
-  for (let i = 0; i < 16; i++) {
+  for (let i = 0; i < DEPTH_ROWS; i++) {
     const item = entries[i];
     const price = item ? item[0] * binWidth : fallbackStart + i * stepDir * binWidth;
     const size = item ? item[1] : 0;
@@ -153,7 +155,7 @@ function buildOrderBookData(state: SimulationState, curPrice: number, binSize: n
   const maxDepth = Math.max(bids[bids.length - 1]?.depth ?? 1, asks[asks.length - 1]?.depth ?? 1, 1);
 
   const rows: BookRowData[] = [];
-  for (let i = 0; i < 16; i++) {
+  for (let i = 0; i < DEPTH_ROWS; i++) {
     const b = bids[i];
     const a = asks[i];
     rows.push({
@@ -162,7 +164,13 @@ function buildOrderBookData(state: SimulationState, curPrice: number, binSize: n
     });
   }
 
-  return { rows, maxDepth, markPrice: (bestBid + bestAsk) / 2, futurePrice: curPrice };
+  return {
+    rows,
+    maxDepth,
+    markPrice: (bestBid + bestAsk) / 2,
+    futurePrice: curPrice,
+    spread: Math.max(0, bestAsk - bestBid),
+  };
 }
 
 interface BookRowProps {
@@ -220,7 +228,7 @@ export function TerminalOrderBook({
   state, curPrice, binSize, onFocusPrice, onHighlightPrice,
 }: TerminalOrderBookProps): React.JSX.Element {
   const dec = tickDecimals(state.tick);
-  const { rows, maxDepth, markPrice, futurePrice } = buildOrderBookData(state, curPrice, binSize);
+  const { rows, maxDepth, markPrice, futurePrice, spread } = buildOrderBookData(state, curPrice, binSize);
 
   return (
     <div className={styles.bookPanel} onMouseLeave={() => onHighlightPrice?.(null)}>
@@ -229,7 +237,9 @@ export function TerminalOrderBook({
           <span className={styles.bookPriceStatLabel}>Mark price</span>
           <span className={styles.bookPriceStatVal}>{fmtP(markPrice, dec)}</span>
         </div>
-        <span className={styles.bookHeaderPipe}>|</span>
+        <div className={styles.bookSpreadBadge}>
+          <span>SPREAD {fmtP(spread, dec)}</span>
+        </div>
         <div className={styles.bookPriceStat}>
           <span className={styles.bookPriceStatLabel}>Future price</span>
           <span className={`${styles.bookPriceStatVal} ${futurePrice >= markPrice ? styles.up : styles.dn}`}>
