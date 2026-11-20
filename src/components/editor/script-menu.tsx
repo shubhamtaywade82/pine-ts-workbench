@@ -12,6 +12,7 @@ import { Input } from "@/components/ui/input";
 import { recentlyUsed, type SavedScript } from "@/lib/script-library";
 import type { ScriptLibraryState } from "@/hooks/use-script-library";
 import { SMC_CONFLUENCE_ENGINE, SMC_CONFLUENCE_STRATEGY } from "@/lib/scripts/smc-confluence-engine";
+import { EMKA_NQ_CONFLUENCE_ENGINE, EMKA_NQ_CONFLUENCE_STRATEGY } from "@/lib/scripts/emka-nq-confluence-engine";
 
 type Modal = "rename" | "copy" | "history" | null;
 
@@ -56,6 +57,9 @@ export function ScriptMenu({ scripts, onSaved, onOpenScripts }: {
               <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={() => scripts.createNew("indicator", SMC_CONFLUENCE_ENGINE)}>SMC Confluence Engine v7.1</DropdownMenuItem>
               <DropdownMenuItem onSelect={() => scripts.createNew("strategy", SMC_CONFLUENCE_STRATEGY)}>SMC Confluence Strategy v7.1</DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => scripts.createNew("indicator", EMKA_NQ_CONFLUENCE_ENGINE)}>Emka.nq Confluence Engine (NQ 1m)</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => scripts.createNew("strategy", EMKA_NQ_CONFLUENCE_STRATEGY)}>Emka.nq Reversal Strategy (NQ 1m)</DropdownMenuItem>
             </DropdownMenuSubContent>
           </DropdownMenuSub>
           <DropdownMenuSeparator />

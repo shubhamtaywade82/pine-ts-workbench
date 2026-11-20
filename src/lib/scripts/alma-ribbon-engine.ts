@@ -149,9 +149,9 @@ export const toAlmaStrategy = (code: string): string =>
   } else if (deathCross && isFullBear) {
     strategy.entry("Short", "short");
   }
-  if (strategy.engine.position.size > 0 && cFast < cSignal) {
+  if (strategy.engine.position_size > 0 && cFast < cSignal) {
     strategy.close("Long");
-  } else if (strategy.engine.position.size < 0 && cFast > cSignal) {
+  } else if (strategy.engine.position_size < 0 && cFast > cSignal) {
     strategy.close("Short");
   }
 
