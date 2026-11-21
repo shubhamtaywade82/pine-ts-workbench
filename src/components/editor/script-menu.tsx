@@ -13,6 +13,7 @@ import { recentlyUsed, type SavedScript } from "@/lib/script-library";
 import type { ScriptLibraryState } from "@/hooks/use-script-library";
 import { SMC_CONFLUENCE_ENGINE, SMC_CONFLUENCE_STRATEGY } from "@/lib/scripts/smc-confluence-engine";
 import { EMKA_NQ_CONFLUENCE_ENGINE, EMKA_NQ_CONFLUENCE_STRATEGY } from "@/lib/scripts/emka-nq-confluence-engine";
+import { ORDER_FLOW_INTELLIGENCE_ENGINE, ORDER_FLOW_INTELLIGENCE_STRATEGY } from "@/lib/scripts/order-flow-intelligence-engine";
 
 type Modal = "rename" | "copy" | "history" | null;
 
@@ -60,6 +61,9 @@ export function ScriptMenu({ scripts, onSaved, onOpenScripts }: {
               <DropdownMenuSeparator />
               <DropdownMenuItem onSelect={() => scripts.createNew("indicator", EMKA_NQ_CONFLUENCE_ENGINE)}>Emka.nq Confluence Engine (NQ 1m)</DropdownMenuItem>
               <DropdownMenuItem onSelect={() => scripts.createNew("strategy", EMKA_NQ_CONFLUENCE_STRATEGY)}>Emka.nq Reversal Strategy (NQ 1m)</DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onSelect={() => scripts.createNew("indicator", ORDER_FLOW_INTELLIGENCE_ENGINE)}>Order Flow + SMC Confluence Engine</DropdownMenuItem>
+              <DropdownMenuItem onSelect={() => scripts.createNew("strategy", ORDER_FLOW_INTELLIGENCE_STRATEGY)}>Order Flow Confluence Strategy</DropdownMenuItem>
             </DropdownMenuSubContent>
           </DropdownMenuSub>
           <DropdownMenuSeparator />
