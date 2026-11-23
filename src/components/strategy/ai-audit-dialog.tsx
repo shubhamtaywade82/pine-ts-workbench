@@ -130,6 +130,9 @@ export function AiAuditDialog({
                   </option>
                 ))}
               </select>
+              <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+                Token-Lean Vector Payload
+              </span>
             </div>
             {result?.iterations && (
               <span className="text-[11px] text-emerald-400">

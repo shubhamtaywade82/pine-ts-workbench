@@ -9,6 +9,7 @@ import {
   normalizeCoindcxPosition,
   pairPriceSymbol,
   signCoindcxPayload,
+  fetchCoindcxFuturesWallets,
   fetchCoindcxOrders,
   fetchCoindcxPositions,
 } from "./coindcx-client";
@@ -170,17 +171,48 @@ describe("coindcx-client", () => {
     expect(pos.pnlPercentage).toBeCloseTo(33.33, 1);
   });
 
-  it("normalizeCoindcxBalance extracts valid balances", () => {
-    const raw = {
+  it("normalizeCoindcxBalance extracts valid balances and futures wallets", () => {
+    const rawSpot = {
       currency: "INR",
       balance: "5000.5",
       locked_balance: "1000",
     };
-    const bal = normalizeCoindcxBalance(raw);
+    const bal = normalizeCoindcxBalance(rawSpot);
     expect(bal.currency).toBe("INR");
     expect(bal.balance).toBe(5000.5);
     expect(bal.lockedBalance).toBe(1000);
     expect(bal.availableBalance).toBe(4000.5);
+
+    const rawFutures = {
+      currency_short_name: "INR",
+      balance: 33226.36,
+      locked_balance: 33221.73,
+      available_balance: 4.62,
+    };
+    const fBal = normalizeCoindcxBalance(rawFutures);
+    expect(fBal.currency).toBe("INR");
+    expect(fBal.balance).toBe(33226.36);
+    expect(fBal.lockedBalance).toBe(33221.73);
+    expect(fBal.availableBalance).toBe(4.62);
+  });
+
+  it("fetchCoindcxFuturesWallets fetches and parses futures balances from cross_margin_details", async () => {
+    const mockFetch = (async () => {
+      return new Response(JSON.stringify({
+        total_wallet_balance: 33226.36,
+        total_initial_margin: 33221.73,
+        available_wallet_balance: 4.62,
+        total_account_equity: 41464.07,
+        pnl: 8237.70,
+      }), { status: 200 });
+    }) as unknown as typeof fetch;
+
+    const wallets = await fetchCoindcxFuturesWallets("key", "sec", mockFetch);
+    expect(wallets).toHaveLength(1);
+    expect(wallets[0]?.currency).toBe("INR");
+    expect(wallets[0]?.balance).toBe(33226.36);
+    expect(wallets[0]?.lockedBalance).toBe(33221.73);
+    expect(wallets[0]?.availableBalance).toBe(4.62);
   });
 
   it("fetchCoindcxPositions queries both INR and USDT margin modes", async () => {

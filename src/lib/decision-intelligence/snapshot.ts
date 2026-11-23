@@ -138,3 +138,37 @@ export function buildMarketSnapshot(options: BuildSnapshotOptions): MarketDecisi
     },
   };
 }
+
+function formatWallToken(wall?: SnapshotWall): string {
+  if (!wall) return "-";
+  const notionalM = (wall.notional / 1_000_000).toFixed(1);
+  const durMin = Math.round(wall.observedDurationMs / 60_000);
+  return `${wall.price}(${notionalM}M,${durMin}m)`;
+}
+
+/** Serializes snapshot into an ultra-compact single-line micro-state string (~35 tokens). */
+export function toMicroState(snapshot: MarketDecisionSnapshot): string {
+  const { metadata, marketRegime, orderFlow, candidate, dataQuality } = snapshot;
+  const parts: string[] = [
+    `SYM:${metadata.symbol}`,
+    `TF:${metadata.timeframe}`,
+    `RG:${marketRegime.trend},${marketRegime.volatility},${marketRegime.summaryAction}(${marketRegime.summaryScore.toFixed(2)})`,
+    `OF:${orderFlow.bestBid ?? "-"}/${orderFlow.bestAsk ?? "-"}`,
+    `BW:${formatWallToken(orderFlow.bidWall)}`,
+    `AW:${formatWallToken(orderFlow.askWall)}`,
+  ];
+  if (candidate) {
+    parts.push(`SET:${candidate.side}@${candidate.entry},SL:${candidate.stopLoss},TP:${candidate.takeProfit},RR:${candidate.riskReward.toFixed(1)}`);
+  }
+  const qual = dataQuality.feedHealthy && dataQuality.missingFields.length === 0 ? "OK" : `MISS(${dataQuality.missingFields.join(",")})`;
+  parts.push(`Q:${qual}`);
+  return parts.join("|");
+}
+
+/** Generates deterministic cache key for snapshot deduplication. */
+export function hashSnapshot(snapshot: MarketDecisionSnapshot): string {
+  const { metadata, marketRegime, candidate } = snapshot;
+  const c = candidate ? `${candidate.side}:${candidate.entry}:${candidate.stopLoss}` : "none";
+  return `${metadata.symbol}:${metadata.timeframe}:${metadata.timestamp}:${marketRegime.trend}:${marketRegime.summaryScore.toFixed(2)}:${c}`;
+}
+

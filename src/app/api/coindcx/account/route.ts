@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { fetchCoindcxBalances, fetchCoindcxUserInfo } from "@/lib/coindcx-client";
+import { fetchCoindcxBalances, fetchCoindcxFuturesWallets, fetchCoindcxUserInfo } from "@/lib/coindcx-client";
 
 export const dynamic = "force-dynamic";
 
@@ -10,7 +10,7 @@ function getCredentials(req: NextRequest) {
   return { apiKey: apiKey.trim(), apiSecret: apiSecret.trim() };
 }
 
-/** GET /api/coindcx/account → { ok, balances, userInfo }. */
+/** GET /api/coindcx/account → { ok, balances, futuresWallets, userInfo }. */
 export async function GET(req: NextRequest) {
   const { apiKey, apiSecret } = getCredentials(req);
   if (!apiKey || !apiSecret) {
@@ -18,11 +18,12 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const [balances, userInfo] = await Promise.all([
+    const [balances, futuresWallets, userInfo] = await Promise.all([
       fetchCoindcxBalances(apiKey, apiSecret),
+      fetchCoindcxFuturesWallets(apiKey, apiSecret),
       fetchCoindcxUserInfo(apiKey, apiSecret).catch(() => ({ coindcxId: "coindcx-user" })),
     ]);
-    return NextResponse.json({ ok: true, balances, userInfo }, { headers: { "Cache-Control": "no-store" } });
+    return NextResponse.json({ ok: true, balances, futuresWallets, userInfo }, { headers: { "Cache-Control": "no-store" } });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ ok: false, error: msg }, { status: 502 });

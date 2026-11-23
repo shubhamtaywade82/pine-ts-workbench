@@ -7,6 +7,7 @@ import {
   normalizeCoindcxBalance,
   normalizeCoindcxPosition,
   type CoindcxBalance,
+  type CoindcxFuturesWallet,
   type CoindcxOrder,
   type CoindcxPosition,
   type CoindcxUserInfo,
@@ -23,72 +24,34 @@ export type CoindcxStreamStatus = "live" | "polling" | "connecting" | "disconnec
 
 export interface CoindcxPortfolioState {
   readonly settings: CoindcxSettings;
-  readonly isConnected: boolean;
-  readonly isLoading: boolean;
-  readonly streamStatus: CoindcxStreamStatus;
-  readonly error: string | null;
-  readonly lastUpdated: number | null;
-  readonly positions: readonly CoindcxPosition[];
-  readonly balances: readonly CoindcxBalance[];
-  readonly orders: readonly CoindcxOrder[];
-  readonly orderHistory: readonly CoindcxOrder[];
-  readonly userInfo: CoindcxUserInfo | null;
-  readonly refresh: () => Promise<void>;
+  readonly isConnected: boolean; readonly isLoading: boolean;
+  readonly streamStatus: CoindcxStreamStatus; readonly error: string | null; readonly lastUpdated: number | null;
+  readonly positions: readonly CoindcxPosition[]; readonly balances: readonly CoindcxBalance[];
+  readonly futuresWallets: readonly CoindcxFuturesWallet[];
+  readonly orders: readonly CoindcxOrder[]; readonly orderHistory: readonly CoindcxOrder[];
+  readonly userInfo: CoindcxUserInfo | null; readonly refresh: () => Promise<void>;
 }
 
 type SharedState = Omit<CoindcxPortfolioState, "isConnected" | "refresh">;
 
 let sharedState: SharedState = {
   settings: typeof window !== "undefined" ? loadCoindcxSettings() : { apiKey: "", apiSecret: "", autoRefresh: true, refreshIntervalSec: 10 },
-  positions: [],
-  balances: [],
-  orders: [],
-  orderHistory: [],
-  userInfo: null,
-  streamStatus: "disconnected",
-  isLoading: false,
-  error: null,
-  lastUpdated: null,
+  positions: [], balances: [], futuresWallets: [], orders: [], orderHistory: [],
+  userInfo: null, streamStatus: "disconnected", isLoading: false, error: null, lastUpdated: null,
 };
 
 const listeners = new Set<(state: SharedState) => void>();
 let activeFetchPromise: Promise<void> | null = null;
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 let wsCleanup: (() => void) | null = null;
-let priceStreamCleanup: (() => void) | null = null;
-let subscribedPairsKey = "";
+let priceCleanup: (() => void) | null = null;
+let currentPricePairsKey = "";
+let teardownTimer: ReturnType<typeof setTimeout> | null = null;
 
 const notifyListeners = () => listeners.forEach((l) => l(sharedState));
 
-function updatePositionPrice(pair: string, price: number) {
-  let changed = false;
-  const next = sharedState.positions.map((pos) => {
-    if (pos.pair.replace(/^B-/, "").toUpperCase() !== pair.replace(/^B-/, "").toUpperCase()) return pos;
-    changed = true;
-    const diff = pos.side === "LONG" ? price - pos.entryPrice : pos.entryPrice - price;
-    const conv = pos.settlementCurrencyAvgPrice ?? (pos.marginCurrency === "INR" ? 89.5 : 1);
-    const unrealizedPnl = pos.marginCurrency === "INR" ? diff * pos.size * conv : diff * pos.size;
-    const pnlPercentage = calculatePnlPercentage(pos.entryPrice, price, pos.leverage, pos.side);
-    return { ...pos, markPrice: price, unrealizedPnl, pnlPercentage };
-  });
-  if (changed) {
-    sharedState = { ...sharedState, positions: next, lastUpdated: Date.now() };
-    notifyListeners();
-  }
-}
-
-function syncPriceStream() {
-  const pairs = Array.from(new Set(sharedState.positions.map((p) => p.pair))).sort();
-  const key = pairs.join(",");
-  if (key === subscribedPairsKey) return;
-  subscribedPairsKey = key;
-  if (priceStreamCleanup) { priceStreamCleanup(); priceStreamCleanup = null; }
-  if (pairs.length > 0) priceStreamCleanup = connectLivePriceStream(pairs, updatePositionPrice);
-}
-
 const updateSharedState = (patch: Partial<SharedState>) => {
   sharedState = { ...sharedState, ...patch };
-  if (patch.positions) syncPriceStream();
   notifyListeners();
 };
 
@@ -158,10 +121,54 @@ function mergeOrders(current: readonly CoindcxOrder[], raw: unknown): CoindcxOrd
   return next;
 }
 
+function matchPair(a: string, b: string): boolean {
+  if (a === b) return true;
+  const ca = a.toUpperCase().replace(/^B-/, "").replace(/[^A-Z0-9]/g, "");
+  const cb = b.toUpperCase().replace(/^B-/, "").replace(/[^A-Z0-9]/g, "");
+  return ca.length > 0 && ca === cb;
+}
+
+function updatePositionPrice(pair: string, price: number) {
+  let changed = false;
+  const positions = sharedState.positions.map((pos) => {
+    if (!matchPair(pos.pair, pair) || pos.markPrice === price) return pos;
+    changed = true;
+    const diff = pos.side === "LONG" ? price - pos.entryPrice : pos.entryPrice - price;
+    const conv = pos.settlementCurrencyAvgPrice ?? (pos.marginCurrency === "INR" ? 102 : 1);
+    const unrealizedPnl = diff * pos.size * conv;
+    const pnlPercentage = pos.margin > 0 ? (unrealizedPnl / pos.margin) * 100 : 0;
+    return { ...pos, markPrice: price, unrealizedPnl, pnlPercentage };
+  });
+  if (changed) updateSharedState({ positions, lastUpdated: Date.now() });
+}
+
+function syncPriceStream() {
+  if (typeof window === "undefined") return;
+  const pairs = Array.from(new Set(sharedState.positions.map((p) => p.pair))).sort();
+  const key = pairs.join(",");
+  if (key === currentPricePairsKey) return;
+  currentPricePairsKey = key;
+  if (priceCleanup) { priceCleanup(); priceCleanup = null; }
+  if (pairs.length === 0 || listeners.size === 0) return;
+  priceCleanup = connectLivePriceStream(pairs, updatePositionPrice);
+}
+
+function preserveLivePrices(fetched: readonly CoindcxPosition[], current: readonly CoindcxPosition[]): CoindcxPosition[] {
+  return fetched.map((pos) => {
+    const existing = current.find((p) => p.id === pos.id || p.pair === pos.pair);
+    if (!existing || existing.markPrice === pos.markPrice || existing.markPrice === existing.entryPrice) return pos;
+    const diff = pos.side === "LONG" ? existing.markPrice - pos.entryPrice : pos.entryPrice - existing.markPrice;
+    const conv = pos.settlementCurrencyAvgPrice ?? (pos.marginCurrency === "INR" ? 102 : 1);
+    const unrealizedPnl = diff * pos.size * conv;
+    const pnlPercentage = pos.margin > 0 ? (unrealizedPnl / pos.margin) * 100 : 0;
+    return { ...pos, markPrice: existing.markPrice, unrealizedPnl, pnlPercentage };
+  });
+}
+
 async function executeFetch(): Promise<void> {
   const { settings } = sharedState;
   if (!hasCoindcxCredentials(settings)) {
-    updateSharedState({ positions: [], balances: [], orders: [], orderHistory: [], userInfo: null, error: null });
+    updateSharedState({ positions: [], balances: [], futuresWallets: [], orders: [], orderHistory: [], userInfo: null, error: null });
     return;
   }
   updateSharedState({ isLoading: true, error: null });
@@ -179,15 +186,18 @@ async function executeFetch(): Promise<void> {
     ]);
     if (!pData.ok) throw new Error(pData.error ?? "Failed to fetch CoinDCX positions");
     if (!aData.ok) throw new Error(aData.error ?? "Failed to fetch CoinDCX account");
+    const nextPositions = preserveLivePrices(pData.positions ?? [], sharedState.positions);
     updateSharedState({
-      positions: pData.positions ?? [],
+      positions: nextPositions,
       balances: aData.balances ?? [],
+      futuresWallets: aData.futuresWallets ?? [],
       userInfo: aData.userInfo ?? null,
       orders: oData.ok && oData.orders ? oData.orders : [],
       orderHistory: hData.ok && hData.orders ? hData.orders : [],
       lastUpdated: Date.now(),
       error: null,
     });
+    syncPriceStream();
   } catch (err) {
     updateSharedState({ error: err instanceof Error ? err.message : String(err) });
   } finally {
@@ -201,34 +211,38 @@ function triggerSharedRefresh(): Promise<void> {
   return activeFetchPromise;
 }
 
-function startPollingFallback() {
+function startContinuousPolling() {
   if (pollTimer) clearInterval(pollTimer);
   const { settings } = sharedState;
   if (!settings.autoRefresh || !hasCoindcxCredentials(settings)) return;
-  const intervalMs = Math.max(settings.refreshIntervalSec, 5) * 1000;
+  const intervalMs = Math.max(settings.refreshIntervalSec, 3) * 1000;
   pollTimer = setInterval(() => void triggerSharedRefresh(), intervalMs);
 }
 
 function syncWsAndPolling() {
   const { settings } = sharedState;
   const hasCreds = hasCoindcxCredentials(settings);
-  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
   if (listeners.size === 0 || !hasCreds) {
+    if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     if (wsCleanup) { wsCleanup(); wsCleanup = null; }
+    if (priceCleanup) { priceCleanup(); priceCleanup = null; currentPricePairsKey = ""; }
     updateSharedState({ streamStatus: "disconnected" });
     return;
   }
+  startContinuousPolling();
+  syncPriceStream();
   if (!wsCleanup) {
+    const pairs = Array.from(new Set(sharedState.positions.map((p) => p.pair)));
     wsCleanup = connectCoindcxWs(settings.apiKey.trim(), settings.apiSecret.trim(), {
-      onStatusChange: (status) => {
-        updateSharedState({ streamStatus: status });
-        if (status === "disconnected" || status === "error" || status === "polling") startPollingFallback();
-        else if (status === "live" && pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+      onStatusChange: (status) => updateSharedState({ streamStatus: status }),
+      onPositionUpdate: (data) => {
+        updateSharedState({ positions: mergePositions(sharedState.positions, data), lastUpdated: Date.now() });
+        syncPriceStream();
       },
-      onPositionUpdate: (data) => updateSharedState({ positions: mergePositions(sharedState.positions, data), lastUpdated: Date.now() }),
       onOrderUpdate: (data) => updateSharedState({ orders: mergeOrders(sharedState.orders, data), lastUpdated: Date.now() }),
       onBalanceUpdate: (data) => updateSharedState({ balances: mergeBalances(sharedState.balances, data), lastUpdated: Date.now() }),
-    });
+      onPriceTick: (pair, price) => updatePositionPrice(pair, price),
+    }, undefined, pairs);
   }
 }
 
@@ -236,6 +250,7 @@ export function useCoindcxPortfolio(): CoindcxPortfolioState {
   const [state, setState] = useState<SharedState>(sharedState);
 
   useEffect(() => {
+    if (teardownTimer) { clearTimeout(teardownTimer); teardownTimer = null; }
     listeners.add(setState);
     if (listeners.size === 1) {
       updateSharedState({ settings: loadCoindcxSettings() });
@@ -245,6 +260,7 @@ export function useCoindcxPortfolio(): CoindcxPortfolioState {
 
     const onSettingsChange = () => {
       if (wsCleanup) { wsCleanup(); wsCleanup = null; }
+      if (priceCleanup) { priceCleanup(); priceCleanup = null; currentPricePairsKey = ""; }
       updateSharedState({ settings: loadCoindcxSettings() });
       void triggerSharedRefresh();
       syncWsAndPolling();
@@ -254,11 +270,15 @@ export function useCoindcxPortfolio(): CoindcxPortfolioState {
     return () => {
       listeners.delete(setState);
       window.removeEventListener(SETTINGS_CHANGE_EVENT, onSettingsChange);
-      syncWsAndPolling();
-      if (listeners.size === 0 && priceStreamCleanup) {
-        priceStreamCleanup();
-        priceStreamCleanup = null;
-        subscribedPairsKey = "";
+      if (listeners.size === 0) {
+        teardownTimer = setTimeout(() => {
+          if (listeners.size === 0) {
+            syncWsAndPolling();
+            if (priceCleanup) { priceCleanup(); priceCleanup = null; currentPricePairsKey = ""; }
+          }
+        }, 5000);
+      } else {
+        syncWsAndPolling();
       }
     };
   }, []);
@@ -268,15 +288,8 @@ export function useCoindcxPortfolio(): CoindcxPortfolioState {
   return {
     settings: state.settings,
     isConnected: hasCoindcxCredentials(state.settings) && state.error === null && state.lastUpdated !== null,
-    isLoading: state.isLoading,
-    streamStatus: state.streamStatus,
-    error: state.error,
-    lastUpdated: state.lastUpdated,
-    positions: state.positions,
-    balances: state.balances,
-    orders: state.orders,
-    orderHistory: state.orderHistory,
-    userInfo: state.userInfo,
-    refresh,
+    isLoading: state.isLoading, streamStatus: state.streamStatus, error: state.error, lastUpdated: state.lastUpdated,
+    positions: state.positions, balances: state.balances, futuresWallets: state.futuresWallets,
+    orders: state.orders, orderHistory: state.orderHistory, userInfo: state.userInfo, refresh,
   };
 }

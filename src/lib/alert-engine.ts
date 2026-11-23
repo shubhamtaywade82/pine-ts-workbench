@@ -179,6 +179,11 @@ const describeRule = (rule: AlertRule, ctx: AlertContext): string => {
 /** In-memory dedupe: ruleId → last barTime it fired on (per symbol via key). */
 const lastFiredBar = new Map<string, number>();
 
+export interface EvaluateAlertsOptions {
+  /** Optional AI verification hook; suppresses alerts that fail market regime checks. */
+  readonly aiVerifier?: (rule: AlertRule, ctx: AlertContext) => Promise<{ approved: boolean; reason?: string }>;
+}
+
 /**
  * Evaluates rules against one symbol's context and delivers through `sinks`.
  * A rule fires at most once per (rule, symbol, barTime); conditions AND.
@@ -188,6 +193,7 @@ export const evaluateAlerts = async (
   rules: readonly AlertRule[],
   sinks: readonly AlertSink[],
   ctx: AlertContext,
+  options?: EvaluateAlertsOptions,
 ): Promise<{ fired: FiredAlert[]; rules: readonly AlertRule[] }> => {
   const fired: FiredAlert[] = [];
   const updated: AlertRule[] = [];
@@ -201,6 +207,14 @@ export const evaluateAlerts = async (
     if (!ruleTriggers(rule, ctx)) { updated.push(rule); continue; }
 
     lastFiredBar.set(dedupeKey, stamp);
+    if (options?.aiVerifier) {
+      const check = await options.aiVerifier(rule, ctx);
+      if (!check.approved) {
+        updated.push(rule);
+        continue;
+      }
+    }
+
     const template = rule.messageTemplate?.trim();
     const message = template !== undefined && template !== ""
       ? fillPlaceholders(template, {

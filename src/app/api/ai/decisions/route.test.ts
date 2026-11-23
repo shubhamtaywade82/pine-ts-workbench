@@ -1,8 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import type { OllamaClient } from "@nemesis-oss/ollama-sdk";
 import type { Bar } from "@nemesis-oss/pine-ts";
-import { buildMarketSnapshot } from "@/lib/decision-intelligence/snapshot";
-import { evaluateDecision, DECISION_QUESTIONS } from "@/lib/decision-intelligence/tev1";
+import {
+  buildMarketSnapshot,
+  toMicroState,
+  hashSnapshot,
+} from "@/lib/decision-intelligence/snapshot";
+import {
+  evaluateDecision,
+  clearDecisionCache,
+  DECISION_QUESTIONS,
+} from "@/lib/decision-intelligence/tev1";
 import { GET, POST } from "./route";
 
 const SAMPLE_BARS: readonly Bar[] = [
@@ -13,7 +21,7 @@ const SAMPLE_BARS: readonly Bar[] = [
   { time: 1240, open: 104, high: 106, low: 103, close: 105, volume: 90 },
 ];
 
-describe("decision-intelligence snapshot builder", () => {
+describe("decision-intelligence snapshot builder & micro-state encoder", () => {
   test("builds market snapshot and identifies missing fields", () => {
     const snapshot = buildMarketSnapshot({
       symbol: "SOLUSDT",
@@ -43,10 +51,44 @@ describe("decision-intelligence snapshot builder", () => {
     expect(snapshot.candidate?.side).toBe("LONG");
     expect(snapshot.candidate?.riskReward).toBe(2.0);
   });
+
+  test("toMicroState generates compact delimited state and saves tokens", () => {
+    const snapshot = buildMarketSnapshot({
+      symbol: "BTCUSDT",
+      timeframe: "15m",
+      bars: SAMPLE_BARS,
+      bidWall: { side: "bid", price: 91000, quantity: 15, notional: 1_365_000, observedSince: Date.now() - 120_000 },
+      bestBid: 91050,
+      bestAsk: 91055,
+      candidate: { side: "LONG", entry: 91055, stopLoss: 90700, takeProfit: 91765, riskReward: 2.0 },
+    });
+
+    const micro = toMicroState(snapshot);
+    expect(micro).toContain("SYM:BTCUSDT|TF:15m");
+    expect(micro).toContain("RG:BULLISH,HIGH");
+    expect(micro).toContain("OF:91050/91055");
+    expect(micro).toContain("BW:91000(1.4M,0m)");
+    expect(micro).toContain("SET:LONG@91055,SL:90700,TP:91765,RR:2.0");
+    // Under 200 characters (~40 tokens)
+    expect(micro.length).toBeLessThan(200);
+  });
+
+  test("hashSnapshot returns deterministic identity hash", () => {
+    const snapshot = buildMarketSnapshot({
+      symbol: "ETHUSDT",
+      timeframe: "1h",
+      bars: SAMPLE_BARS,
+    });
+    const hash1 = hashSnapshot(snapshot);
+    const hash2 = hashSnapshot(snapshot);
+    expect(hash1).toBe(hash2);
+    expect(hash1).toContain("ETHUSDT:1h");
+  });
 });
 
-describe("tev1 decision evaluator with mock client", () => {
+describe("tev1 decision evaluator with mock client & cache", () => {
   test("evaluates snapshot and parses typed answers", async () => {
+    clearDecisionCache();
     const mockClient = {
       systemOne: async () => ({
         model: "tev1:4b",
@@ -91,9 +133,44 @@ describe("tev1 decision evaluator with mock client", () => {
     expect(result.answers.mtfAlignment?.noul).toBe(0.88);
     expect(result.answers.primaryWeakness?.choice).toBe("NONE");
     expect(result.inputTokens).toBe(150);
+    expect(result.cached).toBe(false);
+
+    // Second evaluation should hit cache with 0 latency
+    const cachedResult = await evaluateDecision(mockClient, snapshot);
+    expect(cachedResult.cached).toBe(true);
+    expect(cachedResult.latencyMs).toBe(0);
+  });
+
+  test("useMicroState passes compressed state payload to client", async () => {
+    clearDecisionCache();
+    let capturedState: unknown;
+    const mockClient = {
+      systemOne: async (req: { state: unknown }) => {
+        capturedState = req.state;
+        return {
+          model: "tev1:4b",
+          answers: {
+            trade_decision: { type: "choice", choice: "WAIT", probabilities: { WAIT: 0.8 }, confidence: 0.8 },
+          },
+          usage: { input_tokens: 35, output_tokens: 2 },
+        };
+      },
+    } as unknown as OllamaClient;
+
+    const snapshot = buildMarketSnapshot({
+      symbol: "AVAXUSDT",
+      timeframe: "5m",
+      bars: SAMPLE_BARS,
+    });
+
+    const result = await evaluateDecision(mockClient, snapshot, { useMicroState: true, skipCache: true });
+    expect(result.ok).toBe(true);
+    expect(capturedState).toHaveProperty("microState");
+    expect((capturedState as { microState: string }).microState).toContain("SYM:AVAXUSDT");
   });
 
   test("handles client error gracefully without throwing", async () => {
+    clearDecisionCache();
     const mockClient = {
       systemOne: async () => {
         throw new Error("Connection timed out to Ollama");
@@ -106,7 +183,7 @@ describe("tev1 decision evaluator with mock client", () => {
       bars: SAMPLE_BARS,
     });
 
-    const result = await evaluateDecision(mockClient, snapshot);
+    const result = await evaluateDecision(mockClient, snapshot, { skipCache: true });
     expect(result.ok).toBe(false);
     expect(result.error).toContain("Connection timed out");
   });

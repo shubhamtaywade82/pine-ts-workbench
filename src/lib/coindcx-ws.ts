@@ -14,6 +14,7 @@ export interface CoindcxWsCallbacks {
   readonly onPositionUpdate?: (positions: unknown) => void;
   readonly onOrderUpdate?: (orders: unknown) => void;
   readonly onBalanceUpdate?: (balances: unknown) => void;
+  readonly onPriceTick?: (pair: string, price: number) => void;
   readonly onStatusChange?: (status: "connecting" | "live" | "polling" | "disconnected" | "error") => void;
 }
 
@@ -107,6 +108,7 @@ export function parseSseChunk(chunk: string, cb: CoindcxWsCallbacks) {
     else if (event === "positions") cb.onPositionUpdate?.(payload);
     else if (event === "orders") cb.onOrderUpdate?.(payload);
     else if (event === "balances") cb.onBalanceUpdate?.(payload);
+    else if (event === "price" && payload?.pair && payload?.price) cb.onPriceTick?.(String(payload.pair), Number(payload.price));
   } catch {
     // Ignore invalid JSON payloads from stream
   }
@@ -137,6 +139,7 @@ export function connectCoindcxServerStream(
   apiSecret: string,
   callbacks: CoindcxWsCallbacks,
   fetchFn: typeof fetch = fetch,
+  pairs?: readonly string[],
 ): () => void {
   let isClosed = false;
   let abortController: AbortController | null = null;
@@ -147,7 +150,8 @@ export function connectCoindcxServerStream(
     callbacks.onStatusChange?.("connecting");
     abortController = new AbortController();
     try {
-      const res = await fetchFn("/api/coindcx/stream", {
+      const q = pairs && pairs.length > 0 ? `?pairs=${encodeURIComponent(pairs.join(","))}` : "";
+      const res = await fetchFn(`/api/coindcx/stream${q}`, {
         headers: { "x-coindcx-apikey": apiKey, "x-coindcx-secret": apiSecret },
         signal: abortController.signal,
       });
@@ -181,11 +185,12 @@ export function connectCoindcxWs(
   apiSecret: string,
   callbacks: CoindcxWsCallbacks,
   wsFactory?: (url: string) => WebSocket,
+  pairs?: readonly string[],
 ): () => void {
   // CoinDCX Envoy proxy blocks browser Origin: http://localhost:* with HTTP 400.
   // In the browser, bridge through the server-side stream endpoint unless testing with wsFactory.
   if (typeof window !== "undefined" && !wsFactory) {
-    return connectCoindcxServerStream(apiKey, apiSecret, callbacks);
+    return connectCoindcxServerStream(apiKey, apiSecret, callbacks, fetch, pairs);
   }
   const createWs = wsFactory ?? ((url: string) => new WebSocket(url));
   let isClosed = false;
@@ -225,11 +230,7 @@ export function connectCoindcxWs(
   return () => {
     isClosed = true;
     if (reconnectTimer) clearTimeout(reconnectTimer);
-    if (ws) {
-      ws.onclose = null;
-      ws.onerror = null;
-      ws.close();
-    }
+    if (ws) { ws.onclose = null; ws.onerror = null; ws.close(); }
     callbacks.onStatusChange?.("disconnected");
   };
 }
@@ -256,12 +257,18 @@ export function connectLivePriceStream(
     if (isClosed) return;
     try {
       ws = wsFactory(url);
+      ws.onerror = () => {};
       ws.onmessage = (event) => {
+        if (isClosed) return;
         try {
           const payload = JSON.parse(typeof event.data === "string" ? event.data : "");
+          if (payload?.ping && ws && ws.readyState === WebSocket.OPEN && !isClosed) {
+            ws.send(JSON.stringify({ pong: payload.ping }));
+            return;
+          }
           const pair = streamMap.get(String(payload?.stream ?? ""));
           const price = Number(payload?.data?.c ?? 0);
-          if (pair && price > 0) onPriceTick(pair, price);
+          if (pair && price > 0 && !isClosed) onPriceTick(pair, price);
         } catch {
           // ignore parsing error
         }
@@ -274,7 +281,17 @@ export function connectLivePriceStream(
   init();
   return () => {
     isClosed = true;
-    if (ws) ws.close();
+    if (ws) {
+      ws.onmessage = null;
+      ws.onerror = null;
+      ws.onclose = null;
+      if (ws.readyState === WebSocket.CONNECTING) {
+        ws.onopen = () => { try { ws?.close(1000, "Normal closure"); } catch {} };
+      } else {
+        try { ws.close(1000, "Normal closure"); } catch {}
+      }
+      ws = null;
+    }
   };
 }
 

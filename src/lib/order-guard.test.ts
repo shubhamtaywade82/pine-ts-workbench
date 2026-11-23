@@ -5,6 +5,7 @@ import {
   EMPTY_GUARD_STATE,
   arm,
   checkOrder,
+  checkAiDecisionVerdict,
   disarm,
   recordOrder,
   type GuardState,
@@ -59,5 +60,72 @@ describe("order guard", () => {
   it("should forget orders older than 24 h when recording", () => {
     const state = recordOrder(recordOrder(armed(0), order(90, 0)), order(10, 25 * HOUR));
     expect(state.history).toEqual([{ at: 25 * HOUR, notional: 10 }]);
+  });
+});
+
+describe("ai decision guard verdict", () => {
+  it("should approve when AI decision is APPROVE with high confidence", () => {
+    const verdict = checkAiDecisionVerdict({
+      ok: true,
+      model: "tev1:4b",
+      answers: {
+        tradeDecision: { choice: "APPROVE", probabilities: { APPROVE: 0.9 }, confidence: 0.9 },
+      },
+      latencyMs: 120,
+      inputTokens: 35,
+      outputTokens: 4,
+    });
+    expect(verdict).toEqual({ ok: true });
+  });
+
+  it("should reject when AI trade decision is REJECT with primary weakness", () => {
+    const verdict = checkAiDecisionVerdict({
+      ok: true,
+      model: "tev1:4b",
+      answers: {
+        tradeDecision: { choice: "REJECT", probabilities: { REJECT: 0.8 }, confidence: 0.8 },
+        primaryWeakness: { choice: "LIQUIDITY_AGAINST", probabilities: {}, confidence: 0.8 },
+      },
+      latencyMs: 120,
+      inputTokens: 35,
+      outputTokens: 4,
+    });
+    expect(verdict).toEqual({ ok: false, reason: "AI rejected trade: LIQUIDITY_AGAINST" });
+  });
+
+  it("should block when AI advises WAIT or has INSUFFICIENT_DATA", () => {
+    expect(checkAiDecisionVerdict({
+      ok: true,
+      model: "tev1:4b",
+      answers: { tradeDecision: { choice: "WAIT", probabilities: {}, confidence: 0.7 } },
+      latencyMs: 50,
+      inputTokens: 35,
+      outputTokens: 2,
+    })).toEqual({ ok: false, reason: "AI advises waiting for confirmation" });
+
+    expect(checkAiDecisionVerdict({
+      ok: true,
+      model: "tev1:4b",
+      answers: { tradeDecision: { choice: "INSUFFICIENT_DATA", probabilities: {}, confidence: 0.5 } },
+      latencyMs: 50,
+      inputTokens: 35,
+      outputTokens: 2,
+    })).toEqual({ ok: false, reason: "AI has insufficient market data to evaluate setup" });
+  });
+
+  it("should block when confidence is below minimum threshold", () => {
+    const verdict = checkAiDecisionVerdict({
+      ok: true,
+      model: "tev1:4b",
+      answers: {
+        tradeDecision: { choice: "APPROVE", probabilities: { APPROVE: 0.65 }, confidence: 0.65 },
+      },
+      latencyMs: 100,
+      inputTokens: 35,
+      outputTokens: 2,
+    }, { minConfidence: 0.80 });
+
+    expect(verdict.ok).toBe(false);
+    expect((verdict as { reason: string }).reason).toContain("65% is below required 80%");
   });
 });

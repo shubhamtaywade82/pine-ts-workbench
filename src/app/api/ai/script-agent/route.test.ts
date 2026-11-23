@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { GET, testScript, extractCodeBlock, buildUserMessage } from "./route";
+import {
+  GET,
+  testScript,
+  extractCodeBlock,
+  buildUserMessage,
+  sliceCodeAroundError,
+} from "./route";
 
 describe("script-agent api route and validation", () => {
   test("GET returns available models and default model", async () => {
@@ -42,5 +48,14 @@ describe("script-agent api route and validation", () => {
     expect(msg).toContain("Fix this error");
     expect(msg).toContain("Current Code:\n```typescript\nconst x = 1;\n```");
     expect(msg).toContain("Compile/Runtime Error to fix:\nUnexpected token");
+  });
+
+  test("sliceCodeAroundError slices lines around error and saves tokens", () => {
+    const code = Array.from({ length: 50 }, (_, i) => `const line${i + 1} = ${i + 1};`).join("\n");
+    const sliced = sliceCodeAroundError(code, "Error on line 25: syntax error", 3);
+    expect(sliced).toContain("// Sliced around line 25");
+    expect(sliced).toContain("const line25 = 25;");
+    expect(sliced).not.toContain("const line1 = 1;");
+    expect(sliced).not.toContain("const line45 = 45;");
   });
 });

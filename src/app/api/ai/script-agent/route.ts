@@ -91,9 +91,27 @@ export function extractCodeBlock(text: string): string | null {
   return match ? match[1]!.trim() : null;
 }
 
+/** Trims code to a window around the error line to avoid sending entire files. */
+export function sliceCodeAroundError(code: string, error?: string, radius = 6): string {
+  if (!error) return code;
+  const match = /(?:line\s+|:)(\d+)/i.exec(error);
+  if (!match) return code;
+  const lineNum = parseInt(match[1]!, 10);
+  if (isNaN(lineNum)) return code;
+  const lines = code.split("\n");
+  if (lines.length <= radius * 2 + 1) return code;
+  const start = Math.max(0, lineNum - radius - 1);
+  const end = Math.min(lines.length, lineNum + radius);
+  return `// Sliced around line ${lineNum} (lines ${start + 1}-${end} of ${lines.length})\n` +
+    lines.slice(start, end).join("\n");
+}
+
 export function buildUserMessage(prompt: string, currentCode?: string, error?: string): string {
   const parts: string[] = [prompt];
-  if (currentCode) parts.push(`\n\nCurrent Code:\n\`\`\`typescript\n${currentCode}\n\`\`\``);
+  if (currentCode) {
+    const codeSnippet = error ? sliceCodeAroundError(currentCode, error) : currentCode;
+    parts.push(`\n\nCurrent Code:\n\`\`\`typescript\n${codeSnippet}\n\`\`\``);
+  }
   if (error) parts.push(`\n\nCompile/Runtime Error to fix:\n${error}`);
   return parts.join("");
 }

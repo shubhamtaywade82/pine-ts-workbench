@@ -14,6 +14,14 @@ function bindSocketEvents(socket: Socket, emit: (event: string, payload: unknown
   socket.on("df-position-update", (data) => emit("positions", data));
   socket.on("df-order-update", (data) => emit("orders", data));
   socket.on("balance-update", (data) => emit("balances", data));
+  socket.on("new-trade", (res) => {
+    try {
+      const data = typeof res === "object" && res && "data" in res ? JSON.parse(res.data as string) : res;
+      const pair = String(data.channel ?? data.s ?? "");
+      const price = Number(data.p ?? 0);
+      if (price > 0) emit("price", { pair, price });
+    } catch {}
+  });
   socket.on("disconnect", () => {
     emit("status", "polling");
     onDisconnect();
@@ -24,7 +32,7 @@ function bindSocketEvents(socket: Socket, emit: (event: string, payload: unknown
   });
 }
 
-function createCoindcxSseStream(apiKey: string, apiSecret: string, signal: AbortSignal) {
+function createCoindcxSseStream(apiKey: string, apiSecret: string, pairs: string[], signal: AbortSignal) {
   const encoder = new TextEncoder();
   let socket: Socket | null = null;
   let heartbeat: NodeJS.Timeout | null = null;
@@ -52,6 +60,7 @@ function createCoindcxSseStream(apiKey: string, apiSecret: string, signal: Abort
         });
         socket.on("connect", () => {
           socket?.emit("join", { channelName: "coindcx", authSignature: sig, apiKey });
+          for (const p of pairs) socket?.emit("join", { channelName: p });
           emit("status", "live");
         });
         bindSocketEvents(socket, emit, teardown);
@@ -71,7 +80,9 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "Missing CoinDCX API credentials" }, { status: 400 });
   }
 
-  const stream = createCoindcxSseStream(apiKey, apiSecret, req.signal);
+  const pairsParam = req.nextUrl.searchParams.get("pairs") || "";
+  const pairs = pairsParam ? pairsParam.split(",").map((p) => p.trim()).filter(Boolean) : ["B-SOL_USDT", "B-BTC_USDT", "B-ETH_USDT"];
+  const stream = createCoindcxSseStream(apiKey, apiSecret, pairs, req.signal);
   return new Response(stream, {
     headers: {
       "Content-Type": "text/event-stream; charset=utf-8",

@@ -45,6 +45,8 @@ export async function GET() {
 interface RequestPayload {
   readonly snapshot?: MarketDecisionSnapshot;
   readonly model?: string;
+  readonly useMicroState?: boolean;
+  readonly skipCache?: boolean;
 }
 
 function isValidSnapshot(s: unknown): s is MarketDecisionSnapshot {
@@ -61,7 +63,11 @@ export async function POST(req: Request) {
     }
 
     const client = createClient();
-    const result = await evaluateDecision(client, body.snapshot, { model: body.model });
+    const result = await evaluateDecision(client, body.snapshot, {
+      model: body.model,
+      useMicroState: body.useMicroState,
+      skipCache: body.skipCache,
+    });
 
     if (!result.ok) {
       return NextResponse.json({ ok: false, error: result.error, latencyMs: result.latencyMs }, { status: 502 });

@@ -225,4 +225,31 @@ describe("message templates with placeholders", () => {
     });
     expect(fired[0]!.event.message).toContain("Price is above 100");
   });
+
+  test("aiVerifier suppresses alerts that fail AI check and allows approved ones", async () => {
+    const log: string[] = [];
+    const rule: AlertRule = {
+      id: "ai-rule-1", name: "AI Check", symbol: "BTCUSDT",
+      conditions: [{ kind: "rsi_below", threshold: 30 }],
+      enabled: true,
+    };
+
+    // First call: AI rejects the alert
+    const rejected = await evaluateAlerts([rule], [recordingSink(log)], {
+      symbol: "BTCUSDT", price: 100, rsi: 25, barTime: 1000,
+    }, {
+      aiVerifier: async () => ({ approved: false, reason: "Adverse regime" }),
+    });
+    expect(rejected.fired.length).toBe(0);
+    expect(log.length).toBe(0);
+
+    // Second call with new bar: AI approves the alert
+    const approved = await evaluateAlerts([rule], [recordingSink(log)], {
+      symbol: "BTCUSDT", price: 100, rsi: 25, barTime: 2000,
+    }, {
+      aiVerifier: async () => ({ approved: true }),
+    });
+    expect(approved.fired.length).toBe(1);
+    expect(log.length).toBe(1);
+  });
 });

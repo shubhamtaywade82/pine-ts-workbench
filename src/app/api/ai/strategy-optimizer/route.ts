@@ -103,6 +103,15 @@ export function extractCodeBlock(text: string): string | null {
   return match ? match[1]!.trim() : null;
 }
 
+/** Compresses trade history into statistical distribution vector (~30 tokens vs ~500 tokens). */
+export function formatTradeStatsVector(trades: readonly BacktestTrade[]): string {
+  const wins = trades.filter((t) => t.profit > 0);
+  const losses = trades.filter((t) => t.profit <= 0);
+  const winAvg = wins.length > 0 ? (wins.reduce((s, t) => s + t.profit, 0) / wins.length).toFixed(1) : "0";
+  const lossAvg = losses.length > 0 ? (losses.reduce((s, t) => s + Math.abs(t.profit), 0) / losses.length).toFixed(1) : "0";
+  return `TRADES:${trades.length}|W:${wins.length}|L:${losses.length}|AVG_WIN:$${winAvg}|AVG_LOSS:$${lossAvg}`;
+}
+
 export function buildAuditMessage(
   code: string,
   summary?: BacktestSummary,
@@ -121,14 +130,7 @@ export function buildAuditMessage(
     );
   }
   if (trades && trades.length > 0) {
-    const sample = trades.slice(0, 5).map((t) => ({
-      direction: t.direction,
-      profit: t.profit,
-      entryPrice: t.entryPrice,
-      exitPrice: t.exitPrice,
-      qty: t.qty,
-    }));
-    parts.push(`\n\nRecent Trade Samples:\n${JSON.stringify(sample)}`);
+    parts.push(`\n\nTrade Distribution: ${formatTradeStatsVector(trades)}`);
   }
   return parts.join("");
 }

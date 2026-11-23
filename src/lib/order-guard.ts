@@ -1,3 +1,5 @@
+import type { DecisionEvaluationResult } from "./decision-intelligence/tev1";
+
 /**
  * Guard for orders placed by alerts. Alerts can fire unattended, so every order they place must
  * pass these caps first; a blocked order is never sent. The kill switch does not use this guard:
@@ -77,3 +79,38 @@ export const arm = (
 ): GuardState => (input.phrase === ARM_PHRASE ? { ...state, armedUntil: input.now + input.limits.armedForMs } : state);
 
 export const disarm = (state: GuardState): GuardState => ({ ...state, armedUntil: null });
+
+export interface AiDecisionGuardOptions {
+  readonly minConfidence?: number;
+}
+
+/** Evaluates an AI decision verdict without performing any asynchronous I/O or token overhead. */
+export function checkAiDecisionVerdict(
+  decision: DecisionEvaluationResult,
+  options?: AiDecisionGuardOptions,
+): GuardVerdict {
+  if (!decision.ok) {
+    return { ok: false, reason: `AI decision evaluation failed: ${decision.error ?? "unknown"}` };
+  }
+  const tradeChoice = decision.answers.tradeDecision?.choice;
+  const confidence = decision.answers.tradeDecision?.confidence ?? 0;
+  const minConf = options?.minConfidence ?? 0.70;
+
+  if (tradeChoice === "REJECT") {
+    const weakness = decision.answers.primaryWeakness?.choice ?? "Risk criteria not satisfied";
+    return { ok: false, reason: `AI rejected trade: ${weakness}` };
+  }
+  if (tradeChoice === "WAIT") {
+    return { ok: false, reason: "AI advises waiting for confirmation" };
+  }
+  if (tradeChoice === "INSUFFICIENT_DATA") {
+    return { ok: false, reason: "AI has insufficient market data to evaluate setup" };
+  }
+  if (confidence < minConf) {
+    const confPct = (confidence * 100).toFixed(0);
+    const minPct = (minConf * 100).toFixed(0);
+    return { ok: false, reason: `AI approval confidence ${confPct}% is below required ${minPct}%` };
+  }
+  return { ok: true };
+}
+

@@ -19,7 +19,7 @@ import {
 } from "@/lib/alert-sinks";
 import { loadGuardState, saveGuardState } from "@/lib/alert-sink-transports";
 import { ARM_PHRASE, arm, disarm, type GuardState, type OrderGuardLimits } from "@/lib/order-guard";
-import { AlarmClockPlus } from "lucide-react";
+import { AlarmClockPlus, Sparkles } from "lucide-react";
 
 const LIMIT_FIELDS = [
   { key: "maxOrderNotional", label: "Max per order (USDT)" },
@@ -116,6 +116,39 @@ export function AlertSettingsDialog({ onSaved }: { onSaved: (s: AlertSettings) =
                 setSettings({ ...settings, browserNotificationsEnabled: v });
               }}
             />
+          </div>
+
+          {/* AI Smart Filter */}
+          <div className="flex flex-col gap-2 rounded border border-indigo-500/30 p-2.5 bg-indigo-500/5">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className="text-[10px] border-indigo-400 text-indigo-400 flex items-center gap-1">
+                  <Sparkles className="h-3 w-3" /> AI Smart Gate
+                </Badge>
+                <span className="text-xs text-muted-foreground">Filter noise & adverse regimes before dispatch</span>
+              </div>
+              <Switch
+                checked={settings.aiFilterEnabled ?? false}
+                onCheckedChange={(v) => setSettings({ ...settings, aiFilterEnabled: v })}
+              />
+            </div>
+            {settings.aiFilterEnabled && (
+              <div className="flex items-center justify-between pt-1">
+                <Label className="text-xs text-muted-foreground">Minimum Confidence</Label>
+                <Select
+                  value={String(settings.aiFilterMinConfidence ?? 0.70)}
+                  onValueChange={(v) => setSettings({ ...settings, aiFilterMinConfidence: Number(v) })}
+                >
+                  <SelectTrigger className="h-7 w-28 text-xs"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="0.6">60% (Relaxed)</SelectItem>
+                    <SelectItem value="0.7">70% (Standard)</SelectItem>
+                    <SelectItem value="0.8">80% (Strict)</SelectItem>
+                    <SelectItem value="0.9">90% (Ultra)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
           </div>
 
           {/* Webhook */}

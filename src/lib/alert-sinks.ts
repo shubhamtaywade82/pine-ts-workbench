@@ -93,6 +93,8 @@ export interface AlertSettings {
   readonly brokerActionSide: "BUY" | "SELL";
   readonly brokerActionQty: number;
   readonly orderGuard: OrderGuardLimits;
+  readonly aiFilterEnabled?: boolean;
+  readonly aiFilterMinConfidence?: number;
 }
 
 export const DEFAULT_ALERT_SETTINGS: AlertSettings = {
@@ -107,6 +109,8 @@ export const DEFAULT_ALERT_SETTINGS: AlertSettings = {
   brokerActionSide: "SELL",
   brokerActionQty: 0.001,
   orderGuard: DEFAULT_ORDER_GUARD_LIMITS,
+  aiFilterEnabled: false,
+  aiFilterMinConfidence: 0.70,
 };
 
 const positiveOr = (value: unknown, fallback: number): number =>

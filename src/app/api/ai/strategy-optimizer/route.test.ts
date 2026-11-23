@@ -1,5 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { GET, extractCodeBlock, buildAuditMessage, validateOptimizedCode } from "./route";
+import {
+  GET,
+  extractCodeBlock,
+  buildAuditMessage,
+  formatTradeStatsVector,
+  validateOptimizedCode,
+} from "./route";
 
 describe("strategy-optimizer api route", () => {
   test("GET returns models array and defaultModel", async () => {
@@ -33,6 +39,20 @@ describe("strategy-optimizer api route", () => {
     expect(msg).toContain("Net Profit: $1250.00");
     expect(msg).toContain("Profit Factor: 2.66");
     expect(msg).toContain("Win Rate: 65.0%");
+  });
+
+  test("formatTradeStatsVector and buildAuditMessage compress trade samples into compact vector", () => {
+    const mockTrades = [
+      { id: "1", entryTime: 1, exitTime: 2, entryPrice: 100, exitPrice: 110, qty: 1, direction: "long" as const, profit: 10, runUp: 12, drawDown: 2 },
+      { id: "2", entryTime: 3, exitTime: 4, entryPrice: 110, exitPrice: 105, qty: 1, direction: "long" as const, profit: -5, runUp: 1, drawDown: 6 },
+    ];
+    const vec = formatTradeStatsVector(mockTrades);
+    expect(vec).toBe("TRADES:2|W:1|L:1|AVG_WIN:$10.0|AVG_LOSS:$5.0");
+
+    const msg = buildAuditMessage("const x = 1;", undefined, mockTrades);
+    expect(msg).toContain("Trade Distribution: TRADES:2|W:1|L:1|AVG_WIN:$10.0|AVG_LOSS:$5.0");
+    // Verify it doesn't dump raw JSON objects
+    expect(msg).not.toContain('"direction":"long"');
   });
 
   test("validateOptimizedCode accepts valid strategy and preserves candidate", async () => {

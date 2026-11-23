@@ -3,50 +3,19 @@ import { createHmac } from "node:crypto";
 const BASE_URL = "https://api.coindcx.com";
 const TIMEOUT_MS = 15_000;
 
-export interface CoindcxBalance {
-  readonly currency: string;
-  readonly balance: number;
-  readonly lockedBalance: number;
-  readonly availableBalance: number;
-}
-
-export interface CoindcxUserInfo {
-  readonly coindcxId: string;
-  readonly firstName?: string;
-  readonly lastName?: string;
-  readonly email?: string;
-}
-
+export interface CoindcxBalance { readonly currency: string; readonly balance: number; readonly lockedBalance: number; readonly availableBalance: number; }
+export interface CoindcxUserInfo { readonly coindcxId: string; readonly firstName?: string; readonly lastName?: string; readonly email?: string; }
 export interface CoindcxPosition {
-  readonly id: string;
-  readonly pair: string;
-  readonly side: "LONG" | "SHORT";
-  readonly size: number;
-  readonly entryPrice: number;
-  readonly markPrice: number;
-  readonly liquidationPrice: number;
-  readonly leverage: number;
-  readonly margin: number;
-  readonly marginCurrency: string;
-  readonly settlementCurrencyAvgPrice?: number;
-  readonly unrealizedPnl: number;
-  readonly pnlPercentage: number;
-  readonly takeProfitTrigger?: number;
-  readonly stopLossTrigger?: number;
-  readonly maintenanceMargin?: number;
+  readonly id: string; readonly pair: string; readonly side: "LONG" | "SHORT"; readonly size: number;
+  readonly entryPrice: number; readonly markPrice: number; readonly liquidationPrice: number; readonly leverage: number;
+  readonly margin: number; readonly marginCurrency: string; readonly settlementCurrencyAvgPrice?: number;
+  readonly unrealizedPnl: number; readonly pnlPercentage: number;
+  readonly takeProfitTrigger?: number; readonly stopLossTrigger?: number; readonly maintenanceMargin?: number;
 }
-
 export interface CoindcxOrder {
-  readonly id: string;
-  readonly pair: string;
-  readonly side: "buy" | "sell";
-  readonly price: number;
-  readonly quantity: number;
-  readonly status: string;
-  readonly createdAt: number;
-  readonly orderType?: string;
-  readonly avgPrice?: number;
-  readonly feeAmount?: number;
+  readonly id: string; readonly pair: string; readonly side: "buy" | "sell"; readonly price: number;
+  readonly quantity: number; readonly status: string; readonly createdAt: number;
+  readonly orderType?: string; readonly avgPrice?: number; readonly feeAmount?: number;
 }
 
 /** Computes HMAC-SHA256 hex signature required by CoinDCX authenticated endpoints. */
@@ -111,10 +80,11 @@ export function normalizeCoindcxPosition(raw: Record<string, unknown>): CoindcxP
 
   const conv = settlementCurrencyAvgPrice > 0 ? settlementCurrencyAvgPrice : (marginCurrency === "INR" && !isPairInr(rawPair) ? 89.5 : 1);
   const notional = (entryPrice * size) / (leverage || 1);
-  const margin = resolveMargin(Number(raw.margin ?? raw.locked_margin ?? 0), notional, conv, marginCurrency === "INR" && !isPairInr(rawPair));
+  const rawMargin = Number(raw.locked_user_margin ?? raw.margin ?? raw.locked_margin ?? 0);
+  const margin = resolveMargin(rawMargin, notional, conv, marginCurrency === "INR" && !isPairInr(rawPair));
   const diff = side === "LONG" ? markPrice - entryPrice : entryPrice - markPrice;
   const unrealizedPnl = resolvePnl(Number(raw.unrealized_pnl ?? raw.pnl ?? 0), diff, size, conv);
-  const pnlPercentage = calculatePnlPercentage(entryPrice, markPrice, leverage, side);
+  const pnlPercentage = margin > 0 && Math.abs(unrealizedPnl) > 0 ? (unrealizedPnl / margin) * 100 : calculatePnlPercentage(entryPrice, markPrice, leverage, side);
   const tp = Number(raw.take_profit_trigger ?? raw.take_profit ?? 0);
   const sl = Number(raw.stop_loss_trigger ?? raw.stop_loss ?? 0);
   const mm = Number(raw.maintenance_margin ?? 0);
@@ -139,16 +109,21 @@ export function normalizeCoindcxPosition(raw: Record<string, unknown>): CoindcxP
   };
 }
 
-/** Normalizes raw balance into standard CoindcxBalance. */
+export type CoindcxFuturesWallet = CoindcxBalance;
+
+/** Normalizes raw balance or futures wallet into standard CoindcxBalance. */
 export function normalizeCoindcxBalance(raw: Record<string, unknown>): CoindcxBalance {
-  const balance = Number(raw.balance ?? 0);
-  const lockedBalance = Number(raw.locked_balance ?? 0);
-  const availableBalance = balance - lockedBalance;
+  const rawBal = Number(raw.balance ?? 0);
+  const lockedBalance = Number(raw.locked_balance ?? raw.locked_margin ?? raw.cross_user_margin ?? 0);
+  const avail = Number(raw.available_balance ?? raw.free_balance ?? 0);
+  // CoinDCX Futures wallet reports available balance in "balance" with total = balance + locked_balance
+  const availableBalance = avail > 0 ? avail : (rawBal < lockedBalance ? rawBal : Math.max(0, rawBal - lockedBalance));
+  const balance = rawBal < lockedBalance ? rawBal + lockedBalance : rawBal;
   return {
-    currency: String(raw.currency ?? "").toUpperCase(),
+    currency: String(raw.currency_short_name ?? raw.currency ?? raw.margin_currency ?? "").toUpperCase(),
     balance,
     lockedBalance,
-    availableBalance: availableBalance > 0 ? availableBalance : 0,
+    availableBalance,
   };
 }
 
@@ -181,10 +156,62 @@ async function postSignedRequest<T>(
   return (await res.json()) as T;
 }
 
-/** Fetches user wallet balances (spot/margin assets). */
+/** Fetches user wallet balances (spot assets). */
 export async function fetchCoindcxBalances(apiKey: string, apiSecret: string, fetchFn?: typeof fetch): Promise<CoindcxBalance[]> {
   const res = await postSignedRequest<unknown>("/exchange/v1/users/balances", apiKey, apiSecret, { timestamp: Date.now() }, fetchFn);
   return extractRecords(res).map(normalizeCoindcxBalance).filter((b) => b.balance > 0 || b.lockedBalance > 0);
+}
+
+async function getSignedFuturesWallets(apiKey: string, apiSecret: string, fetchFn?: typeof fetch): Promise<unknown> {
+  const timestamp = Math.floor(Date.now() / 1000);
+  const jsonBody = JSON.stringify({ timestamp });
+  const signature = signCoindcxPayload(apiSecret, jsonBody);
+  const headers = { "Content-Type": "application/json", "User-Agent": "Mozilla/5.0", "X-AUTH-APIKEY": apiKey, "X-AUTH-SIGNATURE": signature };
+  if (fetchFn) {
+    const res = await fetchFn(`${BASE_URL}/exchange/v1/derivatives/futures/wallets`, { method: "GET", headers });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  }
+  const https = await import("node:https");
+  return new Promise((resolve, reject) => {
+    const req = https.request(`${BASE_URL}/exchange/v1/derivatives/futures/wallets`, {
+      method: "GET",
+      headers: { ...headers, "Content-Length": Buffer.byteLength(jsonBody) },
+      timeout: TIMEOUT_MS,
+    }, (res) => {
+      let data = "";
+      res.on("data", (c) => { data += c; });
+      res.on("end", () => {
+        if ((res.statusCode ?? 500) >= 400) reject(new Error(`HTTP ${res.statusCode}`));
+        else { try { resolve(JSON.parse(data)); } catch (e) { reject(e); } }
+      });
+    });
+    req.on("error", reject);
+    req.on("timeout", () => { req.destroy(); reject(new Error("Timeout")); });
+    req.write(jsonBody);
+    req.end();
+  });
+}
+
+/** Fetches derivatives futures wallets and margin balance metrics. */
+export async function fetchCoindcxFuturesWallets(apiKey: string, apiSecret: string, fetchFn?: typeof fetch): Promise<CoindcxFuturesWallet[]> {
+  try {
+    const res = await getSignedFuturesWallets(apiKey, apiSecret, fetchFn);
+    if (typeof res === "object" && res !== null && !Array.isArray(res)) {
+      const o = res as Record<string, unknown>;
+      if (o.total_wallet_balance !== undefined || o.available_wallet_balance !== undefined) {
+        return [{
+          currency: "INR",
+          balance: Number(o.total_wallet_balance ?? 0),
+          lockedBalance: Number(o.total_initial_margin ?? o.locked_balance ?? 0),
+          availableBalance: Number(o.available_wallet_balance ?? 0),
+        }];
+      }
+    }
+    return extractRecords(res).map(normalizeCoindcxBalance).filter((b) => b.balance > 0 || b.lockedBalance > 0);
+  } catch {
+    return [];
+  }
 }
 
 /** Fetches basic user info for account identification. */
@@ -199,70 +226,36 @@ export async function fetchCoindcxUserInfo(apiKey: string, apiSecret: string, fe
 }
 
 /** Fetches active/open futures positions for both INR and USDT margin modes. */
-export async function fetchCoindcxPositions(
-  apiKey: string,
-  apiSecret: string,
-  fetchFn?: typeof fetch,
-): Promise<CoindcxPosition[]> {
+export async function fetchCoindcxPositions(apiKey: string, apiSecret: string, fetchFn?: typeof fetch): Promise<CoindcxPosition[]> {
   const currencies = [["INR"], ["USDT"]];
   const timestampSec = Math.floor(Date.now() / 1000);
-  const results = await Promise.allSettled(
-    currencies.map((currency) =>
-      postSignedRequest<unknown>(
-        "/exchange/v1/derivatives/futures/positions",
-        apiKey,
-        apiSecret,
-        { timestamp: timestampSec, page: "1", size: "50", margin_currency_short_name: currency },
-        fetchFn,
-      )
-    )
-  );
-
+  const results = await Promise.allSettled(currencies.map((c) =>
+    postSignedRequest<unknown>("/exchange/v1/derivatives/futures/positions", apiKey, apiSecret, { timestamp: timestampSec, page: "1", size: "50", margin_currency_short_name: c }, fetchFn)
+  ));
   const seen = new Set<string>();
   const positions: CoindcxPosition[] = [];
-  for (let i = 0; i < results.length; i++) {
-    const r = results[i]!;
-    const defaultCurrency = currencies[i] ? currencies[i]![0] : "USDT";
-    if (r.status !== "fulfilled") continue;
+  results.forEach((r, i) => {
+    if (r.status !== "fulfilled") return;
+    const defaultCurrency = currencies[i]?.[0] ?? "USDT";
     for (const raw of extractRecords(r.value)) {
-      const pos = normalizeCoindcxPosition({
-        margin_currency_short_name: defaultCurrency,
-        ...raw,
-      });
-      if (pos.size > 0 && pos.pair.length > 0 && !seen.has(pos.id)) {
-        seen.add(pos.id);
-        positions.push(pos);
-      }
+      const pos = normalizeCoindcxPosition({ margin_currency_short_name: defaultCurrency, ...raw });
+      if (pos.size > 0 && pos.pair.length > 0 && !seen.has(pos.id)) { seen.add(pos.id); positions.push(pos); }
     }
-  }
+  });
   return positions;
 }
 
 /** Fetches futures orders (read-only) across INR and USDT margin modes. */
-export async function fetchCoindcxOrders(
-  apiKey: string,
-  apiSecret: string,
-  status = "open",
-  fetchFn?: typeof fetch,
-): Promise<CoindcxOrder[]> {
+export async function fetchCoindcxOrders(apiKey: string, apiSecret: string, status = "open", fetchFn?: typeof fetch): Promise<CoindcxOrder[]> {
   const currencies = [["INR"], ["USDT"]];
   const timestampSec = Math.floor(Date.now() / 1000);
-  const results = await Promise.allSettled(
-    currencies.map((currency) =>
-      postSignedRequest<unknown>(
-        "/exchange/v1/derivatives/futures/orders",
-        apiKey,
-        apiSecret,
-        { timestamp: timestampSec, status, page: "1", size: "50", margin_currency_short_name: currency },
-        fetchFn,
-      )
-    )
-  );
-
+  const results = await Promise.allSettled(currencies.map((c) =>
+    postSignedRequest<unknown>("/exchange/v1/derivatives/futures/orders", apiKey, apiSecret, { timestamp: timestampSec, status, page: "1", size: "50", margin_currency_short_name: c }, fetchFn)
+  ));
   const seen = new Set<string>();
   const orders: CoindcxOrder[] = [];
-  for (const r of results) {
-    if (r.status !== "fulfilled") continue;
+  results.forEach((r) => {
+    if (r.status !== "fulfilled") return;
     for (const raw of extractRecords(r.value)) {
       const id = String(raw.id ?? raw.order_id ?? "");
       if (id && !seen.has(id)) {
@@ -281,7 +274,7 @@ export async function fetchCoindcxOrders(
         });
       }
     }
-  }
+  });
   return orders;
 }
 

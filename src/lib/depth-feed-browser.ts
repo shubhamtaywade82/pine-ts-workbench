@@ -25,7 +25,12 @@ export const openDepthSocket: DepthFeedDeps["openSocket"] = (url, handlers) => {
     let update: DepthUpdate | undefined;
     let malformed = false;
     try {
-      const { data } = JSON.parse(message.data as string) as { data?: unknown };
+      const parsed = JSON.parse(message.data as string) as { data?: unknown; ping?: number };
+      if (typeof parsed?.ping === "number" && socket.readyState === WebSocket.OPEN) {
+        socket.send(JSON.stringify({ pong: parsed.ping }));
+        return;
+      }
+      const data = parsed?.data;
       if (isDepthUpdate(data)) update = data;
       else malformed = true;
     } catch {

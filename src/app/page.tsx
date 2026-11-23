@@ -22,8 +22,9 @@ import { loadSettings, type BinanceSettings, DEFAULT_SETTINGS } from "@/componen
 import { buildSinks as buildAlertSinks, loadAlertSettings, type AlertSettings, DEFAULT_ALERT_SETTINGS } from "@/lib/alert-sinks";
 import {
   evaluateAlerts, loadAlertRules, saveAlertRules,
-  loadFiredAlerts, saveFiredAlerts, type AlertRule, type FiredAlert,
+  loadFiredAlerts, saveFiredAlerts, type AlertRule, type AlertContext, type FiredAlert,
 } from "@/lib/alert-engine";
+import { buildMarketSnapshot } from "@/lib/decision-intelligence/snapshot";
 import { computeAlertContext } from "@/lib/alert-context";
 import {
   saveCurrentLayout, layoutToCells, findSymbol, loadWorkspace, saveWorkspace,
@@ -144,9 +145,37 @@ export default function Home() {
     void (async () => {
       const context = await computeAlertContext(editor.editorBars, INTERVAL_MS[grid.activeCell.interval], symbol);
       if (context === undefined) return;
+
+      // Smart AI gatekeeper: queries micro-state decision intelligence when enabled in settings
+      const options = alertSettings.aiFilterEnabled ? {
+        aiVerifier: async (_rule: AlertRule, ctx: AlertContext) => {
+          try {
+            const snapshot = buildMarketSnapshot({
+              symbol: ctx.symbol,
+              timeframe: ctx.interval ?? "15m",
+              bars: editor.editorBars,
+            });
+            const res = await fetch("/api/ai/decisions", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ snapshot, useMicroState: true }),
+            });
+            if (!res.ok) return { approved: true };
+            const data = (await res.json()) as { answers?: { tradeDecision?: { choice?: string; confidence?: number } } };
+            const choice = data?.answers?.tradeDecision?.choice;
+            const conf = data?.answers?.tradeDecision?.confidence ?? 0;
+            const minConf = alertSettings.aiFilterMinConfidence ?? 0.70;
+            return { approved: choice !== "REJECT" && conf >= minConf };
+          } catch {
+            return { approved: true };
+          }
+        },
+      } : undefined;
+
       const { fired, rules } = await evaluateAlerts(
         alertRules, buildAlertSinks(alertSettings, settings),
         { ...context, interval: grid.activeCell.interval, scriptFired: false },
+        options,
       );
       if (rules.some((r, i) => r.lastFiredAt !== alertRules[i]?.lastFiredAt)) saveAlertRules(rules);
       appendFiredAlerts(fired);
