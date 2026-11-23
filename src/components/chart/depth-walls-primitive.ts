@@ -36,6 +36,7 @@ interface PaintParams {
   readonly minLabelX: number;
   readonly ys: { readonly ask: number | null; readonly bid: number | null };
   readonly labelYs: { readonly ask: number | null; readonly bid: number | null };
+  readonly domEnabled?: boolean;
 }
 
 /**
@@ -50,6 +51,7 @@ export class DepthWallsPrimitive implements ISeriesPrimitive<Time> {
   private readonly bubbles = new Map<BookSide, Bubble>();
   private style: DepthWallStyle = "shelf";
   private labelMode: WallLabel = "compact";
+  private domEnabled = false;
   private reference = 0;
   private referenceAt = 0;
   private frame: number | null = null;
@@ -72,6 +74,11 @@ export class DepthWallsPrimitive implements ISeriesPrimitive<Time> {
   public setLabel(wallLabel: WallLabel): void {
     if (this.labelMode === wallLabel) return;
     this.labelMode = wallLabel;
+    this.attachedTo?.requestUpdate();
+  }
+  public setDomEnabled(domEnabled: boolean): void {
+    if (this.domEnabled === domEnabled) return;
+    this.domEnabled = domEnabled;
     this.attachedTo?.requestUpdate();
   }
 
@@ -167,7 +174,7 @@ export class DepthWallsPrimitive implements ISeriesPrimitive<Time> {
     const labelYs = separateLabels(ys.ask, ys.bid, LABEL_LINE_PX);
     context.font = LABEL_FONT;
     const minLabelX = formingX + barSpacing / 2 + 4;
-    this.paintBubbles(context, { paneWidth, formingX, barSpacing, minLabelX, ys, labelYs });
+    this.paintBubbles(context, { paneWidth, formingX, barSpacing, minLabelX, ys, labelYs, domEnabled: this.domEnabled });
     context.globalAlpha = 1;
   }
 
@@ -194,6 +201,7 @@ export class DepthWallsPrimitive implements ISeriesPrimitive<Time> {
         alpha: bubble.alpha, radius: bubble.radius,
         paneWidth: p.paneWidth, status,
         label, notionalOnly, minLabelX: p.minLabelX,
+        domEnabled: p.domEnabled,
       });
     }
   }

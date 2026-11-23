@@ -39,21 +39,22 @@ export function useDepthWalls(
   const syncLines = (series: ISeriesApi<SeriesType>, update: DepthWallsUpdate) => {
     const { bestBid, bestAsk } = update.frame ?? {};
     if (!showBidAskLines || update.status !== "live" || bestBid === undefined || bestAsk === undefined) { clearLines(series); return; }
+    const axisLabelVisible = !tradingSettings.dom.enabled;
     if (bidLineRef.current === null) {
       bidLineRef.current = series.createPriceLine({
         price: bestBid, color: BID_COLOR, lineWidth: 1, lineStyle: 2,
-        axisLabelVisible: true, title: "Bid", axisLabelColor: BID_COLOR, axisLabelTextColor: "#ffffff",
+        axisLabelVisible, title: "Bid", axisLabelColor: BID_COLOR, axisLabelTextColor: "#ffffff",
       });
     } else {
-      bidLineRef.current.applyOptions({ price: bestBid });
+      bidLineRef.current.applyOptions({ price: bestBid, axisLabelVisible });
     }
     if (askLineRef.current === null) {
       askLineRef.current = series.createPriceLine({
         price: bestAsk, color: ASK_COLOR, lineWidth: 1, lineStyle: 2,
-        axisLabelVisible: true, title: "Ask", axisLabelColor: ASK_COLOR, axisLabelTextColor: "#ffffff",
+        axisLabelVisible, title: "Ask", axisLabelColor: ASK_COLOR, axisLabelTextColor: "#ffffff",
       });
     } else {
-      askLineRef.current.applyOptions({ price: bestAsk });
+      askLineRef.current.applyOptions({ price: bestAsk, axisLabelVisible });
     }
   };
 
@@ -65,10 +66,12 @@ export function useDepthWalls(
       const primitive = new DepthWallsPrimitive();
       primitive.setStyle(tradingSettings.depthWallStyle);
       primitive.setLabel(tradingSettings.wallLabel);
+      primitive.setDomEnabled(tradingSettings.dom.enabled);
       candle.attachPrimitive(primitive);
       depthWallsRef.current = { series: candle, primitive };
     }
     const { primitive } = depthWallsRef.current;
+    primitive.setDomEnabled(tradingSettings.dom.enabled);
     if ((!showOrderBookWalls && !showBidAskLines) || depthSymbol === undefined) {
       primitive.setUpdate(undefined);
       clearLines(candle);
@@ -85,7 +88,7 @@ export function useDepthWalls(
       primitive.setUpdate(undefined);
       clearLines(candle);
     };
-  }, [candlestickRef, depthSymbol, showOrderBookWalls, showBidAskLines, seriesType]);
+  }, [candlestickRef, depthSymbol, showOrderBookWalls, showBidAskLines, seriesType, tradingSettings.dom.enabled]);
 
   useEffect(() => {
     wallOptionsRef.current = wallOptions;
@@ -99,4 +102,8 @@ export function useDepthWalls(
   useEffect(() => {
     depthWallsRef.current?.primitive.setLabel(tradingSettings.wallLabel);
   }, [tradingSettings.wallLabel]);
+
+  useEffect(() => {
+    depthWallsRef.current?.primitive.setDomEnabled(tradingSettings.dom.enabled);
+  }, [tradingSettings.dom.enabled]);
 }

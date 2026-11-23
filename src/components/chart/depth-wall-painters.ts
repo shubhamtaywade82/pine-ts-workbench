@@ -11,19 +11,10 @@ const CYAN_COLOR = "#38bdf8";
 const BG_DARK = "rgba(19, 23, 34, 0.92)";
 
 export interface WallPaintContext {
-  readonly context: CanvasRenderingContext2D;
-  readonly side: BookSide;
-  readonly wall: Wall;
-  readonly x: number;
-  readonly y: number;
-  readonly labelY: number;
-  readonly alpha: number;
-  readonly radius: number;
-  readonly paneWidth: number;
-  readonly status: DepthStatus;
-  readonly label: string;
-  readonly notionalOnly?: string;
-  readonly minLabelX?: number;
+  readonly context: CanvasRenderingContext2D; readonly side: BookSide; readonly wall: Wall;
+  readonly x: number; readonly y: number; readonly labelY: number; readonly alpha: number; readonly radius: number;
+  readonly paneWidth: number; readonly status: DepthStatus; readonly label: string;
+  readonly notionalOnly?: string; readonly minLabelX?: number; readonly domEnabled?: boolean;
 }
 
 interface PillRect {
@@ -156,36 +147,40 @@ const paintPillBadge = (
 };
 
 const paintRayAndGauge = (ctx: CanvasRenderingContext2D, p: WallPaintContext, startX: number, color: string): void => {
-  const { wall, y, radius, paneWidth } = p;
+  const { wall, y, radius, paneWidth, domEnabled } = p;
+  const endX = domEnabled ? Math.max(startX, paneWidth - 310) : paneWidth;
   const gaugeW = Math.min(140, Math.max(40, radius * 5));
   ctx.setLineDash(wall.status === "pulled" || p.status !== "live" ? [4, 3] : [2, 2]);
   ctx.strokeStyle = `${color}88`;
   ctx.lineWidth = 1;
   ctx.beginPath();
   ctx.moveTo(startX, y);
-  ctx.lineTo(paneWidth, y);
+  ctx.lineTo(endX, y);
   ctx.stroke();
   ctx.setLineDash([]);
   ctx.fillStyle = `${color}33`;
-  ctx.fillRect(startX, y - 9, gaugeW, 18);
+  ctx.fillRect(startX, y - 9, Math.min(gaugeW, Math.max(0, endX - startX)), 18);
 };
 
 /** Horizontal Liquidity Shelf & Ray: exact 1px price ray with volume gauge and pill badge. */
 export const paintShelf = (p: WallPaintContext): void => {
-  const { context: ctx, side, wall, alpha, radius } = p;
+  const { context: ctx, side, wall, alpha, radius, domEnabled } = p;
   const color = resolveColor(side, p.status, wall.status);
   const startX = Math.max(10, p.x - radius);
 
   ctx.save();
   ctx.globalAlpha = alpha;
   paintRayAndGauge(ctx, p, startX, color);
-  const lineWidth = wall.status === "tested" || wall.status === "reduced" ? 1.5 : 1;
-  paintPillBadge(ctx, p, color, { h: 20, r: 4, pad: 8, stroke: color, lineWidth });
+  if (!domEnabled) {
+    const lineWidth = wall.status === "tested" || wall.status === "reduced" ? 1.5 : 1;
+    paintPillBadge(ctx, p, color, { h: 20, r: 4, pad: 8, stroke: color, lineWidth });
+  }
   ctx.restore();
 };
 
 /** Right-Margin DOM Shelf: pinned depth ladder against the price axis, keeping candles clear. */
 export const paintDomShelf = (p: WallPaintContext): void => {
+  if (p.domEnabled) return;
   const { context: ctx, side, wall, y, alpha, radius, paneWidth } = p;
   const color = resolveColor(side, p.status, wall.status);
   const barW = Math.min(130, Math.max(35, radius * 4.5));
@@ -231,6 +226,7 @@ const paintBracketCard = (ctx: CanvasRenderingContext2D, p: BracketCardParams): 
 
 /** Micro-DOM Bracket: card HUD with dynamic absorption / volume gauge bar. */
 export const paintBracket = (p: WallPaintContext): void => {
+  if (p.domEnabled) return;
   const { context: ctx, side, wall, y, alpha, radius, paneWidth } = p;
   const color = resolveColor(side, p.status, wall.status);
   const minX = p.minLabelX ?? Math.max(10, p.x - radius);

@@ -15,7 +15,8 @@ const PULLED_COLOR = "#e6c200";
 const PRICE_COLOR = "#d1d4dc";
 const MUTED = "#b2b5be";
 // Below the cell's live/replay badge row, which is HTML drawn over the top of the pane.
-const HEADING_TOP_PX = 30;
+const HEADING_TOP_PX = 32;
+const TOP_CLEARANCE_PX = 60;
 const HATCH_GAP_PX = 6;
 const HATCH_COLOR = "rgba(178, 181, 190, 0.35)";
 const FONT = "10px -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Roboto, sans-serif";
@@ -23,34 +24,18 @@ const HEADING_FONT = "11px -apple-system, BlinkMacSystemFont, 'Trebuchet MS', Ro
 const TONE = { bought: BID_COLOR, sold: SOLD_COLOR, pulled: PULLED_COLOR } as const;
 
 export interface PaintedRow {
-  readonly y: number;
-  readonly rowPx: number;
-  readonly price: number;
-  readonly bidWidth: number;
-  readonly askWidth: number;
-  readonly bidQty: number;
-  readonly askQty: number;
-  readonly activityAlpha: number;
-  readonly activity?: ActivityText;
-  readonly badge?: "Big Buyers" | "Big Sellers";
-  readonly current: boolean;
+  readonly y: number; readonly rowPx: number; readonly price: number;
+  readonly bidWidth: number; readonly askWidth: number; readonly bidQty: number; readonly askQty: number;
+  readonly activityAlpha: number; readonly activity?: ActivityText; readonly badge?: "Big Buyers" | "Big Sellers"; readonly current: boolean;
 }
 
-interface BucketSpan {
-  readonly key: number;
-  readonly priceFrom: number;
-  readonly priceTo: number;
-  readonly quantity: number;
-}
+interface BucketSpan { readonly key: number; readonly priceFrom: number; readonly priceTo: number; readonly quantity: number; }
 
 interface PlaceInput {
-  readonly bids: readonly BucketSpan[];
-  readonly asks: readonly BucketSpan[];
+  readonly bids: readonly BucketSpan[]; readonly asks: readonly BucketSpan[];
   readonly motion: ReadonlyMap<number, { bidWidth: number; askWidth: number; alpha: number; bought: number; sold: number; pulled: number }>;
-  readonly walls: readonly { price: number; side: "bid" | "ask" }[];
-  readonly lastPrice: number | undefined;
-  readonly paneHeight: number;
-  readonly toY: (price: number) => number | null;
+  readonly walls: readonly { price: number; side: "bid" | "ask" }[]; readonly lastPrice: number | undefined;
+  readonly paneHeight: number; readonly toY: (price: number) => number | null;
 }
 
 const rowPixels = (
@@ -63,7 +48,7 @@ const rowPixels = (
   const yTo = toY(to);
   const mid = toY((from + to) / 2);
   if (yFrom === null || yTo === null || mid === null) return undefined;
-  if (mid < -40 || mid > paneHeight + 40) return undefined;
+  if (mid < TOP_CLEARANCE_PX - 20 || mid > paneHeight + 40) return undefined;
   return { y: mid, rowPx: Math.max(1, Math.abs(yTo - yFrom)) };
 };
 
@@ -98,15 +83,9 @@ export const placedRows = (input: PlaceInput): PaintedRow[] => {
     if (place === undefined || motion === undefined) continue;
     const activity = activityLabel(motion);
     painted.push({
-      y: place.y,
-      rowPx: place.rowPx,
-      price: (bucket.from + bucket.to) / 2,
-      bidWidth: motion.bidWidth,
-      askWidth: motion.askWidth,
-      bidQty: bucket.bid,
-      askQty: bucket.ask,
-      activityAlpha: motion.alpha,
-      ...(activity === undefined ? {} : { activity }),
+      y: place.y, rowPx: place.rowPx, price: (bucket.from + bucket.to) / 2,
+      bidWidth: motion.bidWidth, askWidth: motion.askWidth, bidQty: bucket.bid, askQty: bucket.ask,
+      activityAlpha: motion.alpha, ...(activity === undefined ? {} : { activity }),
       badge: badgeFor(bucket.from, bucket.to, input.walls),
       current: input.lastPrice !== undefined && input.lastPrice >= bucket.from && input.lastPrice < bucket.to,
     });
@@ -115,14 +94,9 @@ export const placedRows = (input: PlaceInput): PaintedRow[] => {
 };
 
 export interface LadderPaint {
-  readonly context: CanvasRenderingContext2D;
-  readonly paneWidth: number;
-  readonly paneHeight: number;
-  readonly originX: number;
-  readonly bucketLabel: string;
-  readonly rows: readonly PaintedRow[];
-  readonly coverage?: BookCoverage;
-  readonly toY: (price: number) => number | null;
+  readonly context: CanvasRenderingContext2D; readonly paneWidth: number; readonly paneHeight: number;
+  readonly originX: number; readonly bucketLabel: string; readonly rows: readonly PaintedRow[];
+  readonly coverage?: BookCoverage; readonly toY: (price: number) => number | null;
 }
 
 const drawHeading = (paint: LadderPaint): void => {
@@ -132,7 +106,7 @@ const drawHeading = (paint: LadderPaint): void => {
   context.fillStyle = MUTED;
   context.textAlign = "left";
   context.textBaseline = "top";
-  context.fillText(`Live order book (waiting, per ${paint.bucketLabel} )`, x, HEADING_TOP_PX);
+  context.fillText(`Live order book (waiting, per ${paint.bucketLabel})`, x, HEADING_TOP_PX);
   context.font = FONT;
   const parts = [
     { text: "buyers waiting · bought", color: BID_COLOR },
@@ -187,14 +161,9 @@ const drawCoverage = (paint: LadderPaint): void => {
 };
 
 interface BarDraw {
-  readonly context: CanvasRenderingContext2D;
-  readonly edge: number;
-  readonly top: number;
-  readonly height: number;
-  readonly width: number;
-  readonly quantity: number;
-  readonly side: "bid" | "ask";
-  readonly showText: boolean;
+  readonly context: CanvasRenderingContext2D; readonly edge: number; readonly top: number;
+  readonly height: number; readonly width: number; readonly quantity: number;
+  readonly side: "bid" | "ask"; readonly showText: boolean;
 }
 
 const drawSideBar = (bar: BarDraw): void => {
@@ -212,9 +181,8 @@ const drawSideBar = (bar: BarDraw): void => {
 
 const drawCurrentMark = (context: CanvasRenderingContext2D, originX: number, row: PaintedRow): void => {
   const height = Math.max(1, row.rowPx - 1);
-  const top = row.y - height / 2;
   context.fillStyle = "rgba(120, 160, 255, 0.28)";
-  context.fillRect(originX, top, LADDER.priceWidth, height);
+  context.fillRect(originX, row.y - height / 2, LADDER.priceWidth, height);
   if (!rowShowsText(row.rowPx)) return;
   context.fillStyle = PRICE_COLOR;
   context.textAlign = "left";
@@ -247,9 +215,10 @@ const drawNotes = (paint: LadderPaint, row: PaintedRow, barPx: number): void => 
   if (!rowShowsText(row.rowPx)) return;
   const x = paint.originX + LADDER.priceWidth + barPx + 4;
   const { context } = paint;
-  if (row.badge !== undefined && row.rowPx >= 18 && row.activity !== undefined) {
-    drawBadge(context, x, row.y - row.rowPx / 4, row.badge);
-    drawActivity(context, x, row.y + row.rowPx / 4, row);
+  if (row.badge !== undefined && row.activity !== undefined) {
+    const badgeW = context.measureText(row.badge).width + 6;
+    drawBadge(context, x, row.y, row.badge);
+    drawActivity(context, x + badgeW + 4, row.y, row);
     return;
   }
   if (row.badge !== undefined) drawBadge(context, x, row.y, row.badge);
@@ -282,9 +251,16 @@ const drawRow = (paint: LadderPaint, row: PaintedRow): void => {
 
 export const paintLadder = (paint: LadderPaint): void => {
   drawHeading(paint);
+  paint.context.save();
+  paint.context.beginPath();
+  paint.context.rect(0, TOP_CLEARANCE_PX + 1, paint.paneWidth, paint.paneHeight - TOP_CLEARANCE_PX - 1);
+  paint.context.clip();
   drawCoverage(paint);
   paint.context.font = FONT;
-  for (const row of paint.rows) drawRow(paint, row);
+  for (const row of paint.rows) {
+    if (row.y + row.rowPx / 2 >= TOP_CLEARANCE_PX) drawRow(paint, row);
+  }
+  paint.context.restore();
 };
 
 export const drawLadderStatus = (context: CanvasRenderingContext2D, status: string, paneWidth: number): void => {
