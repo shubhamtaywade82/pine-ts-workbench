@@ -5,7 +5,7 @@ const AUTH_CHANNEL_NAME = "coindcx";
 const RECONNECT_DELAY_MS = 3_000;
 
 export interface ParsedWsMessage {
-  readonly type: "open" | "ping" | "pong" | "connect" | "event" | "unknown";
+  readonly type: "open" | "ping" | "pong" | "connect" | "disconnect" | "event" | "unknown";
   readonly eventName?: string;
   readonly payload?: unknown;
 }
@@ -54,6 +54,7 @@ export function parseEngineIoPacket(raw: string): ParsedWsMessage {
   if (raw === "2") return { type: "ping" };
   if (raw === "3") return { type: "pong" };
   if (raw === "40") return { type: "connect" };
+  if (raw === "41") return { type: "disconnect" };
   if (raw.startsWith("42")) {
     try {
       const parsed = JSON.parse(raw.slice(2));
@@ -85,6 +86,7 @@ function handleWsMessage(
   const p = parseEngineIoPacket(raw);
   if (p.type === "open") ws.send("40");
   else if (p.type === "connect") { onConnect(); ws.send(formatJoinPacket(apiKey, sig)); cb.onStatusChange?.("live"); }
+  else if (p.type === "disconnect") { cb.onStatusChange?.("polling"); }
   else if (p.type === "ping") ws.send("3");
   else if (p.type === "event") dispatchWsEvent(p, cb);
 }
@@ -153,14 +155,13 @@ export function connectCoindcxServerStream(
         callbacks.onStatusChange?.("polling");
         return;
       }
-      callbacks.onStatusChange?.("live");
       await readSseStream(res.body.getReader(), callbacks);
     } catch {
       // Stream aborted or connection interrupted
     } finally {
       if (!isClosed) {
         callbacks.onStatusChange?.("polling");
-        reconnectTimer = setTimeout(() => void init(), 5000);
+        reconnectTimer = setTimeout(() => void init(), 30000);
       }
     }
   };

@@ -30,6 +30,7 @@ describe("coindcx-ws", () => {
     expect(parseEngineIoPacket("2").type).toBe("ping");
     expect(parseEngineIoPacket("3").type).toBe("pong");
     expect(parseEngineIoPacket("40").type).toBe("connect");
+    expect(parseEngineIoPacket("41").type).toBe("disconnect");
     expect(parseEngineIoPacket("invalid").type).toBe("unknown");
   });
 
