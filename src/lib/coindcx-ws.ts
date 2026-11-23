@@ -89,6 +89,91 @@ function handleWsMessage(
   else if (p.type === "event") dispatchWsEvent(p, cb);
 }
 
+/** Dispatches a single parsed SSE event block into registered portfolio callbacks. */
+export function parseSseChunk(chunk: string, cb: CoindcxWsCallbacks) {
+  let event = "message";
+  let data = "";
+  for (const line of chunk.split("\n")) {
+    const t = line.trim();
+    if (t.startsWith("event:")) event = t.slice(6).trim();
+    else if (t.startsWith("data:")) data = t.slice(5).trim();
+  }
+  if (!data) return;
+  try {
+    const payload = JSON.parse(data);
+    if (event === "status") cb.onStatusChange?.(payload);
+    else if (event === "positions") cb.onPositionUpdate?.(payload);
+    else if (event === "orders") cb.onOrderUpdate?.(payload);
+    else if (event === "balances") cb.onBalanceUpdate?.(payload);
+  } catch {
+    // Ignore invalid JSON payloads from stream
+  }
+}
+
+/** Consumes an active SSE byte stream reader and dispatches double-newline-separated blocks. */
+export async function readSseStream(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  cb: CoindcxWsCallbacks,
+) {
+  const decoder = new TextDecoder();
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const parts = buffer.split("\n\n");
+    buffer = parts.pop() ?? "";
+    for (const chunk of parts) {
+      if (chunk.trim()) parseSseChunk(chunk, cb);
+    }
+  }
+}
+
+/** Streams live CoinDCX account updates through the server-side SSE bridge. */
+export function connectCoindcxServerStream(
+  apiKey: string,
+  apiSecret: string,
+  callbacks: CoindcxWsCallbacks,
+  fetchFn: typeof fetch = fetch,
+): () => void {
+  let isClosed = false;
+  let abortController: AbortController | null = null;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const init = async () => {
+    if (isClosed) return;
+    callbacks.onStatusChange?.("connecting");
+    abortController = new AbortController();
+    try {
+      const res = await fetchFn("/api/coindcx/stream", {
+        headers: { "x-coindcx-apikey": apiKey, "x-coindcx-secret": apiSecret },
+        signal: abortController.signal,
+      });
+      if (!res.ok || !res.body) {
+        callbacks.onStatusChange?.("polling");
+        return;
+      }
+      callbacks.onStatusChange?.("live");
+      await readSseStream(res.body.getReader(), callbacks);
+    } catch {
+      // Stream aborted or connection interrupted
+    } finally {
+      if (!isClosed) {
+        callbacks.onStatusChange?.("polling");
+        reconnectTimer = setTimeout(() => void init(), 5000);
+      }
+    }
+  };
+
+  void init();
+  return () => {
+    isClosed = true;
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    if (abortController) abortController.abort();
+    callbacks.onStatusChange?.("disconnected");
+  };
+}
+
 /** Establishes resilient live WebSocket user stream connection with CoinDCX. */
 export function connectCoindcxWs(
   apiKey: string,
@@ -96,11 +181,10 @@ export function connectCoindcxWs(
   callbacks: CoindcxWsCallbacks,
   wsFactory?: (url: string) => WebSocket,
 ): () => void {
-  // CoinDCX's Envoy gateway rejects browser Origin: http://localhost:* with HTTP 400.
-  // In the browser, avoid opening this blocked socket to prevent red console spam.
+  // CoinDCX Envoy proxy blocks browser Origin: http://localhost:* with HTTP 400.
+  // In the browser, bridge through the server-side stream endpoint unless testing with wsFactory.
   if (typeof window !== "undefined" && !wsFactory) {
-    callbacks.onStatusChange?.("polling");
-    return () => {};
+    return connectCoindcxServerStream(apiKey, apiSecret, callbacks);
   }
   const createWs = wsFactory ?? ((url: string) => new WebSocket(url));
   let isClosed = false;

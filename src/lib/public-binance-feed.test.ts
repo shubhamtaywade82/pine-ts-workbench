@@ -175,6 +175,12 @@ describe("parseMarketStreamMessage", () => {
     expect(parseMarketStreamMessage("not json")).toBeNull();
     expect(parseMarketStreamMessage(JSON.stringify({ data: { e: "unknown" } }))).toBeNull();
   });
+
+  test("parses ping event with pong timestamp", () => {
+    const raw = JSON.stringify({ ping: 1700000000 });
+    const parsed = parseMarketStreamMessage(raw);
+    expect(parsed).toEqual({ kind: "ping", pong: 1700000000 });
+  });
 });
 
 describe("openMarketStream error handling", () => {

@@ -5,6 +5,8 @@ import {
   signCoindcxWsAuth,
   connectCoindcxWs,
   connectLivePriceStream,
+  parseSseChunk,
+  connectCoindcxServerStream,
 } from "./coindcx-ws";
 
 describe("coindcx-ws", () => {
@@ -155,5 +157,75 @@ describe("coindcx-ws", () => {
 
     cleanup();
     expect(wsClosed).toBe(true);
+  });
+
+  it("parseSseChunk parses status, position, order, and balance SSE frames", () => {
+    let status = "";
+    let positions: unknown = null;
+    let orders: unknown = null;
+    let balances: unknown = null;
+
+    const callbacks = {
+      onStatusChange: (s: string) => { status = s; },
+      onPositionUpdate: (p: unknown) => { positions = p; },
+      onOrderUpdate: (o: unknown) => { orders = o; },
+      onBalanceUpdate: (b: unknown) => { balances = b; },
+    };
+
+    parseSseChunk('event: status\ndata: "live"', callbacks);
+    expect(status).toBe("live");
+
+    parseSseChunk('event: positions\ndata: [{"pair":"B-SOL_USDT"}]', callbacks);
+    expect(positions).toEqual([{ pair: "B-SOL_USDT" }]);
+
+    parseSseChunk('event: orders\ndata: [{"id":"ord-1"}]', callbacks);
+    expect(orders).toEqual([{ id: "ord-1" }]);
+
+    parseSseChunk('event: balances\ndata: [{"currency":"INR"}]', callbacks);
+    expect(balances).toEqual([{ currency: "INR" }]);
+
+    // Malformed data should not throw
+    parseSseChunk("event: status\ndata: invalid-json", callbacks);
+    expect(status).toBe("live");
+  });
+
+  it("connectCoindcxServerStream bridges SSE updates from API route", async () => {
+    let capturedHeaders: HeadersInit | undefined;
+    let streamCancelled = false;
+    const mockStream = new ReadableStream({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode('event: status\ndata: "live"\n\n'));
+        controller.enqueue(new TextEncoder().encode('event: positions\ndata: [{"pair":"B-BTC_USDT"}]\n\n'));
+      },
+      cancel() {
+        streamCancelled = true;
+      },
+    });
+
+    const mockFetch = async (_url: unknown, init?: RequestInit) => {
+      capturedHeaders = init?.headers;
+      return new Response(mockStream, { status: 200 });
+    };
+
+    let status = "";
+    let receivedPositions: unknown = null;
+
+    const cleanup = connectCoindcxServerStream(
+      "api-key-123",
+      "api-sec-456",
+      {
+        onStatusChange: (s) => { status = s; },
+        onPositionUpdate: (p) => { receivedPositions = p; },
+      },
+      mockFetch as unknown as typeof fetch,
+    );
+
+    await new Promise((r) => setTimeout(r, 20));
+
+    expect(status).toBe("live");
+    expect(receivedPositions).toEqual([{ pair: "B-BTC_USDT" }]);
+    expect((capturedHeaders as Record<string, string>)?.["x-coindcx-apikey"]).toBe("api-key-123");
+    cleanup();
+    expect(status).toBe("disconnected");
   });
 });

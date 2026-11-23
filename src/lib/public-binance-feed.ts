@@ -5,20 +5,9 @@ import { BINANCE_REST_URL, BINANCE_STREAM_WS_URL } from "./binance-endpoints";
 import { isBinanceTrade } from "./binance-payloads";
 
 /**
- * Public Binance market data — no API key required.
- *
- * - Historical candles (REST): GET ${BINANCE_REST_URL}/api/v3/klines
- *   Binance's market-data-only mirror, so heavy charting can't trip the
- *   trading API's IP rate limits.
- * - Real-time kline + trade stream (WebSocket): ${BINANCE_STREAM_WS_URL}/stream
- *   Emits a kline event per tick; the last event for a bar has `k.x === true` (closed).
- *
- * History and stream share one exchange, so the first live candle continues
- * the history seamlessly (Coinbase history + Binance ticks used to jump ~$100).
+ * Public Binance market data — candles (REST) and real-time kline/trade stream (WS).
+ * Shared exchange source prevents step-discontinuities between historical and forming bars.
  */
-
-// ---------- types ----------
-
 export interface BinanceKline {
   readonly t: number;
   readonly T: number;
@@ -241,17 +230,18 @@ export const releaseSocket = (socket: WebSocket): void => {
 
 export type MarketStreamMessage =
   | { readonly kind: "kline"; readonly bar: Bar }
-  | { readonly kind: "trade"; readonly trade: LiveTrade };
+  | { readonly kind: "trade"; readonly trade: LiveTrade }
+  | { readonly kind: "ping"; readonly pong: number };
 
 export const parseMarketStreamMessage = (raw: string): MarketStreamMessage | null => {
   try {
-    const { data } = JSON.parse(raw) as { data?: unknown };
+    const obj = JSON.parse(raw) as { data?: unknown; ping?: number };
+    if (typeof obj.ping === "number") return { kind: "ping", pong: obj.ping };
+    const { data } = obj;
     if (typeof data === "object" && data !== null && (data as { e?: unknown }).e === "kline") {
       return { kind: "kline", bar: toBar((data as BinanceKlineEvent).k) };
     }
-    if (isBinanceTrade(data)) {
-      return { kind: "trade", trade: toLiveTrade(data) };
-    }
+    if (isBinanceTrade(data)) return { kind: "trade", trade: toLiveTrade(data) };
     return null;
   } catch {
     return null;
@@ -273,9 +263,7 @@ const toBar = (k: BinanceKline): Bar => ({
 
 /**
  * Opens one socket carrying `<symbol>@kline_<interval>` and `<symbol>@trade`.
- * Raw trades (not aggTrades) carry every price, so the forming candle's
- * high/low/close match Binance's own chart between kline snapshots.
- * Returns `close()`, which detaches callbacks first so it never reports onClose.
+ * Raw trades carry every price, matching Binance's chart between kline snapshots.
  */
 export const openMarketStream = (
   symbol: BinanceSymbol,
@@ -292,6 +280,10 @@ export const openMarketStream = (
     const parsed = parseMarketStreamMessage(event.data as string);
     if (!parsed) {
       callbacks.onMalformed?.((malformedCount += 1));
+      return;
+    }
+    if (parsed.kind === "ping") {
+      if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ pong: parsed.pong }));
       return;
     }
     if (parsed.kind === "kline") callbacks.onKline(parsed.bar);
