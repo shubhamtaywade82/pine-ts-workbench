@@ -161,13 +161,20 @@ export default function Home() {
   // Restore the last workspace once, after mount (localStorage isn't available during SSR).
   useEffect(() => {
     const workspace = loadWorkspace();
+    const urlSym = typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("symbol") : null;
+    const targetSymbol = urlSym ? findSymbol(urlSym) : undefined;
     if (workspace !== null) {
-      const restored = workspace.cells.map((c) => ({ ...newCell(findSymbol(c.symbolProduct), c.interval), indicators: c.indicators }));
+      const restored = workspace.cells.map((c, i) => {
+        const sym = i === workspace.activeCellIndex && targetSymbol ? targetSymbol : findSymbol(c.symbolProduct);
+        return { ...newCell(sym, c.interval), indicators: c.indicators };
+      });
       replaceGrid(workspace.layout as GridLayout, restored, workspace.activeCellIndex);
       setIsEditorOpen(workspace.isEditorOpen);
       setIsTesterOpen(workspace.isTesterOpen);
       setTheme(workspace.theme);
       document.documentElement.classList.toggle("dark", workspace.theme === "dark");
+    } else if (targetSymbol) {
+      replaceGrid(1, [newCell(targetSymbol, "1m")], 0);
     }
     setIsRestored(true);
   }, [replaceGrid]);

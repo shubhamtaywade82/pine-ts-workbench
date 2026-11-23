@@ -40,6 +40,9 @@ describe("symbol-catalog", () => {
     const btc = findSymbol("BTCUSDT");
     expect(btc?.displayName).toBe("BTC / USDT");
 
+    const sol = findSymbol("B-SOL_USDT");
+    expect(sol?.ticker).toBe("SOLUSDT");
+
     const nifty = findSymbol("NSE:NIFTY50");
     expect(nifty?.displayName).toBe("NIFTY 50");
     expect(nifty?.exchange).toBe("NSE");

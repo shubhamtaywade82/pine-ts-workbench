@@ -18,7 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { SymbolSearchDialog } from "@/components/chart/symbol-search-dialog";
 import {
-  Activity, AreaChart, BarChart3, CandlestickChart, ChartLine, LayoutGrid,
+  Activity, AreaChart, BarChart3, CandlestickChart, ChartLine, Coins, LayoutGrid,
   LineChart, Maximize, Moon, Plus, Radar, Save, Settings, Sun,
 } from "lucide-react";
 import type { ChartSettings } from "@/lib/chart-settings";
@@ -29,14 +29,10 @@ import {
 export type GridLayout = 1 | 2 | 3 | 4 | 6 | 8 | 9 | 12 | 16;
 
 export const LAYOUT_OPTIONS: { value: GridLayout; label: string; cols: number; rows: number }[] = [
-  { value: 1, label: "1 chart", cols: 1, rows: 1 },
-  { value: 2, label: "2 charts", cols: 2, rows: 1 },
-  { value: 3, label: "3 charts", cols: 3, rows: 1 },
-  { value: 4, label: "4 charts", cols: 2, rows: 2 },
-  { value: 6, label: "6 charts", cols: 3, rows: 2 },
-  { value: 8, label: "8 charts", cols: 4, rows: 2 },
-  { value: 9, label: "9 charts", cols: 3, rows: 3 },
-  { value: 12, label: "12 charts", cols: 4, rows: 3 },
+  { value: 1, label: "1 chart", cols: 1, rows: 1 }, { value: 2, label: "2 charts", cols: 2, rows: 1 },
+  { value: 3, label: "3 charts", cols: 3, rows: 1 }, { value: 4, label: "4 charts", cols: 2, rows: 2 },
+  { value: 6, label: "6 charts", cols: 3, rows: 2 }, { value: 8, label: "8 charts", cols: 4, rows: 2 },
+  { value: 9, label: "9 charts", cols: 3, rows: 3 }, { value: 12, label: "12 charts", cols: 4, rows: 3 },
   { value: 16, label: "16 charts", cols: 4, rows: 4 },
 ];
 
@@ -166,6 +162,9 @@ export function TopToolbar(props: TopToolbarProps) {
       <Button asChild variant="ghost" size="sm" className="h-8 gap-1 px-2 text-muted-foreground hover:text-foreground" title="Open SMC Terminal">
         <Link href="/smc-terminal"><Radar className="h-4 w-4" />SMC</Link>
       </Button>
+      <Button asChild variant="ghost" size="sm" className="h-8 gap-1 px-2 text-muted-foreground hover:text-foreground" title="CoinDCX Portfolio">
+        <Link href="/coindcx"><Coins className="h-4 w-4" />CoinDCX</Link>
+      </Button>
 
       <div className="ml-auto flex items-center gap-0.5">
         <SavedLayoutsMenu onSave={props.onSaveLayout} onLoad={props.onLoadLayout} />
@@ -282,9 +281,7 @@ function CandleTypeSelector({ type, onChange }: { readonly type: CandleType; rea
   );
 }
 
-function CandleThemeSelector({
-  theme, upColor, downColor, onChange,
-}: { readonly theme: CandleThemeId; readonly upColor: string; readonly downColor: string; readonly onChange: (theme: CandleThemeId) => void }) {
+function CandleThemeSelector({ theme, upColor, downColor, onChange }: { readonly theme: CandleThemeId; readonly upColor: string; readonly downColor: string; readonly onChange: (theme: CandleThemeId) => void }) {
   return (
     <Select value={theme} onValueChange={(val) => onChange(val as CandleThemeId)}>
       <SelectTrigger className="h-8 w-auto gap-1.5 border-0 bg-transparent px-2 text-xs font-medium shadow-none hover:bg-muted" title="Candle theme">
@@ -299,10 +296,8 @@ function CandleThemeSelector({
           <SelectItem key={t.id} value={t.id} className="text-xs">
             <div className="flex items-center justify-between gap-3 w-full">
               <div className="flex items-center gap-2">
-                <div className="flex items-center gap-0.5">
-                  <span className="h-2 w-2 rounded-full" style={{ backgroundColor: t.upColor }} />
-                  <span className="h-2 w-2 rounded-full" style={{ backgroundColor: t.downColor }} />
-                </div>
+                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: t.upColor }} />
+                <span className="h-2 w-2 rounded-full" style={{ backgroundColor: t.downColor }} />
                 <span>{t.name}</span>
               </div>
               <span className="text-[10px] text-muted-foreground">{t.description}</span>

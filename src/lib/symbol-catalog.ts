@@ -50,9 +50,11 @@ const WATCHLIST_STORAGE_KEY = "pine-ts-workbench-watchlist";
 
 export function findSymbol(tickerOrSymbol: string): SymbolOption | undefined {
   const normalized = tickerOrSymbol.toUpperCase().trim();
+  const cleaned = normalized.replace(/^CDCX:/, "").replace(/^[BI]-/, "").replace(/_/g, "");
   return (
     SYMBOL_CATALOG.find((s) => s.ticker.toUpperCase() === normalized) ??
     SYMBOL_CATALOG.find((s) => s.binanceSymbol.toUpperCase() === normalized) ??
+    SYMBOL_CATALOG.find((s) => s.ticker.toUpperCase() === cleaned || s.binanceSymbol.toUpperCase() === cleaned) ??
     loadRemoteSymbol(tickerOrSymbol.trim())
   );
 }

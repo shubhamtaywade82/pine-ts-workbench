@@ -1,0 +1,11 @@
+schemaVersion: 1
+name: pine-ts-workbench
+stack:
+  - nextjs
+  - react-typescript
+  - node-typescript
+commands:
+  test:
+    - ["bun", "test", "src/lib/coindcx-bars.test.ts", "src/lib/coindcx-client.test.ts", "src/lib/coindcx-settings.test.ts", "src/lib/coindcx-chart-levels.test.ts", "src/lib/coindcx-ws.test.ts"]
+  typecheck:
+    - ["bun", "run", "typecheck"]

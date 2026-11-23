@@ -26,12 +26,9 @@ import { buildSinks, dispatchScriptAlerts, formatScriptAlertMessage, loadAlertSe
 import { loadSettings as loadBinanceSettings } from "@/components/trading/settings-dialog";
 import { toast } from "@/hooks/use-toast";
 import { DepthDiagnostics } from "@/components/chart/depth-diagnostics";
-import {
-  computeOverlays,
-  runMounted,
-  scriptDrawings,
-  type IndicatorRunResult,
-} from "@/lib/cell-indicators";
+import { CoindcxPositionBadge } from "@/components/chart/coindcx-position-badge";
+import { useCoindcxChartOverlay } from "@/lib/coindcx-chart-levels";
+import { computeOverlays, runMounted, scriptDrawings, type IndicatorRunResult } from "@/lib/cell-indicators";
 
 export interface CellSettings {
   readonly symbol: SymbolOption;
@@ -146,14 +143,11 @@ export function ChartCell({
     return () => { cancelled = true; };
   }, [visibleBars, mounted, liveRunners, symbol, interval]);
 
-  const { mainOverlays, subPanes } = useMemo(
-    () => computeOverlays(visibleBars, mounted, runResults, interval),
-    [visibleBars, mounted, runResults, interval],
-  );
-  const drawings = useMemo(
-    () => [...(editorDrawings ?? []), ...scriptDrawings(visibleBars, mounted, runResults, interval), ...options.drawings],
-    [editorDrawings, visibleBars, mounted, runResults, interval, options.drawings],
-  );
+  const { mainOverlays, subPanes } = useMemo(() => computeOverlays(visibleBars, mounted, runResults, interval), [visibleBars, mounted, runResults, interval]);
+  const coindcxOverlay = useCoindcxChartOverlay(symbol, visibleBars, interval);
+  const drawings = useMemo(() => [
+    ...(editorDrawings ?? []), ...scriptDrawings(visibleBars, mounted, runResults, interval), ...options.drawings, ...coindcxOverlay.drawings,
+  ], [editorDrawings, visibleBars, mounted, runResults, interval, options.drawings, coindcxOverlay.drawings]);
 
   const dispatchedAlertKeysRef = useRef(new Set<string>());
   useEffect(() => {
@@ -217,6 +211,7 @@ export function ChartCell({
           <>
             <LiveBadge status={status} health={health} interval={interval} symbol={symbol.displayName} isMarketClosed={feed.isMarketClosed} />
             <DepthDiagnostics symbol={isBinance ? symbol.binanceSymbol : undefined} tradeAgeMs={health.lastTickAgeMs} />
+            <CoindcxPositionBadge positions={coindcxOverlay.positions} />
             <Button
               variant="ghost"
               size="sm"
