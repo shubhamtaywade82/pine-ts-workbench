@@ -95,6 +95,7 @@ export interface AlertSettings {
   readonly orderGuard: OrderGuardLimits;
   readonly aiFilterEnabled?: boolean;
   readonly aiFilterMinConfidence?: number;
+  readonly aiFilterModel?: string;
 }
 
 export const DEFAULT_ALERT_SETTINGS: AlertSettings = {
@@ -111,6 +112,7 @@ export const DEFAULT_ALERT_SETTINGS: AlertSettings = {
   orderGuard: DEFAULT_ORDER_GUARD_LIMITS,
   aiFilterEnabled: false,
   aiFilterMinConfidence: 0.70,
+  aiFilterModel: undefined,
 };
 
 const positiveOr = (value: unknown, fallback: number): number =>
@@ -150,6 +152,23 @@ export const saveAlertSettings = (settings: AlertSettings): void => {
     window.localStorage.setItem(ALERT_SETTINGS_KEY, JSON.stringify(settings));
   } catch { /* localStorage unavailable */ }
 };
+
+/** Tests Telegram Bot API connectivity with the given token and chat ID. */
+export async function testTelegram(botToken: string, chatId: string): Promise<{ ok: boolean; message: string }> {
+  try {
+    const text = "🔔 *Pine-TS Workbench*: Telegram test message successful!";
+    const res = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ chat_id: chatId, text, parse_mode: "Markdown" }),
+    });
+    if (res.ok) return { ok: true, message: "Delivered!" };
+    const err = (await res.json().catch(() => ({}))) as { description?: string };
+    return { ok: false, message: err.description ?? `HTTP ${res.status}` };
+  } catch (err) {
+    return { ok: false, message: err instanceof Error ? err.message : String(err) };
+  }
+}
 
 export const buildSinks = (alert: AlertSettings, binance: BinanceSettings): AlertSink[] => {
   const sinks: AlertSink[] = [

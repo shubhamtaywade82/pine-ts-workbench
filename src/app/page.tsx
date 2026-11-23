@@ -158,7 +158,11 @@ export default function Home() {
             const res = await fetch("/api/ai/decisions", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ snapshot, useMicroState: true }),
+              body: JSON.stringify({
+                snapshot,
+                model: alertSettings.aiFilterModel,
+                useMicroState: true,
+              }),
             });
             if (!res.ok) return { approved: true };
             const data = (await res.json()) as { answers?: { tradeDecision?: { choice?: string; confidence?: number } } };

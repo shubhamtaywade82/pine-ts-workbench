@@ -8,12 +8,13 @@ import {
 } from "./route";
 
 describe("script-agent api route and validation", () => {
-  test("GET returns available models and default model", async () => {
+  test("GET returns available models, default model, and off-peak status", async () => {
     const res = await GET();
     expect(res.status).toBe(200);
-    const data = (await res.json()) as { models: string[]; defaultModel: string };
+    const data = (await res.json()) as { models: string[]; defaultModel: string; isOffPeak?: boolean };
     expect(Array.isArray(data.models)).toBe(true);
     expect(data.defaultModel).toBe("minicpm5-toolagent:latest");
+    expect(typeof data.isOffPeak).toBe("boolean");
   });
 
   test("testScript validates correct indicator", async () => {

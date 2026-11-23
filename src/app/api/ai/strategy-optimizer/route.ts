@@ -9,6 +9,7 @@ import {
 import type { Bar } from "@nemesis-oss/pine-ts";
 import { runBacktest, type BacktestSummary, type BacktestTrade } from "@/lib/strategy-runner";
 import type { InputValue } from "@/lib/script-library";
+import { isOffPeak, CLOUD_PRICING_MODELS } from "@/lib/decision-intelligence/tev1";
 
 const DEFAULT_MODEL = "minicpm5-toolagent:latest";
 // Generous timeout for local multi-turn agent runs on CPU/GPU.
@@ -194,6 +195,11 @@ export async function validateOptimizedCode(
 }
 
 export async function GET() {
+  const offPeak = isOffPeak();
+  const reasoningCloud = CLOUD_PRICING_MODELS
+    .filter((m) => m.tier === "reasoning")
+    .map((m) => m.id);
+
   try {
     const client = new OllamaClient({
       baseUrl: process.env.OLLAMA_BASE_URL || "http://localhost:11434",
@@ -203,12 +209,23 @@ export async function GET() {
     const toolModels = models
       .filter((m) => {
         const caps = (m as unknown as { capabilities?: readonly string[] }).capabilities;
-        return caps?.includes("tools") ?? false;
+        const name = m.name.toLowerCase();
+        return (caps?.includes("tools") ?? false) || name.includes(":cloud");
       })
       .map((m) => m.name);
-    return NextResponse.json({ models: toolModels.length > 0 ? toolModels : [DEFAULT_MODEL], defaultModel: DEFAULT_MODEL });
+
+    const merged = Array.from(new Set([...toolModels, ...reasoningCloud]));
+    return NextResponse.json({
+      models: merged.length > 0 ? merged : [DEFAULT_MODEL],
+      defaultModel: DEFAULT_MODEL,
+      isOffPeak: offPeak,
+    });
   } catch {
-    return NextResponse.json({ models: [DEFAULT_MODEL], defaultModel: DEFAULT_MODEL });
+    return NextResponse.json({
+      models: [DEFAULT_MODEL, ...reasoningCloud],
+      defaultModel: DEFAULT_MODEL,
+      isOffPeak: offPeak,
+    });
   }
 }
 

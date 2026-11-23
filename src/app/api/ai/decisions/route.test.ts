@@ -10,6 +10,9 @@ import {
   evaluateDecision,
   clearDecisionCache,
   DECISION_QUESTIONS,
+  isOffPeak,
+  selectOptimalDecisionModel,
+  CLOUD_PRICING_MODELS,
 } from "@/lib/decision-intelligence/tev1";
 import { GET, POST } from "./route";
 
@@ -190,13 +193,47 @@ describe("tev1 decision evaluator with mock client & cache", () => {
 });
 
 describe("decisions api route", () => {
-  test("GET returns decision models array and defaultModel", async () => {
-    const res = await GET();
-    expect(res.status).toBe(200);
-    const data = (await res.json()) as { ok: boolean; models: string[]; defaultModel: string };
-    expect(data.ok).toBe(true);
-    expect(Array.isArray(data.models)).toBe(true);
-    expect(data.defaultModel).toBeDefined();
+  test("isOffPeak accurately distinguishes peak from off-peak windows", () => {
+    // Weekend: Saturday 14:00 UTC -> off-peak
+    const saturday = new Date("2026-11-28T14:00:00Z");
+    expect(isOffPeak(saturday)).toBe(true);
+
+    // Weekday peak: Wednesday 14:00 UTC (between 12:00 and 18:00 UTC) -> peak (not off-peak)
+    const weekdayPeak = new Date("2026-11-25T14:00:00Z");
+    expect(isOffPeak(weekdayPeak)).toBe(false);
+
+    // Weekday off-peak: Wednesday 08:00 UTC -> off-peak
+    const weekdayMorning = new Date("2026-11-25T08:00:00Z");
+    expect(isOffPeak(weekdayMorning)).toBe(true);
+
+    // Weekday off-peak: Wednesday 20:00 UTC -> off-peak
+    const weekdayNight = new Date("2026-11-25T20:00:00Z");
+    expect(isOffPeak(weekdayNight)).toBe(true);
+  });
+
+  test("selectOptimalDecisionModel routes to discounted deepseek during off-peak", () => {
+    const saturday = new Date("2026-11-28T14:00:00Z");
+    const model = selectOptimalDecisionModel("reasoning", saturday);
+    expect(model).toBe("deepseek-v4.1-flash:cloud");
+  });
+
+  test("GET returns decision models array, defaultModel, and off-peak status", () => {
+    const res = GET();
+    return res.then(async (r) => {
+      expect(r.status).toBe(200);
+      const data = (await r.json()) as {
+        ok: boolean;
+        models: string[];
+        defaultModel: string;
+        isOffPeak: boolean;
+        pricingTiers: unknown[];
+      };
+      expect(data.ok).toBe(true);
+      expect(Array.isArray(data.models)).toBe(true);
+      expect(data.defaultModel).toBeDefined();
+      expect(typeof data.isOffPeak).toBe("boolean");
+      expect(Array.isArray(data.pricingTiers)).toBe(true);
+    });
   });
 
   test("POST returns 400 for invalid snapshot", async () => {

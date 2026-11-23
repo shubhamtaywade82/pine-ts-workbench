@@ -3,6 +3,9 @@ import { OllamaClient } from "@nemesis-oss/ollama-sdk";
 import type { MarketDecisionSnapshot } from "@/lib/decision-intelligence/snapshot";
 import {
   DEFAULT_DECISION_MODEL,
+  CLOUD_PRICING_MODELS,
+  isOffPeak,
+  selectOptimalDecisionModel,
   evaluateDecision,
 } from "@/lib/decision-intelligence/tev1";
 
@@ -17,27 +20,37 @@ function createClient(): OllamaClient {
 }
 
 export async function GET() {
+  const offPeak = isOffPeak();
+  const pricingModels = CLOUD_PRICING_MODELS
+    .filter((m) => m.tier === "realtime" || m.tier === "reasoning")
+    .map((m) => m.id);
+
   try {
     const client = createClient();
-    const models = await client.listModels();
-    const decisionModels = models
+    const installed = await client.listModels();
+    const decisionInstalled = installed
       .filter((m) => {
         const caps = (m as unknown as { capabilities?: readonly string[] }).capabilities;
         const name = m.name.toLowerCase();
-        return (caps?.includes("decision") ?? false) || name.includes("tev1");
+        return (caps?.includes("decision") ?? false) || name.includes("tev1") || name.includes(":cloud");
       })
       .map((m) => m.name);
 
+    const merged = Array.from(new Set([...decisionInstalled, ...pricingModels]));
     return NextResponse.json({
       ok: true,
-      models: decisionModels.length > 0 ? decisionModels : [DEFAULT_DECISION_MODEL],
-      defaultModel: decisionModels.includes(DEFAULT_DECISION_MODEL) ? DEFAULT_DECISION_MODEL : (decisionModels[0] ?? DEFAULT_DECISION_MODEL),
+      models: merged.length > 0 ? merged : [DEFAULT_DECISION_MODEL],
+      defaultModel: merged.includes(DEFAULT_DECISION_MODEL) ? DEFAULT_DECISION_MODEL : (merged[0] ?? DEFAULT_DECISION_MODEL),
+      isOffPeak: offPeak,
+      pricingTiers: CLOUD_PRICING_MODELS,
     });
   } catch {
     return NextResponse.json({
       ok: true,
-      models: [DEFAULT_DECISION_MODEL],
+      models: [DEFAULT_DECISION_MODEL, ...pricingModels],
       defaultModel: DEFAULT_DECISION_MODEL,
+      isOffPeak: offPeak,
+      pricingTiers: CLOUD_PRICING_MODELS,
     });
   }
 }
@@ -63,9 +76,10 @@ export async function POST(req: Request) {
     }
 
     const client = createClient();
+    const model = body.model || selectOptimalDecisionModel("realtime");
     const result = await evaluateDecision(client, body.snapshot, {
-      model: body.model,
-      useMicroState: body.useMicroState,
+      model,
+      useMicroState: body.useMicroState ?? true,
       skipCache: body.skipCache,
     });
 

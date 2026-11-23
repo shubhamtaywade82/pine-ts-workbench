@@ -2,6 +2,9 @@ import { describe, expect, it } from "bun:test";
 import {
   buildNotificationSinks,
   buildSinks,
+  loadAlertSettings,
+  saveAlertSettings,
+  testTelegram,
   DEFAULT_ALERT_SETTINGS,
   dispatchScriptAlerts,
   formatScriptAlertMessage,
@@ -77,5 +80,58 @@ describe("buildNotificationSinks", () => {
   it("keeps the channels that only send a message", () => {
     const names = buildNotificationSinks(withBrokerOn, noBinance).map((sink) => sink.name);
     for (const channel of ["Webhook", "Telegram", "Email"]) expect(names).toContain(channel);
+  });
+});
+
+describe("alert settings persistence and telegram connectivity", () => {
+  it("persists and restores telegram credentials", () => {
+    const mockStorage = new Map<string, string>();
+    const originalWindow = globalThis.window;
+    (globalThis as unknown as { window: unknown }).window = {
+      localStorage: {
+        getItem: (k: string) => mockStorage.get(k) ?? null,
+        setItem: (k: string, v: string) => mockStorage.set(k, v),
+      },
+    };
+
+    try {
+      const custom = {
+        ...DEFAULT_ALERT_SETTINGS,
+        telegramBotToken: "123456:TEST_TOKEN",
+        telegramChatId: "-100987654321",
+      };
+      saveAlertSettings(custom);
+      const restored = loadAlertSettings();
+      expect(restored.telegramBotToken).toBe("123456:TEST_TOKEN");
+      expect(restored.telegramChatId).toBe("-100987654321");
+    } finally {
+      (globalThis as unknown as { window: unknown }).window = originalWindow;
+    }
+  });
+
+  it("testTelegram handles delivery success and failure", async () => {
+    const originalFetch = globalThis.fetch;
+    (globalThis as unknown as { fetch: unknown }).fetch = async () => ({
+      ok: true,
+      json: async () => ({ ok: true }),
+    });
+
+    try {
+      const success = await testTelegram("test_token", "test_chat");
+      expect(success.ok).toBe(true);
+      expect(success.message).toBe("Delivered!");
+
+      (globalThis as unknown as { fetch: unknown }).fetch = async () => ({
+        ok: false,
+        status: 401,
+        json: async () => ({ ok: false, description: "Unauthorized" }),
+      });
+
+      const failure = await testTelegram("bad_token", "test_chat");
+      expect(failure.ok).toBe(false);
+      expect(failure.message).toBe("Unauthorized");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });

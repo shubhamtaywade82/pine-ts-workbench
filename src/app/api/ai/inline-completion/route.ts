@@ -15,6 +15,13 @@ export function sanitizeCompletion(raw: string): string {
   return firstLine.trimEnd();
 }
 
+export async function GET() {
+  return NextResponse.json({
+    models: [DEFAULT_COMPLETION_MODEL, "gpt-oss:20b:cloud", "nemotron-3-ultra:cloud", "mimo-v2.6-flash:cloud"],
+    defaultModel: DEFAULT_COMPLETION_MODEL,
+  });
+}
+
 export async function POST(req: Request) {
   try {
     const body = (await req.json()) as { prefix: string; model?: string };

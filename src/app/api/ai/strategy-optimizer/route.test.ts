@@ -8,12 +8,13 @@ import {
 } from "./route";
 
 describe("strategy-optimizer api route", () => {
-  test("GET returns models array and defaultModel", async () => {
+  test("GET returns models array, defaultModel, and off-peak status", async () => {
     const res = await GET();
     expect(res.status).toBe(200);
-    const data = (await res.json()) as { models: string[]; defaultModel: string };
+    const data = (await res.json()) as { models: string[]; defaultModel: string; isOffPeak?: boolean };
     expect(Array.isArray(data.models)).toBe(true);
     expect(data.defaultModel).toBe("minicpm5-toolagent:latest");
+    expect(typeof data.isOffPeak).toBe("boolean");
   });
 
   test("extractCodeBlock extracts typescript block from text", () => {

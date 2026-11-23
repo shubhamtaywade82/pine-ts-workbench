@@ -1,7 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { sanitizeCompletion, POST } from "./route";
+import { sanitizeCompletion, GET, POST } from "./route";
 
 describe("inline-completion route", () => {
+  test("GET returns completion models and defaultModel", async () => {
+    const res = await GET();
+    expect(res.status).toBe(200);
+    const data = (await res.json()) as { models: string[]; defaultModel: string };
+    expect(data.models).toContain("gpt-oss:20b:cloud");
+  });
+
   test("sanitizeCompletion strips code blocks and returns first line", () => {
     const raw = "```typescript\nta.rsi(close, 14);\nconst extra = 2;\n```";
     expect(sanitizeCompletion(raw)).toBe("ta.rsi(close, 14);");

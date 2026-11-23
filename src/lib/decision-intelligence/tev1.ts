@@ -5,8 +5,49 @@ import {
   hashSnapshot,
 } from "./snapshot";
 
-export const DEFAULT_DECISION_MODEL = "tev1:4b";
+export const DEFAULT_DECISION_MODEL = "tev1:0.8b";
 export const FALLBACK_DECISION_MODEL = "tev1:0.8b";
+
+export interface ModelPricingTier {
+  readonly id: string;
+  readonly name: string;
+  readonly tier: "realtime" | "reasoning" | "coding";
+  readonly inputPerM: number;
+  readonly cachedInputPerM: number;
+  readonly outputPerM: number;
+  readonly offPeakEligible?: boolean;
+}
+
+/** Verified cloud models ranked by token efficiency and reasoning quality */
+export const CLOUD_PRICING_MODELS: readonly ModelPricingTier[] = [
+  { id: "nemotron-3-super:cloud", name: "Nemotron 3 Super", tier: "realtime", inputPerM: 0.015, cachedInputPerM: 0.015, outputPerM: 0.6 },
+  { id: "mimo-v2.6-flash:cloud", name: "MIMO v2.6 Flash", tier: "realtime", inputPerM: 0.14, cachedInputPerM: 0.0028, outputPerM: 0.28 },
+  { id: "gpt-oss:20b:cloud", name: "GPT-OSS 20B", tier: "realtime", inputPerM: 0.07, cachedInputPerM: 0.035, outputPerM: 0.3 },
+  { id: "beam:cloud", name: "Beam", tier: "realtime", inputPerM: 0.125, cachedInputPerM: 0.015, outputPerM: 0.4 },
+  { id: "deepseek-v4.1-flash:cloud", name: "DeepSeek v4.1 Flash", tier: "reasoning", inputPerM: 0.3, cachedInputPerM: 0.006, outputPerM: 1.2, offPeakEligible: true },
+  { id: "gpt-oss:120b:cloud", name: "GPT-OSS 120B", tier: "reasoning", inputPerM: 0.15, cachedInputPerM: 0.014, outputPerM: 0.6 },
+  { id: "mimo-v2.6-pro:cloud", name: "MIMO v2.6 Pro", tier: "reasoning", inputPerM: 0.435, cachedInputPerM: 0.0036, outputPerM: 0.87 },
+  { id: "gemma4:cloud", name: "Gemma 4", tier: "reasoning", inputPerM: 0.14, cachedInputPerM: 0.05, outputPerM: 0.4 },
+  { id: "minimax-m3:cloud", name: "MiniMax M3", tier: "reasoning", inputPerM: 0.6, cachedInputPerM: 0.12, outputPerM: 2.4 },
+  { id: "kimi-k2.7-code:cloud", name: "Kimi k2.7 Code", tier: "coding", inputPerM: 0.95, cachedInputPerM: 0.19, outputPerM: 4.0 },
+  { id: "deepseek-v4-pro:cloud", name: "DeepSeek v4 Pro", tier: "coding", inputPerM: 1.32, cachedInputPerM: 0.044, outputPerM: 3.96, offPeakEligible: true },
+];
+
+/** Returns true if current time is outside 12:00-18:00 UTC on weekdays or anytime on weekends. */
+export function isOffPeak(date: Date = new Date()): boolean {
+  const day = date.getUTCDay();
+  if (day === 0 || day === 6) return true;
+  const hour = date.getUTCHours();
+  return hour < 12 || hour >= 18;
+}
+
+/** Resolves optimal decision model balancing token pricing with reasoning quality. */
+export function selectOptimalDecisionModel(tier: "realtime" | "reasoning" = "realtime", date: Date = new Date()): string {
+  if (tier === "reasoning" && isOffPeak(date)) {
+    return "deepseek-v4.1-flash:cloud";
+  }
+  return DEFAULT_DECISION_MODEL;
+}
 
 export const DECISION_QUESTIONS = {
   trade_decision: {
@@ -129,8 +170,8 @@ async function querySystemOne(
   model: string,
   options?: EvaluateDecisionOptions,
 ) {
-  // Reduces input tokens by swapping nested JSON with dense micro-state when requested
-  const state = options?.useMicroState
+  // Reduces input tokens by swapping nested JSON with dense micro-state by default (~35 tokens)
+  const state = (options?.useMicroState ?? true)
     ? { microState: toMicroState(snapshot) }
     : (snapshot as unknown as Record<string, unknown>);
 
