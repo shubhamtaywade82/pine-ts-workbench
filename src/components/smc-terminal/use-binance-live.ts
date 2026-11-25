@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  fetchHistoricalBars, fetchTickSize, openMarketStream, type ChartInterval,
+  fetchHistoricalBars, fetchTickSize, openMarketStream, type ChartInterval, type FeedBar,
 } from "@/lib/public-binance-feed";
 import { subscribeBook, subscribeDepthWalls, type BookSubscription, type WallsSubscription } from "@/lib/depth-feed-browser";
 import { wallOptionsFor, type BookView, type Wall, type WallFrame } from "@/lib/depth-walls";
@@ -20,6 +20,12 @@ const TF_TO_INTERVAL: Record<number, ChartInterval> = {
   1: "1m", 5: "5m", 15: "15m", 60: "1h",
 };
 
+/** Real aggressive-buy share from taker volume; falls back to a candle-colour guess when absent. */
+function buyRatio(bar: FeedBar): number {
+  if (bar.takerBuyVolume !== undefined && bar.volume > 0) return bar.takerBuyVolume / bar.volume;
+  return bar.close >= bar.open ? 0.6 : 0.4;
+}
+
 function convertBars(rawBars: Awaited<ReturnType<typeof fetchHistoricalBars>>): Bar[] {
   return rawBars.map((b) => {
     const o = b.open;
@@ -27,7 +33,7 @@ function convertBars(rawBars: Awaited<ReturnType<typeof fetchHistoricalBars>>): 
     const l = b.low;
     const c = b.close;
     return {
-      t: b.time, o, h, l, c, v: b.volume, buyR: c >= o ? 0.6 : 0.4,
+      t: b.time, o, h, l, c, v: b.volume, buyR: buyRatio(b),
       path: buildIntraBarPath({ o, c, h, l }),
     };
   });
@@ -167,7 +173,7 @@ export function useBinanceLive(
         const l = kline.low;
         const c = kline.close;
         const bar: Bar = {
-          t: kline.time, o, h, l, c, v: kline.volume, buyR: c >= o ? 0.6 : 0.4,
+          t: kline.time, o, h, l, c, v: kline.volume, buyR: buyRatio(kline),
           path: buildIntraBarPath({ o, c, h, l }),
         };
         cbRef.current.onLiveKline(bar);

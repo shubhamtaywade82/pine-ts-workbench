@@ -74,6 +74,8 @@ export interface TerminalParams {
   ob: boolean;
   liq: boolean;
   pd: boolean;
+  /** Absorption/exhaustion marks, CVD strip and CVD divergences. */
+  flow: boolean;
   pulled: boolean;
   bin: number;
   rayScale: number;

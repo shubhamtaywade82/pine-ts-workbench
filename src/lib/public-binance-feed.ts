@@ -16,8 +16,13 @@ export interface BinanceKline {
   readonly l: string;
   readonly c: string;
   readonly v: string;
+  /** Taker buy base volume; optional so recorded fixtures without it still parse. */
+  readonly V?: string;
   readonly x: boolean;
 }
+
+/** Candle plus aggressive-buy volume when Binance supplies it (delta = 2·takerBuy − volume). */
+export type FeedBar = Bar & { readonly takerBuyVolume?: number };
 
 export interface BinanceKlineEvent {
   readonly e: "kline";
@@ -106,7 +111,7 @@ export const fetchHistoricalBars = async (
   interval: ChartInterval,
   limit: number = 200,
   endTime?: number,
-): Promise<Bar[]> => {
+): Promise<FeedBar[]> => {
   const params = new URLSearchParams({ symbol, interval, limit: String(Math.min(limit, MAX_KLINES_LIMIT)) });
   if (endTime !== undefined) params.set("endTime", String(endTime));
   const res = await fetch(`${KLINES_URL}?${params}`);
@@ -123,6 +128,7 @@ export const fetchHistoricalBars = async (
     close: Number(row[4]),
     volume: Number(row[5]),
     isClosed: row[6] < now,
+    takerBuyVolume: row[9] === undefined ? undefined : Number(row[9]),
   }));
 };
 
@@ -191,7 +197,7 @@ export interface LiveTrade {
 
 export interface MarketStreamCallbacks {
   /** Authoritative candle (~every 1–2s); `isClosed` is true on the bar's final event. */
-  readonly onKline: (bar: Bar) => void;
+  readonly onKline: (bar: FeedBar) => void;
   /** Every trade — exact tick-by-tick OHLC and volume between kline snapshots. */
   readonly onTrade: (trade: LiveTrade) => void;
   readonly onOpen: () => void;
@@ -229,7 +235,7 @@ export const releaseSocket = (socket: WebSocket): void => {
 };
 
 export type MarketStreamMessage =
-  | { readonly kind: "kline"; readonly bar: Bar }
+  | { readonly kind: "kline"; readonly bar: FeedBar }
   | { readonly kind: "trade"; readonly trade: LiveTrade }
   | { readonly kind: "ping"; readonly pong: number };
 
@@ -251,7 +257,7 @@ export const parseMarketStreamMessage = (raw: string): MarketStreamMessage | nul
 /** Binance mainnet combined-stream endpoint (public, no key). */
 const COMBINED_STREAM_URL = `${BINANCE_STREAM_WS_URL}/stream`;
 
-const toBar = (k: BinanceKline): Bar => ({
+const toBar = (k: BinanceKline): FeedBar => ({
   time: k.t,
   open: Number(k.o),
   high: Number(k.h),
@@ -259,6 +265,7 @@ const toBar = (k: BinanceKline): Bar => ({
   close: Number(k.c),
   volume: Number(k.v),
   isClosed: k.x,
+  takerBuyVolume: k.V === undefined ? undefined : Number(k.V),
 });
 
 /**

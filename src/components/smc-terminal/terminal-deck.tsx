@@ -104,7 +104,7 @@ export function TerminalDeck({
       <div className={styles.deckGrp}>
         <span className={styles.deckLabel}>LAYERS</span>
         <div className={styles.deckRow}>
-          {(["rays", "ladder", "fvg", "bos", "ob", "liq", "pd", "filled", "vol", "grid", "pulled"] as const).map((key) => (
+          {(["rays", "ladder", "fvg", "bos", "ob", "liq", "pd", "flow", "filled", "vol", "grid", "pulled"] as const).map((key) => (
             <button
               key={key}
               type="button"

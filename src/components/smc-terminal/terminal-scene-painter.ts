@@ -2,6 +2,7 @@ import { NORMAL, type PlotLayout, type RayHit, type TerminalParams, type ThemeCo
 import { type SimulationState, clamp } from "./terminal-simulation";
 import { fmtP, fmtT, rgba, tickDecimals } from "./terminal-formatters";
 import { drawSmcLayers } from "./terminal-smc-painter";
+import { drawFlowLayers } from "./terminal-flow-painter";
 
 interface SceneContext {
   c: CanvasRenderingContext2D;
@@ -241,6 +242,7 @@ export function drawScene(
   const hits = drawRails(ctx, state, floor, params, theme);
   if (params.vol && i1 >= i0) drawVolume(ctx, state, i0, i1, theme);
   drawCandles(ctx, state, i0, i1, params, theme);
+  if (params.flow && i1 >= i0) drawFlowLayers(ctx, state, floor, { i0, i1 }, theme, params.density);
 
   if (highlightPrice != null && highlightPrice >= viewport.minP && highlightPrice <= viewport.maxP) {
     const y = Math.round(Y(highlightPrice, viewport, layout)) + 0.5;

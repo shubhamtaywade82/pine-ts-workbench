@@ -31,7 +31,7 @@ const DEFAULT_TF = 5;
 
 const DEF_PARAMS: TerminalParams = {
   zoom: 96, candle: "hollow", theme: "ion", rays: true, ladder: true, fvg: true, filled: false,
-  bos: true, ob: true, liq: true, pd: false, vol: true, grid: true, gridAlpha: 0.3, pulled: true, bin: 0.05, rayScale: 1, ladderW: 110, glow: 0.6, density: 1, raySpan: "birth", speed: 1, follow: true,
+  bos: true, ob: true, liq: true, pd: false, flow: true, vol: true, grid: true, gridAlpha: 0.3, pulled: true, bin: 0.05, rayScale: 1, ladderW: 110, glow: 0.6, density: 1, raySpan: "birth", speed: 1, follow: true,
 };
 
 export function SmcTerminal(): React.JSX.Element {
@@ -176,6 +176,7 @@ export function SmcTerminal(): React.JSX.Element {
       last.l = Math.min(last.l, bar.l);
       last.c = bar.c;
       last.v = bar.v;
+      last.buyR = bar.buyR;
       last.path = buildIntraBarPath({ o: last.o, c: last.c, h: last.h, l: last.l });
     } else {
       sim.bars.push(bar);
@@ -309,7 +310,7 @@ export function SmcTerminal(): React.JSX.Element {
           </div>
           <div className={styles.legend}>
             <div style={{ letterSpacing: ".16em", color: "var(--faint)", marginBottom: 6 }}>SMC LAYERS + LIQUIDITY RAILS</div>
-            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}><span>FVG</span><span>BOS/CHoCH</span><span>OB</span><span>EQH/EQL</span><span>ladder</span><span>✕ pulled</span><span>◎ held</span><span>▮ wall</span></div>
+            <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}><span>FVG</span><span>BOS/CHoCH</span><span>OB</span><span>EQH/EQL</span><span>◎ ABS</span><span>⬚ EXH</span><span>CVD div</span><span>ladder</span><span>✕ pulled</span><span>◎ held</span><span>▮ wall</span></div>
           </div>
           {isHalted && <div className={styles.banner}>⏻ KILL SWITCH ENGAGED — ENGINE HALTED</div>}
           {rayInfo && hover && (
