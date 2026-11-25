@@ -1,5 +1,51 @@
 # Changelog
 
+## [0.6.0](https://github.com/shubhamtaywade82/pine-ts-workbench/compare/v0.5.0...v0.6.0) (2026-11-25)
+
+
+### Features
+
+* **agents:** add documentation for issue tracking and triage processes ([e88e5ee](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/e88e5eef56c317f2af8b90422b4dcae1cc77267c))
+* **ai:** add pricing-aware model routing and token optimization ([afd7dbc](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/afd7dbce486d0c8d9017203380ad33e7f854ac11))
+* **alma:** add ALMA ribbon template and indicator color mappings ([565afef](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/565afef2872c0e14144bc7a466dec2ccc4169ebb))
+* **api:** add CoinDCX and Dhan API routes, enhance symbol search functionality ([92895b3](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/92895b3dd4d660625fc75e5dd4245ca5bd14ee07))
+* **api:** add new routes for options data and enhance bot research functionality ([7e9ac45](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/7e9ac45767085b7c4481fa5d8437d2ed9b152237))
+* **chart:** enhance chart functionality and improve DOM ladder settings ([c502005](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/c502005fdae1440f76c5e6528b6445fb76d685b0))
+* **chart:** enhance depth wall painting with DOM support ([63807cc](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/63807cc7512ffc34c9c45d7f7443302f8dc9967d))
+* **chart:** enhance live badge functionality and session handling ([fe37e62](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/fe37e625be437957441a793e72588ee888cd712f))
+* **coindcx-integration:** add futures wallet support to CoinDCX API integration ([e5d384f](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/e5d384f99fed079786c535146c0cd90d2fd6f7b2))
+* **coindcx-integration:** implement CoinDCX read-only portfolio feature ([8037429](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/80374294b733219b665805fac8db4ff671e80627))
+* **coindcx-stream:** implement server-side SSE stream for CoinDCX API ([9facecd](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/9facecd9d22c85150c3e549c0c9a0d30cc56af51))
+* **coindcx-stream:** integrate Socket.IO for real-time updates ([1841eaf](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/1841eaf1d734c0b04b582e2fe7343a283ae7fe54))
+* **emka-nq:** introduce Emka.nq Confluence Engine and related tests ([3203429](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/320342907a6745bf408d4e5cdea70d86c59f0338))
+* enhance accessibility and UI responsiveness ([98303bc](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/98303bcf7539fed56de1b81a4d0f41c1c767adf7))
+* **microstructure:** enhance market microstructure collector and API functionality ([3411f34](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/3411f34813bf04deddb1576a0f81c87e442dae48))
+* **microstructure:** implement market microstructure and order flow plan for Binance Spot ([6cc9cc5](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/6cc9cc56ed62e3dc2c0fda66504cf098a19fc562))
+* **microstructure:** implement market microstructure collector and API endpoints ([85bfcbf](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/85bfcbf857e77d548c24cffa6387d921becc0ce5))
+* **order-flow:** introduce order flow metrics and confluence scoring engine ([d0f9ead](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/d0f9eadf6612c2d68b3bec2ac03fada3ca2c587a))
+* **order-guard:** implement order safety mechanism for alert-triggered orders ([dd6c96f](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/dd6c96f55f14b83f089c1fb0ae8317b411a5546c))
+* **smc-terminal:** add absorption, exhaustion and CVD divergence flow layer ([5aeb86c](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/5aeb86c1fb97293a787b39f1e17ee57ff68f4568))
+* **smc-terminal:** add DOM panel and enhance terminal functionality ([2d539c6](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/2d539c6c0100c258fd28bd4c82185c5af167c2f4))
+* **smc-terminal:** add grid functionality and improve hover handling ([650861d](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/650861dadcb853da6771c127f7c4f5b3643ee417))
+* **smc-terminal:** enhance SMC layers and order block visualization ([9997861](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/99978614cc851997272087765ee68d633728a34c))
+* **smc-terminal:** enhance terminal layout and order book functionality ([1130944](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/1130944a6273f30e68be9b24c88d9f5f4d418117))
+* **smc-terminal:** implement order book component and integrate into terminal ([acfbd40](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/acfbd408f98de9f8f248ecd631a84ae8ffa11289))
+* **smc-terminal:** implement terminal state persistence and validation ([61c298b](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/61c298bf463a47d6c43fbee9112472d5a3eddf00))
+* **smc-terminal:** introduce SMC Confluence Terminal v9 with core components and styling ([abc1926](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/abc1926b0741c163b6dde90a79199da7a098af95))
+* **trade-flow:** implement trade flow animation and geometry for DOM ladder ([16698e1](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/16698e1a750550649043d6b6a4c06101068241e9))
+* **trade-lab:** enhance trading rules with trailing stop functionality and underlying range integration ([626496f](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/626496f9fbb24e17fb29272559c9c67681fc3889))
+* update dependencies and enhance README with new features ([554f0a2](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/554f0a2d3848068af8b8a1fc6a1d78274d266a79))
+
+
+### Bug Fixes
+
+* **smc-terminal:** restore terminal follow state and optimize wall detection ([dff50d8](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/dff50d8c6fbb597e906d9e5917a5ef94203cd20e))
+
+
+### Performance Improvements
+
+* eliminate UI lag via incremental indicators and decoupled hover ([a097dd6](https://github.com/shubhamtaywade82/pine-ts-workbench/commit/a097dd62ddeb040a5c41d4c31d6533b668ac6d16))
+
 ## [0.5.0](https://github.com/shubhamtaywade82/pine-ts-workbench/compare/v0.4.0...v0.5.0) (2026-11-02)
 
 
